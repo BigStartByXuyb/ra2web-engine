@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RA2 Web Engine — 确定性验证</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #101418;
+        --panel: #171d24;
+        --line: #2a3441;
+        --text: #d7e0ea;
+        --muted: #7d8b9c;
+        --ok: #4ade80;
+        --bad: #f87171;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 24px;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          14px/1.6 'Segoe UI',
+          'Microsoft YaHei',
+          sans-serif;
+      }
+      h1 {
+        font-size: 17px;
+        margin: 0 0 4px;
+      }
+      .sub {
+        color: var(--muted);
+        margin-bottom: 18px;
+      }
+      .layout {
+        display: flex;
+        gap: 20px;
+        flex-wrap: wrap;
+        align-items: flex-start;
+      }
+      canvas {
+        background: #0b0f13;
+        border: 1px solid var(--line);
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 14px 16px;
+        min-width: 340px;
+      }
+      .row {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 3px 0;
+      }
+      .row > span:first-child {
+        color: var(--muted);
+      }
+      code {
+        font-family: Consolas, monospace;
+      }
+      .ok {
+        color: var(--ok);
+      }
+      .bad {
+        color: var(--bad);
+      }
+      ol {
+        margin: 8px 0 0;
+        padding-left: 18px;
+        color: var(--muted);
+        font-family: Consolas, monospace;
+        font-size: 12px;
+        max-height: 240px;
+        overflow: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>确定性验证：同一份模拟，Node 与浏览器必须算出同一个哈希</h1>
+    <div class="sub">
+      场景与脚本来自 <code>@ra2web/scenarios</code>，与 Node 端 <code>npm run sim:scenario</code> 共用同一段代码。
+    </div>
+    <div class="layout">
+      <canvas id="view" width="500" height="500"></canvas>
+      <div class="panel">
+        <div class="row"><span>播放进度</span><span id="tick">0 / 0</span></div>
+        <div class="row"><span>当前 tick 哈希</span><code id="hash">-</code></div>
+        <div class="row"><span>浏览器末态哈希</span><code id="final">-</code></div>
+        <div class="row"><span>Node 端快照</span><code id="golden">-</code></div>
+        <div class="row"><span>是否一致</span><span id="verdict">-</span></div>
+        <div class="row"><span>200 tick 计算耗时</span><span id="elapsed">-</span></div>
+        <div class="row"><span>逐 tick 哈希条数</span><span id="count">-</span></div>
+        <ol id="trace"></ol>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

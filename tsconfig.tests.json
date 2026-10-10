@@ -5,7 +5,9 @@
     "baseUrl": ".",
     "paths": {
       "@ra2web/formats": ["./packages/formats/src/index.ts"],
-      "@ra2web/rules": ["./packages/rules/src/index.ts"]
+      "@ra2web/rules": ["./packages/rules/src/index.ts"],
+      "@ra2web/sim": ["./packages/sim/src/index.ts"],
+      "@ra2web/scenarios": ["./packages/scenarios/src/index.ts"]
     }
   },
   "include": ["packages/*/test/**/*.ts", "tools/**/*.ts"]

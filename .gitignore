@@ -1,5 +1,6 @@
 node_modules/
 dist/
+packages/app/dist/
 *.tsbuildinfo
 .cache/
 # 防止误把编译产物落到源码目录（本项目源码只有 .ts）
