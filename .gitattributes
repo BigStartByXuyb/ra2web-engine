@@ -1,0 +1,9 @@
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.mix binary
+*.shp binary
+*.vxl binary
+*.hva binary
+*.csf binary
