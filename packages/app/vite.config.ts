@@ -8,14 +8,21 @@ export default defineConfig({
   root: appRoot,
   // 相对路径：部署到 GitHub Pages 的子路径下也能正常工作
   base: './',
+  // 多页面：index.html 是工程验证页，game.html 是战场页
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+    rollupOptions: {
+      input: {
+        index: fileURLToPath(new URL('index.html', import.meta.url)),
+        game: fileURLToPath(new URL('game.html', import.meta.url)),
+      },
+    },
+  },
   server: {
     // 绑定 IPv4：内嵌浏览器访问 127.0.0.1 时不会走 IPv6 的 localhost
     host: '127.0.0.1',
     port: 3100,
     strictPort: true,
-  },
-  build: {
-    outDir: 'dist',
-    emptyOutDir: true,
   },
 })

@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RA2 Web Engine — 战场</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --panel: rgba(12, 16, 20, 0.86);
+        --line: #2a3441;
+        --text: #e6edf5;
+        --muted: #93a1b1;
+        --gold: #f5c542;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        background: #07090c;
+        color: var(--text);
+        font:
+          13px/1.5 'Segoe UI',
+          'Microsoft YaHei',
+          sans-serif;
+        overflow: hidden;
+      }
+      #stage {
+        display: block;
+        height: 100%;
+        width: 100%;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 10px 12px;
+        position: absolute;
+        backdrop-filter: blur(2px);
+      }
+      #hud {
+        left: 12px;
+        top: 12px;
+        min-width: 232px;
+      }
+      #hud .row {
+        display: flex;
+        gap: 12px;
+        justify-content: space-between;
+        padding: 1px 0;
+      }
+      #hud .row > span:first-child {
+        color: var(--muted);
+      }
+      #setup {
+        right: 12px;
+        top: 12px;
+        width: 268px;
+      }
+      #setup input[type='file'] {
+        color: var(--text);
+        font: inherit;
+        max-width: 100%;
+        width: 100%;
+      }
+      #status {
+        color: var(--muted);
+        margin-top: 6px;
+      }
+      #hint {
+        bottom: 12px;
+        color: var(--muted);
+        left: 12px;
+        right: 12px;
+        text-align: center;
+      }
+      code {
+        font-family: Consolas, monospace;
+      }
+      .gold {
+        color: var(--gold);
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="stage"></canvas>
+
+    <div id="hud" class="panel">
+      <div class="row"><span>tick</span><span id="hud-tick">0</span></div>
+      <div class="row"><span>帧率</span><span id="hud-fps">-</span></div>
+      <div class="row"><span>缩放</span><span id="hud-zoom">1.00x</span></div>
+      <div class="row"><span>光标格</span><span id="hud-cell">-</span></div>
+      <div class="row"><span>已选中</span><span id="hud-selected" class="gold">无</span></div>
+      <div class="row"><span>单位</span><span id="hud-units">0</span></div>
+    </div>
+
+    <div id="setup" class="panel">
+      <div>
+        选择原版 <code>RA2.MIX</code> 后开战（数值与美术都从这份档案读）； 工程验证页见
+        <a href="./index.html">index.html</a>。
+      </div>
+      <input id="mix-file" type="file" accept=".mix" />
+      <button id="demo-battle" type="button">内置示例战场（无素材）</button>
+      <div id="status">未加载</div>
+      <div>左键选中 / 拖动平移 · 右键移动选中单位 · 滚轮缩放</div>
+    </div>
+
+    <div id="hint" class="panel">
+      地图与单位数值来自 <code>rules.ini</code>，单位美术由 <code>@ra2web/render</code> 从
+      <code>&lt;单位&gt;.vxl</code> 实时渲染；地形目前是等距网格占位，真实 TMP 地块是下一步。
+    </div>
+
+    <script type="module" src="/src/game/main.ts"></script>
+  </body>
+</html>
