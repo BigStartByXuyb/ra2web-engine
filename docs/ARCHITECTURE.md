@@ -37,3 +37,29 @@ net: 指令同步 / 重放  ─────────────────�
 
 逆向得到的伪代码**不进源码树**。它存放在 `docs/engine/` 下作为参考证据，被 `sim` 的实现引用：
 每条行为规则在注释里标注对应的原版函数地址与证据文件，便于日后核对。
+
+## 项目组织与构建（多项目 / composite）
+
+每个包是一个**独立的 TypeScript 项目**，由根 `tsconfig.json` 的 `references` 串联；`tsc -b`
+按依赖顺序构建，产出 `dist/*.js` + `dist/*.d.ts`。包与包之间通过**包名**引用（解析到 `dist` 的类型声明），
+不是通过相对路径引用源码。
+
+这样做的收益：依赖方向由构建图强制（`sim` 想 import `app` 会直接构建失败），每个包可独立构建与发布。
+
+### 硬性规则
+
+1. **源码只在 `src/`，产物只在 `dist/`**（`rootDir: src`、`outDir: dist`、`composite: true`）。
+2. **测试与工具不放进 composite 项目**。它们由根 `tsconfig.tests.json` 承载（`noEmit`，可用 `paths`
+   直接引用源码），否则 `rootDir` 会报 `TS6059`。
+3. **不要用 `paths` 把包名映射到源码**：那会让 composite 报 `TS6307`（文件不在项目文件列表里）。
+   包名必须解析到 `dist`。
+4. **改了 `src` 必须重新构建**依赖方才会看到新类型：`npm run build`，开发期用 `npm run watch`。
+
+### 命令
+
+| 命令                | 作用                                      |
+| ------------------- | ----------------------------------------- |
+| `npm run build`     | `tsc -b`，按序构建全部包                  |
+| `npm run watch`     | 增量监听构建                              |
+| `npm run typecheck` | 构建 + 检查测试与工具项目                 |
+| `npm run verify`    | typecheck + 测试 + 格式检查（提交前必跑） |

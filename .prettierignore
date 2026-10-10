@@ -1,0 +1,7 @@
+node_modules/
+dist/
+packages/*/dist/
+# 误落到源码目录的编译产物（本项目源码只有 .ts）
+packages/*/src/**/*.js
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.map

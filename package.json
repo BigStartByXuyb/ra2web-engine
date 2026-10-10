@@ -10,6 +10,8 @@
     "node": ">=20"
   },
   "scripts": {
+    "build": "tsc -b",
+    "watch": "tsc -b --watch",
     "typecheck": "tsc -b && tsc -p tsconfig.tests.json",
     "test": "tsx --test \"packages/**/*.test.ts\"",
     "lint": "prettier --check .",
