@@ -49,14 +49,14 @@ analyzeHeadless <projDir> ra2 -process GAME.EXE -noanalysis \
 
 脚本源码见 `work/decompiled/ghidra-scripts/DumpFunctions.java`（首次导入用 `-import`，之后用 `-process` 复用已保存项目）。
 
-### 5. 分类
+### 5. 分类（直接证据 + 调用图传播）
 
 ```bash
-tsx tools/re/classify-functions.ts <functions-detail.tsv> docs/engine/functions-by-subsystem.md
+tsx tools/re/propagate-subsystems.ts <functions-detail.tsv> docs/engine/functions-by-subsystem.md
 ```
 
-第一遍分类只依据字符串与外部导入名，属**粗分类**；未命中关键词的函数（占多数）需要靠调用图传播
-与人工阅读补上。分类结果必须标注证据来源，不允许语义猜测。
+层级 0 是直接证据（字符串/外部导入名）；不引用字符串的函数按"被调用者属于调用者子系统"逐层传播补全，
+并标注层级。传播只是**缩小复核范围**，写进实现前必须人工读伪代码确认。
 
 ## 产出位置
 
