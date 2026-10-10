@@ -62,6 +62,8 @@ export function readMixIndex(bytes: Uint8Array): MixIndex {
   const flags = view.getUint32(0, true)
   const flaggedOnly = (flags & ~KNOWN_FLAGS) === 0
   if (flaggedOnly && (flags & FLAG_ENCRYPTED) !== 0) return readEncryptedIndex(bytes, view)
+  // 明文但带 flags（RA2 型，校验位）：条目表从第 4 字节开始
+  if (flaggedOnly && (flags & FLAG_CHECKSUM) !== 0) return decodeIndex(view, 4, false)
   return decodeIndex(view, 0, false)
 }
 

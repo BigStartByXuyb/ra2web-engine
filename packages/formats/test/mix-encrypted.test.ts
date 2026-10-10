@@ -30,3 +30,13 @@ test('原版 RA2.MIX 的加密索引能被正确解密', { skip: !mixPath ? '未
   const rulesThroughContainer = readMixFile({ bytes: archive, fileName: 'rules.ini', containerFileName: 'local.mix' })
   assert.equal(rulesThroughContainer?.length, rulesEntry!.length, '内嵌档案取文件的偏移换算不对')
 })
+
+test('原版带 flags 的明文 MIX（如 isotemp.mix）能列出条目', { skip: !mixPath ? '未设置 RA2_MIX' : false }, () => {
+  const archive = new Uint8Array(fs.readFileSync(mixPath!))
+  const theater = readMixFile({ bytes: archive, fileName: 'isotemp.mix' })
+  assert.ok(theater, 'RA2.MIX 里应当有 isotemp.mix')
+
+  const inner = readMixIndex(theater!)
+  assert.equal(inner.encrypted, false)
+  assert.ok(inner.entries.length > 500, `theater 条目数异常：${inner.entries.length}`)
+})
