@@ -59,6 +59,18 @@ test('合成 TMP：头部、子块偏移与像素', () => {
   const second = tmp.subTiles[1]!
   assert.deepEqual([second.pixelX, second.pixelY], [2, 1])
   assert.equal(second.trailing.length, 2)
+  assert.equal(second.isEmpty, false)
+})
+
+test('偏移为 0 的槽位表示"这一格没有图形"', () => {
+  const bytes = buildSyntheticTmp()
+  const view = new DataView(bytes.buffer)
+  view.setInt32(16 + 1 * 4, 0, true) // 第二个子块改成空槽
+  const tmp = readTmp(bytes)
+  assert.equal(tmp.subTiles.length, 2)
+  assert.equal(tmp.subTiles[1]!.isEmpty, true)
+  assert.equal(tmp.subTiles[1]!.pixels.length, 0)
+  assert.equal(tmp.subTiles[0]!.isEmpty, false)
 })
 
 test('头部不合理时报错，不静默给空地块', () => {
@@ -101,4 +113,13 @@ test('原版 isotemp.mix 的地块能被完整解出', { skip }, () => {
   assert.deepEqual([single.cellsX, single.cellsY], [1, 1])
   assert.equal(single.subTiles.length, 1)
   assert.equal(single.subTiles[0]!.pixels.length, 1800)
+
+  // 悬崖图块是多格的，允许空槽位（雪地档案里有 Cliff*.sno）
+  const snowBytes = readMixEntry(archive, root, findMixEntry(root, 'isosnow.mix', crc32)!)
+  const snow = readMixIndex(snowBytes)
+  const cliffEntry = findMixEntry(snow, 'Cliff03.sno', crc32)
+  assert.ok(cliffEntry, 'Cliff03.sno 应当存在')
+  const cliff = readTmp(readMixEntry(snowBytes, snow, cliffEntry!))
+  assert.deepEqual([cliff.cellsX, cliff.cellsY], [2, 3])
+  assert.equal(cliff.subTiles.filter((sub) => sub.isEmpty).length, 2)
 })
