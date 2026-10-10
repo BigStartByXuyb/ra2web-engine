@@ -1,11 +1,13 @@
 import {
   crc32,
   findMixEntry,
+  readPalette,
   readMixEntry,
   readMixIndex,
   readTheaterIni,
   readTmp,
   tileFileName,
+  type Palette,
   type TmpFile,
   type TheaterIni,
 } from '@ra2web/formats'
@@ -14,7 +16,8 @@ import {
  * 剧场（theater）资源：地块控制文件 + 地块图形档案 + 地形调色板。
  *
  * 剧场名到文件名的对应是原版的固定约定：控制文件 `{temperat,snow,urban}.ini`、
- * 地块档案 `iso{temp,snow,urb}.mix`、图形后缀 `.tem`/`.sno`/`.urb`。
+ * 地块档案 `iso{temp,snow,urb}.mix`、图形后缀 `.tem`/`.sno`/`.urb`、
+ * 地形调色板 `iso{tem,sno,urb}.pal`（在 `RA2.MIX` 的 `cache.mix` 里）。
  *
  * 地块图形名 = `<FileName><两位序号>[a..z]<后缀>`（同一地块的附加图像用字母结尾，
  * 按存在与否依次尝试）—— 与客户端实现一致。
@@ -24,13 +27,17 @@ interface TheaterFiles {
   readonly ini: string
   readonly tiles: string
   readonly suffix: string
+  readonly palette: string
 }
 
 const THEATERS: Readonly<Record<string, TheaterFiles>> = {
-  temperate: { ini: 'temperat.ini', tiles: 'isotemp.mix', suffix: '.tem' },
-  snow: { ini: 'snow.ini', tiles: 'isosnow.mix', suffix: '.sno' },
-  urban: { ini: 'urban.ini', tiles: 'isourb.mix', suffix: '.urb' },
+  temperate: { ini: 'temperat.ini', tiles: 'isotemp.mix', suffix: '.tem', palette: 'isotem.pal' },
+  snow: { ini: 'snow.ini', tiles: 'isosnow.mix', suffix: '.sno', palette: 'isosno.pal' },
+  urban: { ini: 'urban.ini', tiles: 'isourb.mix', suffix: '.urb', palette: 'isourb.pal' },
 }
+
+/** 地形调色板所在的档案名：`RA2.MIX` 的内嵌档案。 */
+const PALETTE_ARCHIVE = 'cache.mix'
 
 export interface TheaterAssets {
   readonly name: string
@@ -93,24 +100,19 @@ export function openTheater(archiveBytes: Uint8Array, theaterName: string): Thea
 }
 
 /**
- * 地形调色板：`local.mix` 里有 4 个 768 字节条目（6 位分量）。
+ * 地形调色板：`RA2.MIX` 的 `cache.mix` 里按剧场名存放（`isotem.pal` / `isosno.pal` / `isourb.pal`）。
  *
- * 待核对：原版按名字索引它们，但这 4 个条目的名字用 558 个候选名逐一试算 CRC 都没命中，
- * 因此这里按"渲染结果"挑：雪地地形应当是亮灰白，`hash=21437a9f` 是 4 份里最亮的一份。
+ * 实测 `isotem.pal` 的 119 号色是 (140,144,84)、121 号是 (132,144,68)，正是温带草地；
+ * `isosno.pal` 的 21..29 号是雪白。地块与调色板必须成对取用，用错会把绿地画成棕褐色。
  */
-const TERRAIN_PALETTE_HASH: Readonly<Record<string, number>> = {
-  snow: 0x21437a9f,
-}
-
-export function loadTerrainPalette(archiveBytes: Uint8Array, theaterName: string | undefined): Uint8Array | undefined {
+export function loadTerrainPalette(archiveBytes: Uint8Array, theaterName: string | undefined): Palette | undefined {
+  const files = theaterName ? THEATERS[theaterName.trim().toLowerCase()] : undefined
+  if (!files) return undefined
   const root = readMixIndex(archiveBytes)
-  const localEntry = findMixEntry(root, 'local.mix', crc32)
-  if (!localEntry) return undefined
-  const localBytes = readMixEntry(archiveBytes, root, localEntry)
-  const local = readMixIndex(localBytes)
-  const wanted = theaterName ? TERRAIN_PALETTE_HASH[theaterName.trim().toLowerCase()] : undefined
-  const entry =
-    (wanted !== undefined ? local.entries.find((candidate) => candidate.hash === wanted) : undefined) ??
-    local.entries.find((candidate) => candidate.length === 768)
-  return entry ? readMixEntry(localBytes, local, entry) : undefined
+  const archiveEntry = findMixEntry(root, PALETTE_ARCHIVE, crc32)
+  if (!archiveEntry) return undefined
+  const archive = readMixEntry(archiveBytes, root, archiveEntry)
+  const index = readMixIndex(archive)
+  const entry = findMixEntry(index, files.palette, crc32)
+  return entry ? readPalette(readMixEntry(archive, index, entry)) : undefined
 }

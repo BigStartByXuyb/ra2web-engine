@@ -3,10 +3,10 @@ import { isBlocked, type Grid } from '@ra2web/sim'
 import type { CellRange } from './camera.js'
 
 /**
- * 地形：等距菱形铺格。
+ * 占位地形：等距菱形铺格，只区分可走/不可走。
  *
- * 占位实现 —— 真实地块要读 TMP 图块与 theater 调色板（P2 的下一块）。
- * 现在只区分可走/不可走，让单位、相机与指令有个可用的场地。
+ * 有原版地图时画的是真实 TMP 地块（见 `map-preview.ts` + `tile-layer.ts`）；
+ * 这份合成场地只在没有地图时使用，让单位、相机与指令有个可用的场地。
  */
 
 const FREE_FILL = '#39412f'

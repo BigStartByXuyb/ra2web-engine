@@ -1,13 +1,12 @@
 import { loadTerrainPalette, openTheater, type TheaterAssets } from '@ra2web/assets'
+import type { Palette } from '@ra2web/formats'
+import { paintTmpSubTile } from '@ra2web/render'
 
 /**
  * 地块层：把"地块编号 + 子块序号"上色成画布并缓存，绘制时只做 drawImage。
  *
- * 透明索引是 `0xCD`：地块图形的菱形四角都是这个值，把它当颜色画出来会让相邻格互相盖住
- * （整片地图变成均匀条纹）。待核对：原版是按这个索引判透明，还是在别处标记。
+ * 像素排布与透明索引都在 `paintTmpSubTile` 里，这里只负责转成画布。
  */
-
-const TRANSPARENT_INDEX = 0xcd
 
 export interface TileLayer {
   canvasAt(tileIndex: number, subTile: number): HTMLCanvasElement | undefined
@@ -21,7 +20,7 @@ export function openTileLayer(archiveBytes: Uint8Array, theaterName: string | un
   return createTileLayer(theater, palette)
 }
 
-export function createTileLayer(theater: TheaterAssets, palette: Uint8Array): TileLayer {
+export function createTileLayer(theater: TheaterAssets, palette: Palette): TileLayer {
   const cache = new Map<string, HTMLCanvasElement | undefined>()
   return {
     canvasAt(tileIndex, subTile) {
@@ -38,21 +37,15 @@ export function createTileLayer(theater: TheaterAssets, palette: Uint8Array): Ti
     const sub = tile?.subTiles[subTileIndex]
     if (!tile || !sub || sub.isEmpty) return undefined
 
+    const image = paintTmpSubTile(tile, sub, palette)
     const canvas = document.createElement('canvas')
-    canvas.width = tile.cellWidth
-    canvas.height = tile.cellHeight
+    canvas.width = image.width
+    canvas.height = image.height
     const context = canvas.getContext('2d')
     if (!context) return undefined
-    const image = context.createImageData(tile.cellWidth, tile.cellHeight)
-    for (let pixel = 0; pixel < tile.cellWidth * tile.cellHeight; pixel++) {
-      const index = sub.pixels[pixel] ?? 0
-      if (index === TRANSPARENT_INDEX) continue
-      image.data[pixel * 4] = Math.min(255, (palette[index * 3] ?? 0) * 4)
-      image.data[pixel * 4 + 1] = Math.min(255, (palette[index * 3 + 1] ?? 0) * 4)
-      image.data[pixel * 4 + 2] = Math.min(255, (palette[index * 3 + 2] ?? 0) * 4)
-      image.data[pixel * 4 + 3] = 255
-    }
-    context.putImageData(image, 0, 0)
+    const imageData = context.createImageData(image.width, image.height)
+    imageData.data.set(image.rgba)
+    context.putImageData(imageData, 0, 0)
     return canvas
   }
 }
