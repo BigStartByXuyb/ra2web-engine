@@ -2,6 +2,7 @@ import { RA2_ISO_VIEW, cellToScreen } from '@ra2web/render'
 import { readMap, readMixEntry, readMixIndex, type MapFile } from '@ra2web/formats'
 import { TICKS_PER_SECOND, enqueueCommand, fromFixed, step, type Cell } from '@ra2web/sim'
 import { createBattle, createDemoBattle, type Battle } from './battle.js'
+import { planMapBattle } from './map-battle.js'
 import { MIN_ZOOM, canvasToCell, canvasToWorld, createCamera, viewScale, zoomAt, type Camera } from './camera.js'
 import { drawScene } from './draw.js'
 import { createHud } from './hud.js'
@@ -45,6 +46,7 @@ const mixInput = document.getElementById('mix-file') as HTMLInputElement
 const demoButton = document.getElementById('demo-battle') as HTMLButtonElement
 const mapInput = document.getElementById('map-file') as HTMLInputElement
 const fitButton = document.getElementById('fit-map') as HTMLButtonElement
+const mapBattleButton = document.getElementById('battle-on-map') as HTMLButtonElement
 const status = document.getElementById('status')!
 const hud = createHud({
   tick: document.getElementById('hud-tick')!,
@@ -60,6 +62,7 @@ const lastPosition: Array<{ x: number; y: number } | undefined> = []
 let battle: Battle | undefined
 let mapPreview: MapPreview | undefined
 let gameArchive: Uint8Array | undefined
+let loadedMap: MapFile | undefined
 let artByUnit: readonly (UnitArt | undefined)[] = []
 let accumulator = 0
 let lastFrameAt = 0
@@ -139,6 +142,7 @@ mapInput.addEventListener('change', () => {
       try {
         const bytes = new Uint8Array(buffer)
         const map = /\.map$/i.test(file.name) ? readMap(bytes) : readFirstMap(bytes)
+        loadedMap = map
         const tileLayer = gameArchive && map.theater ? openTileLayer(gameArchive, map.theater) : undefined
         mapPreview = buildMapPreview(map, tileLayer)
         battle = undefined
@@ -164,6 +168,40 @@ fitButton.addEventListener('click', () => {
   const preview = mapPreview
   if (!preview) return
   fitOn(preview.width, preview.height)
+})
+
+mapBattleButton.addEventListener('click', () => {
+  if (!gameArchive) {
+    status.textContent = '先选 RA2.MIX：单位数值与地块美术都在里面'
+    return
+  }
+  if (!loadedMap) {
+    status.textContent = '先选一张地图（地图档案或 .map）'
+    return
+  }
+  const terrain = mapPreview
+  const setup = planMapBattle(gameArchive, loadedMap)
+  if (!setup || setup.spawns.length === 0) {
+    status.textContent = '这张地图上找不到可通行的落脚点'
+    return
+  }
+  try {
+    const created = createBattle(gameArchive, {
+      width: setup.width,
+      height: setup.height,
+      blocked: setup.blocked,
+      spawns: setup.spawns,
+      seed: 20261010,
+    })
+    artByUnit = buildArt(created, gameArchive)
+    activate(
+      created,
+      `官方地图开战：${setup.width}×${setup.height}，不可通行格 ${setup.blocked.length}（${setup.blockedSetNames.join('/')}），单位 ${setup.spawns.length} 辆`,
+      terrain,
+    )
+  } catch (error) {
+    status.textContent = error instanceof Error ? `失败：${error.message}` : '失败'
+  }
 })
 
 mixInput.addEventListener('change', () => {
@@ -196,9 +234,9 @@ mixInput.addEventListener('change', () => {
 })
 
 /** 装入一局：接上美术、把镜头对准己方第一辆车、开始循环。 */
-function activate(created: Battle, message: string): void {
+function activate(created: Battle, message: string, terrain: MapPreview | undefined = undefined): void {
   battle = created
-  mapPreview = undefined
+  mapPreview = terrain
   lastPosition.length = 0
   status.textContent = message
   const first = created.world.units[0]

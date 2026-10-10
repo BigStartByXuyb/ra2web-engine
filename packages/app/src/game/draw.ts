@@ -36,7 +36,9 @@ export function drawScene(scene: Scene): void {
     if (scene.hoverCell) strokeCell(context, VIEW, scene.hoverCell, HOVER_COLOR)
   }
   if (battle) {
-    drawTerrain(context, battle.world.grid, VIEW, range)
+    // 有官方地图时就画真实地块，否则退回占位网格
+    if (scene.mapPreview) drawMapPreview(context, scene.mapPreview, VIEW, range)
+    else drawTerrain(context, battle.world.grid, VIEW, range)
     if (scene.hoverCell) strokeCell(context, VIEW, scene.hoverCell, HOVER_COLOR)
     const selected = battle.selectedIndex === undefined ? undefined : battle.world.units[battle.selectedIndex]
     if (selected) {
