@@ -2,8 +2,10 @@
   "files": [],
   "references": [
     { "path": "packages/formats" },
+    { "path": "packages/assets" },
     { "path": "packages/rules" },
     { "path": "packages/sim" },
+    { "path": "packages/render" },
     { "path": "packages/scenarios" }
   ]
 }
