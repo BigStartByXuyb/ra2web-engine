@@ -45,6 +45,7 @@ const canvas = document.getElementById('stage') as HTMLCanvasElement
 const mixInput = document.getElementById('mix-file') as HTMLInputElement
 const demoButton = document.getElementById('demo-battle') as HTMLButtonElement
 const mapInput = document.getElementById('map-file') as HTMLInputElement
+const mapIndexInput = document.getElementById('map-index') as HTMLInputElement
 const fitButton = document.getElementById('fit-map') as HTMLButtonElement
 const mapBattleButton = document.getElementById('battle-on-map') as HTMLButtonElement
 const status = document.getElementById('status')!
@@ -141,7 +142,7 @@ mapInput.addEventListener('change', () => {
     (buffer) => {
       try {
         const bytes = new Uint8Array(buffer)
-        const map = /\.map$/i.test(file.name) ? readMap(bytes) : readFirstMap(bytes)
+        const map = /\.map$/i.test(file.name) ? readMap(bytes) : readFirstMap(bytes, Number(mapIndexInput.value) || 0)
         loadedMap = map
         const tileLayer = gameArchive && map.theater ? openTileLayer(gameArchive, map.theater) : undefined
         mapPreview = buildMapPreview(map, tileLayer)
@@ -251,10 +252,13 @@ function startLoop(): void {
   }
 }
 
-/** 地图档案里条目顺序不保证都是地图：取前几条里第一个能解析成地图的。 */
-function readFirstMap(bytes: Uint8Array): MapFile {
+/** 地图档案里条目顺序不保证都是地图：先试给定序号，失败再顺序找第一个能解析的。 */
+function readFirstMap(bytes: Uint8Array, entryIndex: number): MapFile {
   const index = readMixIndex(bytes)
-  for (const entry of index.entries) {
+  const ordered = [index.entries[entryIndex], ...index.entries].filter(
+    (entry): entry is NonNullable<typeof entry> => !!entry,
+  )
+  for (const entry of ordered) {
     try {
       return readMap(readMixEntry(bytes, index, entry))
     } catch {
