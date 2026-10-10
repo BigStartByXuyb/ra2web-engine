@@ -355,3 +355,4 @@ function buildBlockedCells(): readonly Cell[] {
 }
 
 resizeCanvas()
+startLoop()
