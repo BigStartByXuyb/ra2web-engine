@@ -27,7 +27,9 @@ export function drawScene(scene: Scene): void {
   context.setTransform(1, 0, 0, 1, 0, 0)
   context.clearRect(0, 0, scene.canvas.width, scene.canvas.height)
   context.setTransform(scale, 0, 0, scale, -scene.camera.x * scale, -scene.camera.y * scale)
-  context.imageSmoothingEnabled = false
+  // 原版地块是 60×30 像素一格：放大时用最近邻，像素边界才是硬的；
+  // 缩到 1 倍以下时改平滑降采样，否则直接抽点会把草地的 1 像素质感整片丢掉、显得糊。
+  context.imageSmoothingEnabled = scale < 1
 
   const battle = scene.battle
   const range = visibleCellRange(scene.camera, VIEW, scene.canvas.width, scene.canvas.height)
