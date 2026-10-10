@@ -1,4 +1,5 @@
 export { crc32 } from './crc32.js'
+export { decodeBase64 } from './base64.js'
 export { ParseError, TruncatedInputError } from './errors.js'
 export {
   MIX_ENTRY_BYTES,
@@ -12,6 +13,9 @@ export {
 export type { MixEntry, MixFileLookup, MixIndex } from './mix.js'
 export { iniValue, parseIni } from './ini.js'
 export type { IniDocument, IniSection } from './ini.js'
+export { decompressLzo1x } from './lzo1x.js'
+export { MAP_RECORD_BYTES, readMap } from './map.js'
+export type { MapBounds, MapCell, MapFile } from './map.js'
 export { PALETTE_BYTES, PALETTE_COLORS, paletteColor, readPalette } from './pal.js'
 export type { Palette, Rgb } from './pal.js'
 export { readVxl } from './vxl.js'

@@ -22,6 +22,7 @@
     "vanilla:scene": "tsx tools/vanilla-scene.ts",
     "vanilla:mix": "tsx --test packages/formats/test/mix-encrypted.test.ts",
     "vanilla:model": "tsx tools/vanilla-model.ts",
+    "vanilla:map": "tsx tools/vanilla-map.ts",
     "verify": "npm run typecheck && npm run test && npm run lint"
   },
   "devDependencies": {
