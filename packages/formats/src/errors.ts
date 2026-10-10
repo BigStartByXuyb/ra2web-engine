@@ -14,9 +14,3 @@ export class TruncatedInputError extends ParseError {
     super(`input truncated: needs ${needed} byte(s)`, offset)
   }
 }
-
-export class UnsupportedMixHeaderError extends ParseError {
-  public constructor(flags: number) {
-    super(`unsupported MIX header flags 0x${flags.toString(16)} (encrypted headers not implemented)`, 0)
-  }
-}

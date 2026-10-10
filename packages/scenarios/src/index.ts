@@ -67,3 +67,15 @@ export function worldAtTick(tick: number): World {
   for (let i = 0; i < tick; i++) step(world)
   return world
 }
+
+export { FIXTURE_RULES_INI } from './fixture.js'
+export {
+  applyFixtureScript,
+  buildDataDrivenScene,
+  buildFixtureScene,
+  movementPerSecond,
+  parseFixtureRules,
+  runFixtureScenario,
+  FIXTURE_GOLDEN_HASH,
+} from './data-scene.js'
+export type { DataSceneResult, FixtureRun, UnitSpawn } from './data-scene.js'

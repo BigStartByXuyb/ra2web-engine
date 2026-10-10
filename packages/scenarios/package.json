@@ -15,6 +15,7 @@
     "dist"
   ],
   "dependencies": {
+    "@ra2web/rules": "*",
     "@ra2web/sim": "*"
   }
 }

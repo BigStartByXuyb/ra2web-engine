@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { crc32 } from '../src/crc32.js'
 import { hashFileName, readMixIndex } from '../src/mix.js'
-import { UnsupportedMixHeaderError } from '../src/errors.js'
+import { TruncatedInputError } from '../src/errors.js'
 
 test('文件名哈希与原版 MIX 索引一致', () => {
   // 期望值来自原版 RA2.MIX 的真实索引条目
@@ -36,8 +36,23 @@ test('解析无加密头的最小 MIX', () => {
   assert.deepEqual(index.entries[1], { hash: 0x22222222, offset: 4, length: 4 })
 })
 
-test('加密头 MIX 明确报不支持', () => {
+test('加密头 MIX 走解密路径：截断输入报明确的截断错误', () => {
+  // 只有 64 字节，装不下 4 字节 flags + 80 字节密钥材料 + 加密索引
   const bytes = new Uint8Array(64)
   new DataView(bytes.buffer).setUint32(0, 0x00020000, true)
-  assert.throws(() => readMixIndex(bytes), UnsupportedMixHeaderError)
+  assert.throws(() => readMixIndex(bytes), TruncatedInputError)
+})
+
+test('明文头仍然走原路径', () => {
+  const bytes = new Uint8Array(6 + 12)
+  const view = new DataView(bytes.buffer)
+  view.setUint32(0, 0x00010000, true)
+  view.setUint16(0, 1, true) // 文件数 1（低 16 位与 flags 共享首 4 字节，这里按明文布局解释）
+  view.setUint32(2, 4, true)
+  view.setUint32(6, 0x11111111, true)
+  view.setUint32(10, 0, true)
+  view.setUint32(14, 4, true)
+  const index = readMixIndex(bytes)
+  assert.equal(index.encrypted, false)
+  assert.equal(index.entries.length, 1)
 })

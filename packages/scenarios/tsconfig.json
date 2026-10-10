@@ -7,5 +7,5 @@
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
   "include": ["src/**/*.ts"],
-  "references": [{ "path": "../sim" }]
+  "references": [{ "path": "../sim" }, { "path": "../rules" }]
 }
