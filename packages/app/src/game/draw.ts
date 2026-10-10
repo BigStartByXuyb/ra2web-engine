@@ -2,6 +2,7 @@ import { RA2_ISO_VIEW, cellToScreen } from '@ra2web/render'
 import { fromFixed } from '@ra2web/sim'
 import type { Battle } from './battle.js'
 import { viewScale, visibleCellRange, type Camera } from './camera.js'
+import { drawMapPreview, type MapPreview } from './map-preview.js'
 import { HOVER_COLOR, SELECTED_COLOR, drawTerrain, strokeCell } from './terrain.js'
 import type { UnitArt } from './unit-art.js'
 
@@ -11,6 +12,7 @@ export interface Scene {
   readonly canvas: HTMLCanvasElement
   readonly camera: Camera
   readonly battle: Battle | undefined
+  readonly mapPreview: MapPreview | undefined
   readonly artByUnit: readonly (UnitArt | undefined)[]
   readonly hoverCell: { x: number; y: number } | undefined
 }
@@ -28,13 +30,13 @@ export function drawScene(scene: Scene): void {
   context.imageSmoothingEnabled = false
 
   const battle = scene.battle
+  const range = visibleCellRange(scene.camera, VIEW, scene.canvas.width, scene.canvas.height)
+  if (!battle && scene.mapPreview) {
+    drawMapPreview(context, scene.mapPreview, VIEW, range)
+    if (scene.hoverCell) strokeCell(context, VIEW, scene.hoverCell, HOVER_COLOR)
+  }
   if (battle) {
-    drawTerrain(
-      context,
-      battle.world.grid,
-      VIEW,
-      visibleCellRange(scene.camera, VIEW, scene.canvas.width, scene.canvas.height),
-    )
+    drawTerrain(context, battle.world.grid, VIEW, range)
     if (scene.hoverCell) strokeCell(context, VIEW, scene.hoverCell, HOVER_COLOR)
     const selected = battle.selectedIndex === undefined ? undefined : battle.world.units[battle.selectedIndex]
     if (selected) {

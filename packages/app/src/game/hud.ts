@@ -1,6 +1,7 @@
 import { unitCell } from '@ra2web/sim'
 import type { Battle } from './battle.js'
 import type { Camera } from './camera.js'
+import type { MapPreview } from './map-preview.js'
 
 /** 左上角状态面板：只显示只读信息，不参与模拟。 */
 
@@ -15,6 +16,7 @@ export interface HudElements {
 
 export interface HudState {
   readonly battle: Battle | undefined
+  readonly mapPreview: MapPreview | undefined
   readonly camera: Camera
   readonly hoverCell: { x: number; y: number } | undefined
 }
@@ -45,7 +47,9 @@ export function createHud(elements: HudElements): Hud {
       const index = state.battle?.selectedIndex
       const summary = state.battle && index !== undefined ? state.battle.summaryByUnit[index] : undefined
       if (!summary) {
-        elements.selected.textContent = '无'
+        elements.selected.textContent = state.mapPreview
+          ? `地图 ${state.mapPreview.width}×${state.mapPreview.height} ${state.mapPreview.theater ?? '-'} z ${state.mapPreview.zMin}–${state.mapPreview.zMax}`
+          : '无'
         return
       }
       const unit = index === undefined ? undefined : state.battle?.world.units[index]

@@ -1,9 +1,11 @@
 import { RA2_ISO_VIEW, cellToScreen } from '@ra2web/render'
+import { readMap, readMixEntry, readMixIndex } from '@ra2web/formats'
 import { TICKS_PER_SECOND, enqueueCommand, fromFixed, step, type Cell } from '@ra2web/sim'
 import { createBattle, createDemoBattle, type Battle } from './battle.js'
-import { canvasToCell, canvasToWorld, createCamera, viewScale, zoomAt, type Camera } from './camera.js'
+import { MIN_ZOOM, canvasToCell, canvasToWorld, createCamera, viewScale, zoomAt, type Camera } from './camera.js'
 import { drawScene } from './draw.js'
 import { createHud } from './hud.js'
+import { buildMapPreview, type MapPreview } from './map-preview.js'
 import { pickUnit } from './picking.js'
 import { facingFromDelta, buildDemoUnitArt, loadUnitArt, type UnitArt } from './unit-art.js'
 
@@ -40,6 +42,7 @@ interface PanDrag {
 const canvas = document.getElementById('stage') as HTMLCanvasElement
 const mixInput = document.getElementById('mix-file') as HTMLInputElement
 const demoButton = document.getElementById('demo-battle') as HTMLButtonElement
+const mapInput = document.getElementById('map-file') as HTMLInputElement
 const status = document.getElementById('status')!
 const hud = createHud({
   tick: document.getElementById('hud-tick')!,
@@ -53,6 +56,7 @@ const hud = createHud({
 const camera: Camera = createCamera()
 const lastPosition: Array<{ x: number; y: number } | undefined> = []
 let battle: Battle | undefined
+let mapPreview: MapPreview | undefined
 let artByUnit: readonly (UnitArt | undefined)[] = []
 let accumulator = 0
 let lastFrameAt = 0
@@ -123,6 +127,31 @@ demoButton.addEventListener('click', () => {
   activate(created, '内置示例战场：合成模型 + 固定数值（不是原版数值）')
 })
 
+mapInput.addEventListener('change', () => {
+  const file = mapInput.files?.[0]
+  if (!file) return
+  status.textContent = `读取 ${file.name}…`
+  void file.arrayBuffer().then(
+    (buffer) => {
+      try {
+        const bytes = new Uint8Array(buffer)
+        const map = /\.map$/i.test(file.name) ? readMap(bytes) : readMap(readFirstMixEntry(bytes))
+        mapPreview = buildMapPreview(map)
+        battle = undefined
+        artByUnit = []
+        status.textContent = `地图 ${map.width}×${map.height}（${map.theater ?? '未知剧场'}），地形记录 ${map.cells.length} 条 —— 先按 z 高度着色，TMP 地块美术是下一步`
+        fitOn(map.width, map.height)
+        startLoop()
+      } catch (error) {
+        status.textContent = error instanceof Error ? `失败：${error.message}` : '失败'
+      }
+    },
+    (error: unknown) => {
+      status.textContent = `读取失败：${String(error)}`
+    },
+  )
+})
+
 mixInput.addEventListener('change', () => {
   const file = mixInput.files?.[0]
   if (!file) return
@@ -154,14 +183,27 @@ mixInput.addEventListener('change', () => {
 /** 装入一局：接上美术、把镜头对准己方第一辆车、开始循环。 */
 function activate(created: Battle, message: string): void {
   battle = created
+  mapPreview = undefined
   lastPosition.length = 0
   status.textContent = message
   const first = created.world.units[0]
   centerOn(first ? fromFixed(first.x) : 3, first ? fromFixed(first.y) : 3)
+  startLoop()
+}
+
+function startLoop(): void {
   if (!lastFrameAt) {
     lastFrameAt = performance.now()
     requestAnimationFrame(frame)
   }
+}
+
+/** 地图档案（如 Maps01.mix）里第一条就是一张地图；按序取用，不做名字猜测。 */
+function readFirstMixEntry(bytes: Uint8Array): Uint8Array {
+  const index = readMixIndex(bytes)
+  const entry = index.entries[0]
+  if (!entry) throw new Error('档案里没有条目')
+  return readMixEntry(bytes, index, entry)
 }
 
 /** 真实战场按类型取原版 VXL；示例战场用合成模型并按阵营着色。 */
@@ -189,8 +231,8 @@ function frame(now: number): void {
       accumulator -= TICK_MS
     }
   }
-  drawScene({ canvas, camera, battle, artByUnit, hoverCell })
-  hud.update(now, { battle, camera, hoverCell })
+  drawScene({ canvas, camera, battle, mapPreview, artByUnit, hoverCell })
+  hud.update(now, { battle, mapPreview, camera, hoverCell })
   requestAnimationFrame(frame)
 }
 
@@ -212,6 +254,16 @@ function centerOn(cellX: number, cellY: number): void {
   const scale = viewScale(camera)
   camera.x = point.x - canvas.width / scale / 2
   camera.y = point.y - canvas.height / scale / 2
+}
+
+/** 把整张地图放进画布：按投影后的包围盒算缩放，再让地图中心对准画布中心。 */
+function fitOn(width: number, height: number): void {
+  // 等距投影下，W×H 的地图投影宽高都是 (W+H) 的一半格 | 半格
+  const worldWidth = (width + height) * (VIEW.cellWidth / 2)
+  const worldHeight = (width + height) * (VIEW.cellHeight / 2)
+  const fit = Math.min(canvas.width / worldWidth, canvas.height / worldHeight)
+  camera.zoom = Math.max(MIN_ZOOM, Math.min(1, fit))
+  centerOn(width / 2, height / 2)
 }
 
 function resizeCanvas(): void {
