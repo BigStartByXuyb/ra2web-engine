@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@ra2web/assets": "*",
+    "@ra2web/formats": "*",
+    "@ra2web/render": "*",
     "@ra2web/scenarios": "*",
     "@ra2web/sim": "*"
   }

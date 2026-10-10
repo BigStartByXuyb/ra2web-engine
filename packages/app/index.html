@@ -32,6 +32,10 @@
         font-size: 17px;
         margin: 0 0 4px;
       }
+      h2 {
+        font-size: 17px;
+        margin: 32px 0 4px;
+      }
       .sub {
         color: var(--muted);
         margin-bottom: 18px;
@@ -80,6 +84,21 @@
         max-height: 240px;
         overflow: auto;
       }
+      input[type='text'],
+      input[type='file'] {
+        background: #0b0f13;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        color: var(--text);
+        font: inherit;
+        max-width: 190px;
+        padding: 3px 6px;
+      }
+      input[type='range'] {
+        accent-color: #60a5fa;
+        max-width: 190px;
+        width: 190px;
+      }
     </style>
   </head>
   <body>
@@ -98,6 +117,30 @@
         <div class="row"><span>200 tick 计算耗时</span><span id="elapsed">-</span></div>
         <div class="row"><span>逐 tick 哈希条数</span><span id="count">-</span></div>
         <ol id="trace"></ol>
+      </div>
+    </div>
+
+    <h2>体素模型预览：用原版档案渲染载具的 8 个朝向</h2>
+    <div class="sub">
+      选择 <code>RA2.MIX</code>（或 <code>local.mix</code>、单个 <code>.vxl</code>）后用单位 ID 取模型。 渲染与投影来自
+      <code>@ra2web/render</code>，与命令行 <code>npm run vanilla:model</code> 共用同一份代码。
+    </div>
+    <div class="layout">
+      <canvas id="model-view" width="440" height="380"></canvas>
+      <div class="panel">
+        <div class="row"><span>档案文件</span><input id="model-file" type="file" accept=".mix,.vxl" /></div>
+        <div class="row">
+          <span>没有素材？</span><button id="model-demo" type="button">用内置示例渲染</button>
+        </div>
+        <div class="row"><span>单位 ID</span><input id="model-unit" type="text" value="htnk" /></div>
+        <div class="row">
+          <span>朝向</span><input id="model-facing" type="range" min="0" max="7" step="1" value="0" />
+        </div>
+        <div class="row">
+          <span>每体素像素</span><input id="model-scale" type="range" min="1" max="8" step="1" value="3" />
+        </div>
+        <div class="row"><span>状态</span><span id="model-status">未加载</span></div>
+        <canvas id="model-strip" width="440" height="110"></canvas>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

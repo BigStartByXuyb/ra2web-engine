@@ -6,6 +6,7 @@ import {
   runScenario,
 } from '@ra2web/scenarios'
 import { hashWorld, step } from '@ra2web/sim'
+import { mountModelPreview } from './model-preview.js'
 import { drawWorld } from './render.js'
 
 /**
@@ -60,3 +61,5 @@ function frame(): void {
   if (cursor < SCENARIO_TICKS) requestAnimationFrame(frame)
 }
 requestAnimationFrame(frame)
+
+mountModelPreview()
