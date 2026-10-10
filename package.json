@@ -21,6 +21,7 @@
     "sim:scenario": "tsx tools/sim-scenario.ts",
     "vanilla:scene": "tsx tools/vanilla-scene.ts",
     "vanilla:mix": "tsx --test packages/formats/test/mix-encrypted.test.ts",
+    "vanilla:model": "tsx tools/vanilla-model.ts",
     "verify": "npm run typecheck && npm run test && npm run lint"
   },
   "devDependencies": {

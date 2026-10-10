@@ -144,3 +144,13 @@ export function findMixEntry(
   const hash = hashFileName(fileName, crc32)
   return index.entries.find((entry) => entry.hash === hash)
 }
+
+/**
+ * 把"档案套档案"里的条目偏移换算成父档案中的偏移。
+ *
+ * 内层条目的 offset 是相对内层数据区的，因此要叠加：内层容器的 offset（相对外层数据区）
+ * + 内层数据区起点。子 MIX（如 RA2.MIX 里的 local.mix）必须走这一步，否则会读到错误位置。
+ */
+export function absoluteEntryOffset(container: MixEntry, innerIndex: MixIndex, entry: MixEntry): MixEntry {
+  return { hash: entry.hash, offset: container.offset + innerIndex.dataStart + entry.offset, length: entry.length }
+}

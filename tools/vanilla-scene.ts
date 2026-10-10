@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { crc32, findMixEntry, readMixEntry, readMixIndex } from '@ra2web/formats'
+import { absoluteEntryOffset, crc32, findMixEntry, readMixEntry, readMixIndex } from '@ra2web/formats'
 import { loadRules, parseUnitType, type UnitType } from '@ra2web/rules'
 import { hashWorld, run } from '@ra2web/sim'
 import { buildDataDrivenScene, movementPerSecond } from '@ra2web/scenarios'
@@ -29,13 +29,9 @@ const localIndex = readMixIndex(local)
 const rulesEntry = findMixEntry(localIndex, 'rules.ini', crc32)
 if (!rulesEntry) throw new Error('local.mix 里找不到 rules.ini')
 
-// local.mix 的条目偏移是相对 local.mix 的；地址要换算回父档案
-const absolute = {
-  hash: rulesEntry.hash,
-  offset: localEntry.offset + localIndex.dataStart + rulesEntry.offset,
-  length: rulesEntry.length,
-}
-const rulesText = Buffer.from(readMixEntry(archive, rootIndex, absolute)).toString('latin1')
+const rulesText = Buffer.from(
+  readMixEntry(archive, rootIndex, absoluteEntryOffset(localEntry, localIndex, rulesEntry)),
+).toString('latin1')
 
 const rules = loadRules([{ name: `${path.basename(mixPath)}/local.mix/rules.ini`, text: rulesText }])
 const unit = parseUnitType(rules, unitId)
