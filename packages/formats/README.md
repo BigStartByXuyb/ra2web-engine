@@ -4,13 +4,19 @@
 
 ## 覆盖
 
-- `mix.ts`：MIX/MMX 档案索引与条目读取，文件名哈希（原版算法）
-- `ini.ts`：INI 文本解析（节、键、大小写规则、注释）
+- `mix.ts`：MIX 档案索引与条目读取（明文头与 RA2 加密头）、文件名哈希、嵌套档案取文件
+- `ini.ts` / `theater.ts`：INI 文本解析；剧场的地块控制表（`[TileSet####]` → 全局地块编号）
+- `map.ts`：地图（`[IsoMapPack5]` 地形、`[OverlayPack]` 覆盖物、坐标换算）
+- `packed-blocks.ts` / `lzo1x.ts` / `format80.ts`：地图"分块包"容器与两种解码器
+- `tmp.ts` / `shp.ts`：等距地块图块、SHP 图形（含各压缩类型）
+- `vxl.ts` / `pal.ts`：体素模型、调色板
+- `base64.ts` / `crc32.ts` / `errors.ts`：底座
 
 ## 不覆盖
 
 - 不解析游戏语义（单位、武器等）——那是 `@ra2web/rules` 的职责。
-- 暂不支持加密头（RA/TS 型）的 MIX 档案，遇到时抛 `UnsupportedMixHeaderError`。
+- 不认"哪个文件是哪个部位"、不画像素——那是 `@ra2web/assets` 与 `@ra2web/render` 的职责。
+- 不做缓存，不为损坏数据兜底：越界一律抛错，不做静默截断。
 
 ## 用法
 

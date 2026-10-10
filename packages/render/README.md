@@ -5,6 +5,8 @@
 ## 是什么
 
 - `iso.ts`：格坐标 ↔ 屏幕像素的等距投影，地图地块与单位精灵共用这一份。
+- `tile-image.ts`：TMP 子块的菱形像素 + 剧场调色板 → RGBA 图。
+- `shp-image.ts`：SHP 某一帧贴进它所属图形画布后的 RGBA 图（覆盖物、建筑等用）。
 - `voxel-model.ts`：把 VXL 各节的体素按节包围盒拼成整机坐标并归一化。
 - `voxel-sprite.ts`：体素投影 + 画家算法排序 + 定向光着色 → RGBA 精灵（8 朝向 + 贴地锚点）。
 - `shading.ts`：法线索引 → 方向向量 → 漫反射着色。
@@ -27,7 +29,7 @@ const sprite = renderVoxelSprite(model, { facing: 3, pixelsPerVoxel: 4 })
 - 不读文件、不认识档案：字节 → 模型由 `@ra2web/formats` 负责。
 - 不写模拟状态：只读 `PositionedModel`，不 import `@ra2web/sim`。
 - 不做 HVA 动画：炮塔/车体的逐帧变换尚未接入，当前只用静态姿态。
-- 不做地块绘制：TMP 地形渲染是后续阶段。
+- 不做水面动画与建筑/单位阴影。
 
 ## 未核对项
 

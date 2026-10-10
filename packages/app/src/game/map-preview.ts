@@ -1,6 +1,7 @@
 import { cellToScreen, type IsoView } from '@ra2web/render'
 import type { MapCell, MapFile } from '@ra2web/formats'
 import type { CellRange } from './camera.js'
+import type { OverlayLayer } from './overlay-layer.js'
 import type { TileLayer } from './tile-layer.js'
 
 /**
@@ -19,9 +20,15 @@ export interface MapPreview {
   readonly cellByIndex: ReadonlyMap<number, MapCell>
   /** 有地块美术时画真实地形；没有则退化成 z 高度着色 */
   readonly tileLayer: TileLayer | undefined
+  /** 覆盖物层（石头、枯树、桥板…）；没有时只画地块 */
+  readonly overlayLayer: OverlayLayer | undefined
 }
 
-export function buildMapPreview(map: MapFile, tileLayer: TileLayer | undefined = undefined): MapPreview {
+export function buildMapPreview(
+  map: MapFile,
+  tileLayer: TileLayer | undefined = undefined,
+  overlayLayer: OverlayLayer | undefined = undefined,
+): MapPreview {
   const cellByIndex = new Map<number, MapCell>()
   let zMin = Number.POSITIVE_INFINITY
   let zMax = Number.NEGATIVE_INFINITY
@@ -39,6 +46,7 @@ export function buildMapPreview(map: MapFile, tileLayer: TileLayer | undefined =
     zMax: Number.isFinite(zMax) ? zMax : 0,
     cellByIndex,
     tileLayer,
+    overlayLayer,
   }
 }
 
@@ -58,13 +66,16 @@ export function drawMapPreview(
       const painted = preview.tileLayer?.canvasAt(cell.tileIndex, cell.subTile)
       if (painted) {
         context.drawImage(painted, center.x - view.cellWidth / 2, center.y - view.cellHeight / 2)
-        continue
+      } else {
+        traceDiamond(context, center, view)
+        context.fillStyle = colorForHeight(preview, cell.z)
+        context.fill()
+        context.strokeStyle = 'rgba(0, 0, 0, 0.22)'
+        context.stroke()
       }
-      traceDiamond(context, center, view)
-      context.fillStyle = colorForHeight(preview, cell.z)
-      context.fill()
-      context.strokeStyle = 'rgba(0, 0, 0, 0.22)'
-      context.stroke()
+      // 覆盖物跟在它所属那一格的地块之后画：近处的格子会盖住它伸出去的边
+      const overlay = preview.overlayLayer?.canvasAt(cell.overlay)
+      if (overlay) context.drawImage(overlay, center.x - overlay.width / 2, center.y - overlay.height / 2)
     }
   }
 }

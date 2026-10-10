@@ -1,7 +1,7 @@
 import { decodeBase64 } from './base64.js'
 import { ParseError, TruncatedInputError } from './errors.js'
 import { iniValue, parseIni, type IniDocument } from './ini.js'
-import { decompressLzo1x } from './lzo1x.js'
+import { readPackedBlocks, type PackedBlockCodec } from './packed-blocks.js'
 
 /**
  * 地图（`.map`）读取。
@@ -22,6 +22,17 @@ import { decompressLzo1x } from './lzo1x.js'
  */
 
 export const MAP_RECORD_BYTES = 11
+/** 覆盖物网格的索引步长：`下标 = 菱形横坐标 + 512 × 菱形纵坐标`。 */
+export const OVERLAY_GRID_STRIDE = 512
+/** 覆盖物网格里的"无覆盖物"值。 */
+export const OVERLAY_NONE = 255
+
+export interface MapOverlay {
+  /** 覆盖物编号，对应 rules.ini 的 `[OverlayTypes]` 顺序 */
+  readonly id: number
+  /** 该格的附加字节（矿石量、图帧号等），含义随覆盖物而定 */
+  readonly data: number
+}
 
 export interface MapCell {
   /** 地图包里的菱形坐标（rx, ry） */
@@ -34,6 +45,8 @@ export interface MapCell {
   readonly subTile: number
   /** 原版 z 字节（高度），单位待核对 */
   readonly z: number
+  /** 该格的覆盖物（树、矿、栏杆…）；没有则为 undefined */
+  readonly overlay: MapOverlay | undefined
 }
 
 export interface MapBounds {
@@ -83,20 +96,12 @@ function readBounds(document: IniDocument, key: string): MapBounds | undefined {
 }
 
 function readCells(document: IniDocument, width: number, height: number): readonly MapCell[] {
-  const section = document.sections.get('isomappack5')
-  if (!section) throw new ParseError('地图缺少 [IsoMapPack5]', 0)
-
-  const ordered = [...section.values.entries()]
-    .filter(([key, value]) => Number.isInteger(Number(key)) && value !== '')
-    .sort((left, right) => Number(left[0]) - Number(right[0]))
-    .map(([, value]) => value)
-  if (ordered.length === 0) throw new ParseError('[IsoMapPack5] 是空的', 0)
-
-  const raw = readBlocks(decodeBase64(ordered.join('')))
+  const raw = readPackedSection(document, 'IsoMapPack5', 'lzo1x')
   const count = (2 * width - 1) * height
   const needed = count * MAP_RECORD_BYTES
   if (raw.byteLength < needed) throw new TruncatedInputError(needed, raw.byteLength)
 
+  const overlays = readOverlayGrid(document)
   const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength)
   const cells: MapCell[] = []
   for (let index = 0; index < count; index++) {
@@ -112,39 +117,40 @@ function readCells(document: IniDocument, width: number, height: number): readon
       tileIndex: Math.max(0, view.getInt16(at + 4, true)),
       subTile: raw[at + 8]!,
       z: raw[at + 9]!,
+      overlay: overlays?.(diamondX + OVERLAY_GRID_STRIDE * diamondY, index),
     })
   }
   return cells
 }
 
-/** 逐块解压：每块自带压缩长度与原始长度，块之间相互独立。 */
-function readBlocks(compressed: Uint8Array): Uint8Array {
-  const chunks: Uint8Array[] = []
-  let total = 0
-  let offset = 0
-  while (offset + 4 <= compressed.byteLength) {
-    const header = new DataView(compressed.buffer, compressed.byteOffset + offset, 4)
-    const compressedLength = header.getUint16(0, true)
-    const rawLength = header.getUint16(2, true)
-    const start = offset + 4
-    const end = start + compressedLength
-    if (compressedLength === 0 || end > compressed.byteLength) {
-      throw new TruncatedInputError(end, compressed.byteLength)
-    }
-    const chunk = decompressLzo1x(compressed.subarray(start, end))
-    if (chunk.byteLength !== rawLength) {
-      throw new ParseError(`地图块长度不符：头部 ${rawLength}，实际 ${chunk.byteLength}`, offset)
-    }
-    chunks.push(chunk)
-    total += chunk.byteLength
-    offset = end
+/**
+ * 覆盖物：`[OverlayPack]` 给编号、`[OverlayDataPack]` 给附加字节，两份都是 Format80 分块包。
+ *
+ * 两份流按**菱形坐标**索引（`rx + 512 × ry`），与地形记录一一对应；255 表示该格没有覆盖物。
+ * 索引超出流长时按"没有覆盖物"处理（原版的地图包只覆盖用到的范围）。
+ */
+function readOverlayGrid(document: IniDocument): ((at: number, index: number) => MapOverlay | undefined) | undefined {
+  if (!document.sections.has('overlaypack') || !document.sections.has('overlaydatapack')) return undefined
+  const ids = readPackedSection(document, 'OverlayPack', 'format80')
+  const data = readPackedSection(document, 'OverlayDataPack', 'format80')
+  return (at) => {
+    if (at >= ids.byteLength) return undefined
+    const id = ids[at]!
+    return id === OVERLAY_NONE ? undefined : { id, data: data[at] ?? 0 }
   }
+}
 
-  const merged = new Uint8Array(total)
-  let at = 0
-  for (const chunk of chunks) {
-    merged.set(chunk, at)
-    at += chunk.byteLength
-  }
-  return merged
+/**
+ * 取出一个分块包段：数值键升序拼接 → base64 → 分块解压。
+ * 编码器由调用方给出，同一容器只在这里切一次块。
+ */
+function readPackedSection(document: IniDocument, sectionName: string, codec: PackedBlockCodec): Uint8Array {
+  const section = document.sections.get(sectionName.toLowerCase())
+  if (!section) throw new ParseError(`地图缺少 [${sectionName}]`, 0)
+  const ordered = [...section.values.entries()]
+    .filter(([key, value]) => Number.isInteger(Number(key)) && value !== '')
+    .sort((left, right) => Number(left[0]) - Number(right[0]))
+    .map(([, value]) => value)
+  if (ordered.length === 0) throw new ParseError(`[${sectionName}] 是空的`, 0)
+  return readPackedBlocks(decodeBase64(ordered.join('')), codec)
 }

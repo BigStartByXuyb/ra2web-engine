@@ -1,6 +1,7 @@
 import { loadTerrainPalette, openTheater, type TheaterAssets } from '@ra2web/assets'
 import type { Palette } from '@ra2web/formats'
 import { paintTmpSubTile } from '@ra2web/render'
+import { toCanvas } from './canvas-image.js'
 
 /**
  * 地块层：把"地块编号 + 子块序号"上色成画布并缓存，绘制时只做 drawImage。
@@ -38,14 +39,6 @@ export function createTileLayer(theater: TheaterAssets, palette: Palette): TileL
     if (!tile || !sub || sub.isEmpty) return undefined
 
     const image = paintTmpSubTile(tile, sub, palette)
-    const canvas = document.createElement('canvas')
-    canvas.width = image.width
-    canvas.height = image.height
-    const context = canvas.getContext('2d')
-    if (!context) return undefined
-    const imageData = context.createImageData(image.width, image.height)
-    imageData.data.set(image.rgba)
-    context.putImageData(imageData, 0, 0)
-    return canvas
+    return toCanvas(image)
   }
 }

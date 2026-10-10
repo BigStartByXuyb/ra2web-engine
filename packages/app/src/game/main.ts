@@ -7,6 +7,7 @@ import { MIN_ZOOM, canvasToCell, canvasToWorld, createCamera, viewScale, zoomAt,
 import { drawScene } from './draw.js'
 import { createHud } from './hud.js'
 import { buildMapPreview, type MapPreview } from './map-preview.js'
+import { openOverlayLayer } from './overlay-layer.js'
 import { openTileLayer } from './tile-layer.js'
 import { pickUnit } from './picking.js'
 import { facingFromDelta, buildDemoUnitArt, loadUnitArt, type UnitArt } from './unit-art.js'
@@ -145,11 +146,14 @@ mapInput.addEventListener('change', () => {
         const map = /\.map$/i.test(file.name) ? readMap(bytes) : readFirstMap(bytes, Number(mapIndexInput.value) || 0)
         loadedMap = map
         const tileLayer = gameArchive && map.theater ? openTileLayer(gameArchive, map.theater) : undefined
-        mapPreview = buildMapPreview(map, tileLayer)
+        const overlayLayer = gameArchive && map.theater ? openOverlayLayer(gameArchive, map.theater) : undefined
+        mapPreview = buildMapPreview(map, tileLayer, overlayLayer)
         battle = undefined
         artByUnit = []
+        const overlayCount = new Set(map.cells.map((cell) => cell.overlay?.id).filter((id) => id !== undefined)).size
         status.textContent = tileLayer
-          ? `地图 ${map.width}×${map.height}（${map.theater}），地形记录 ${map.cells.length} 条 —— 地块美术已从剧场档案加载`
+          ? `地图 ${map.width}×${map.height}（${map.theater}），地形记录 ${map.cells.length} 条` +
+            `，覆盖物 ${overlayCount} 种 —— 地块与覆盖物美术已从剧场档案加载`
           : `地图 ${map.width}×${map.height}（${map.theater ?? '未知剧场'}），地形记录 ${map.cells.length} 条 —— 先在上面选 RA2.MIX 才能加载地块美术（现在按 z 高度着色）`
         // 默认 1:1（原版像素尺寸）：整张地图约 5000×2500 像素，整幅看会很小，想看全局再点"整幅显示"
         camera.zoom = 1

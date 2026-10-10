@@ -4,10 +4,12 @@ import {
   readPalette,
   readMixEntry,
   readMixIndex,
+  readShp,
   readTheaterIni,
   readTmp,
   tileFileName,
   type Palette,
+  type ShpFile,
   type TmpFile,
   type TheaterIni,
 } from '@ra2web/formats'
@@ -21,6 +23,8 @@ import {
  *
  * 地块图形名 = `<FileName><两位序号>[a..z]<后缀>`（同一地块的附加图像用字母结尾，
  * 按存在与否依次尝试）—— 与客户端实现一致。
+ *
+ * 非地块图形（覆盖物、建筑）的名字规则与地块不同，见 `loadImage`。
  */
 
 interface TheaterFiles {
@@ -28,22 +32,70 @@ interface TheaterFiles {
   readonly tiles: string
   readonly suffix: string
   readonly palette: string
+  /** 图形档案的搜索次序：非地块图形可能落在其中任何一个里（与客户端一致） */
+  readonly mixes: readonly string[]
+  /** `NewTheater` 名字替换用的剧场字母 */
+  readonly letter: string
 }
 
 const THEATERS: Readonly<Record<string, TheaterFiles>> = {
-  temperate: { ini: 'temperat.ini', tiles: 'isotemp.mix', suffix: '.tem', palette: 'isotem.pal' },
-  snow: { ini: 'snow.ini', tiles: 'isosnow.mix', suffix: '.sno', palette: 'isosno.pal' },
-  urban: { ini: 'urban.ini', tiles: 'isourb.mix', suffix: '.urb', palette: 'isourb.pal' },
+  temperate: {
+    ini: 'temperat.ini',
+    tiles: 'isotemp.mix',
+    suffix: '.tem',
+    palette: 'isotem.pal',
+    mixes: ['isotemp.mix', 'temperat.mix', 'tem.mix'],
+    letter: 'T',
+  },
+  snow: {
+    ini: 'snow.ini',
+    tiles: 'isosnow.mix',
+    suffix: '.sno',
+    palette: 'isosno.pal',
+    mixes: ['isosnow.mix', 'snow.mix', 'sno.mix'],
+    letter: 'A',
+  },
+  urban: {
+    ini: 'urban.ini',
+    tiles: 'isourb.mix',
+    suffix: '.urb',
+    palette: 'isourb.pal',
+    mixes: ['isourb.mix', 'urb.mix', 'urban.mix'],
+    letter: 'U',
+  },
 }
 
 /** 地形调色板所在的档案名：`RA2.MIX` 的内嵌档案。 */
 const PALETTE_ARCHIVE = 'cache.mix'
+/** `NewTheater` 名字替换只在这两段里做：首字母与次字母各须落在一组里（与客户端一致）。 */
+const NEW_THEATER_FIRST = 'GNCY'
+const NEW_THEATER_SECOND = 'ATUDLN'
+/** 剧场字母找不到时的通用回退字母。 */
+const GENERIC_LETTER = 'g'
 
 export interface TheaterAssets {
   readonly name: string
   readonly ini: TheaterIni
   /** 全局地块编号 → 地块图形；找不到返回 undefined */
   loadTile(tileIndex: number): TmpFile | undefined
+  /**
+   * 按 art.ini 的图形名取 SHP。两种名字规则合起来决定文件名：
+   *
+   *  - `theaterExtension`（art.ini 的 `Theater=yes`）：用剧场后缀 `.tem` / `.sno` / `.urb`，否则用 `.shp`；
+   *  - `newTheater`（art.ini 的 `NewTheater=yes`）：名字首字母在 `GNCY` 里、次字母在 `ATUDLN` 里时，
+   *    把**第 2 个字符**换成剧场字母（`NAWALL` → 温带 `NTWALL`），找不到再试通用字母 `g`，再退回原名。
+   *
+   * 判定依据（真实档案命中）：温带下 `NAWALL` 命中 `ntwall.shp`、`SROCK01` 命中 `srock01.tem`、
+   * `LOBRDG26` 命中 `lobrdg26.tem`。
+   */
+  loadImage(imageName: string, options: ImageOptions): ShpFile | undefined
+}
+
+export interface ImageOptions {
+  /** art.ini 的 `Theater=yes` */
+  readonly theaterExtension: boolean
+  /** art.ini 的 `NewTheater=yes` */
+  readonly newTheater: boolean
 }
 
 export function openTheater(archiveBytes: Uint8Array, theaterName: string): TheaterAssets | undefined {
@@ -65,7 +117,15 @@ export function openTheater(archiveBytes: Uint8Array, theaterName: string): Thea
   const tilesBytes = readMixEntry(archiveBytes, root, tilesEntry)
   const tiles = readMixIndex(tilesBytes)
 
+  const imageMixes = files.mixes.flatMap((name) => {
+    const entry = findMixEntry(root, name, crc32)
+    if (!entry) return []
+    const bytes = readMixEntry(archiveBytes, root, entry)
+    return [{ bytes, index: readMixIndex(bytes) }]
+  })
+
   const cache = new Map<number, TmpFile | undefined>()
+  const imageCache = new Map<string, ShpFile | undefined>()
   return {
     name: theaterName,
     ini,
@@ -76,6 +136,27 @@ export function openTheater(archiveBytes: Uint8Array, theaterName: string): Thea
       cache.set(tileIndex, parsed)
       return parsed
     },
+    loadImage(imageName, options) {
+      const key = `${imageName}\u0000${options.theaterExtension}\u0000${options.newTheater}`
+      if (!imageCache.has(key)) imageCache.set(key, readImage(imageName, options))
+      return imageCache.get(key)
+    },
+  }
+
+  /** 候选文件名按优先级逐个试：剧场字母变体 → 通用字母变体 → 原名。 */
+  function readImage(imageName: string, options: ImageOptions): ShpFile | undefined {
+    for (const candidate of imageFileCandidates(imageName, options, files!.suffix, files!.letter)) {
+      for (const mix of imageMixes) {
+        const entry = findMixEntry(mix.index, candidate, crc32)
+        if (!entry) continue
+        try {
+          return readShp(readMixEntry(mix.bytes, mix.index, entry))
+        } catch {
+          return undefined
+        }
+      }
+    }
+    return undefined
   }
 
   function readTile(tileIndex: number): TmpFile | undefined {
@@ -97,6 +178,23 @@ export function openTheater(archiveBytes: Uint8Array, theaterName: string): Thea
     }
     return undefined
   }
+}
+
+/** 按 art.ini 的两条规则给出候选文件名（已全部转小写）。 */
+export function imageFileCandidates(
+  imageName: string,
+  options: ImageOptions,
+  theaterSuffix: string,
+  theaterLetter: string,
+): readonly string[] {
+  const base = imageName.toLowerCase() + (options.theaterExtension ? theaterSuffix : '.shp')
+  const upper = imageName.toUpperCase()
+  const isNewTheaterName = NEW_THEATER_FIRST.includes(upper[0] ?? '') && NEW_THEATER_SECOND.includes(upper[1] ?? '')
+  if (!options.newTheater || !isNewTheaterName) return [base]
+  const head = base[0] ?? ''
+  const tail = base.slice(2)
+  // 剧场字母与原名第二节相同等情况会重复，这里按出现次序去重
+  return [...new Set([`${head}${theaterLetter.toLowerCase()}${tail}`, `${head}${GENERIC_LETTER}${tail}`, base])]
 }
 
 /**
