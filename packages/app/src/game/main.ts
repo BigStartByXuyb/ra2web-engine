@@ -201,14 +201,14 @@ function startLoop(): void {
 /** 地图档案里条目顺序不保证都是地图：取前几条里第一个能解析成地图的。 */
 function readFirstMap(bytes: Uint8Array): MapFile {
   const index = readMixIndex(bytes)
-  for (const entry of index.entries.slice(0, 8)) {
+  for (const entry of index.entries) {
     try {
       return readMap(readMixEntry(bytes, index, entry))
     } catch {
       // 不是地图就试下一条；全都不是时由下面的报错说明
     }
   }
-  throw new Error('档案前 8 条都不是地图')
+  throw new Error('档案里没有可解析的地图')
 }
 
 /** 真实战场按类型取原版 VXL；示例战场用合成模型并按阵营着色。 */
