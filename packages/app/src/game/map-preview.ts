@@ -1,6 +1,7 @@
 import { cellToScreen, type IsoView } from '@ra2web/render'
 import type { MapCell, MapFile } from '@ra2web/formats'
 import type { CellRange } from './camera.js'
+import type { TileLayer } from './tile-layer.js'
 
 /**
  * 官方地图预览：在还没有 TMP 地块美术之前，用 `z`（高度）着色画出地图的**形状**。
@@ -16,9 +17,11 @@ export interface MapPreview {
   readonly zMax: number
   /** 键 = cellY × width + cellX */
   readonly cellByIndex: ReadonlyMap<number, MapCell>
+  /** 有地块美术时画真实地形；没有则退化成 z 高度着色 */
+  readonly tileLayer: TileLayer | undefined
 }
 
-export function buildMapPreview(map: MapFile): MapPreview {
+export function buildMapPreview(map: MapFile, tileLayer: TileLayer | undefined = undefined): MapPreview {
   const cellByIndex = new Map<number, MapCell>()
   let zMin = Number.POSITIVE_INFINITY
   let zMax = Number.NEGATIVE_INFINITY
@@ -35,6 +38,7 @@ export function buildMapPreview(map: MapFile): MapPreview {
     zMin: Number.isFinite(zMin) ? zMin : 0,
     zMax: Number.isFinite(zMax) ? zMax : 0,
     cellByIndex,
+    tileLayer,
   }
 }
 
@@ -50,7 +54,13 @@ export function drawMapPreview(
       if (x < 0 || y < 0 || x >= preview.width || y >= preview.height) continue
       const cell = preview.cellByIndex.get(y * preview.width + x)
       if (!cell) continue
-      traceDiamond(context, cellToScreen(view, { x, y }), view)
+      const center = cellToScreen(view, { x, y })
+      const painted = preview.tileLayer?.canvasAt(cell.tileIndex, cell.subTile)
+      if (painted) {
+        context.drawImage(painted, center.x - view.cellWidth / 2, center.y - view.cellHeight / 2)
+        continue
+      }
+      traceDiamond(context, center, view)
       context.fillStyle = colorForHeight(preview, cell.z)
       context.fill()
       context.strokeStyle = 'rgba(0, 0, 0, 0.22)'

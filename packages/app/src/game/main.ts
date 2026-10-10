@@ -6,6 +6,7 @@ import { MIN_ZOOM, canvasToCell, canvasToWorld, createCamera, viewScale, zoomAt,
 import { drawScene } from './draw.js'
 import { createHud } from './hud.js'
 import { buildMapPreview, type MapPreview } from './map-preview.js'
+import { openTileLayer } from './tile-layer.js'
 import { pickUnit } from './picking.js'
 import { facingFromDelta, buildDemoUnitArt, loadUnitArt, type UnitArt } from './unit-art.js'
 
@@ -58,6 +59,7 @@ const camera: Camera = createCamera()
 const lastPosition: Array<{ x: number; y: number } | undefined> = []
 let battle: Battle | undefined
 let mapPreview: MapPreview | undefined
+let gameArchive: Uint8Array | undefined
 let artByUnit: readonly (UnitArt | undefined)[] = []
 let accumulator = 0
 let lastFrameAt = 0
@@ -137,10 +139,13 @@ mapInput.addEventListener('change', () => {
       try {
         const bytes = new Uint8Array(buffer)
         const map = /\.map$/i.test(file.name) ? readMap(bytes) : readFirstMap(bytes)
-        mapPreview = buildMapPreview(map)
+        const tileLayer = gameArchive && map.theater ? openTileLayer(gameArchive, map.theater) : undefined
+        mapPreview = buildMapPreview(map, tileLayer)
         battle = undefined
         artByUnit = []
-        status.textContent = `地图 ${map.width}×${map.height}（${map.theater ?? '未知剧场'}），地形记录 ${map.cells.length} 条 —— 先按 z 高度着色，TMP 地块美术是下一步`
+        status.textContent = tileLayer
+          ? `地图 ${map.width}×${map.height}（${map.theater}），地形记录 ${map.cells.length} 条 —— 地块美术已从剧场档案加载`
+          : `地图 ${map.width}×${map.height}（${map.theater ?? '未知剧场'}），地形记录 ${map.cells.length} 条 —— 先在上面选 RA2.MIX 才能加载地块美术（现在按 z 高度着色）`
         // 默认 1:1（原版像素尺寸）：整张地图约 5000×2500 像素，整幅看会很小，想看全局再点"整幅显示"
         camera.zoom = 1
         centerOn(map.width / 2, map.height / 2)
@@ -168,6 +173,7 @@ mixInput.addEventListener('change', () => {
   void file.arrayBuffer().then(
     (buffer) => {
       const bytes = new Uint8Array(buffer)
+      gameArchive = bytes
       try {
         const created = createBattle(bytes, {
           ...MAP_SIZE,
