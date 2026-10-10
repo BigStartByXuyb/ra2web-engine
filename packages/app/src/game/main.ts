@@ -43,6 +43,7 @@ const canvas = document.getElementById('stage') as HTMLCanvasElement
 const mixInput = document.getElementById('mix-file') as HTMLInputElement
 const demoButton = document.getElementById('demo-battle') as HTMLButtonElement
 const mapInput = document.getElementById('map-file') as HTMLInputElement
+const fitButton = document.getElementById('fit-map') as HTMLButtonElement
 const status = document.getElementById('status')!
 const hud = createHud({
   tick: document.getElementById('hud-tick')!,
@@ -140,7 +141,9 @@ mapInput.addEventListener('change', () => {
         battle = undefined
         artByUnit = []
         status.textContent = `地图 ${map.width}×${map.height}（${map.theater ?? '未知剧场'}），地形记录 ${map.cells.length} 条 —— 先按 z 高度着色，TMP 地块美术是下一步`
-        fitOn(map.width, map.height)
+        // 默认 1:1（原版像素尺寸）：整张地图约 5000×2500 像素，整幅看会很小，想看全局再点"整幅显示"
+        camera.zoom = 1
+        centerOn(map.width / 2, map.height / 2)
         startLoop()
       } catch (error) {
         status.textContent = error instanceof Error ? `失败：${error.message}` : '失败'
@@ -150,6 +153,12 @@ mapInput.addEventListener('change', () => {
       status.textContent = `读取失败：${String(error)}`
     },
   )
+})
+
+fitButton.addEventListener('click', () => {
+  const preview = mapPreview
+  if (!preview) return
+  fitOn(preview.width, preview.height)
 })
 
 mixInput.addEventListener('change', () => {
