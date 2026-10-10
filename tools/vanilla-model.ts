@@ -1,155 +1,62 @@
 import fs from 'node:fs'
-import {
-  absoluteEntryOffset,
-  crc32,
-  findMixEntry,
-  paletteColor,
-  readMixEntry,
-  readMixIndex,
-  readPalette,
-  readVxl,
-  type Rgb,
-} from '../packages/formats/src/index.js'
+import { loadVoxelUnit, voxelUnitModels } from '@ra2web/assets'
+import { type VxlModel } from '@ra2web/formats'
+import { FACING_COUNT, composeSpriteStrip, positionVoxelModel, renderVoxelSprite } from '@ra2web/render'
 import { writePng } from './png-write.js'
 
 /**
- * 用**原版档案**渲染一个体素模型：
- *   RA2.MIX → local.mix → <单位>.vxl → 逐体素等距投影 → PNG。
+ * 用**玩家自备的原版档案**渲染一个体素单位：RA2.MIX → local.mix → <单位>.vxl → 精灵 → PNG。
  *
- * 这是"我们能读并使用原版美术"的端到端证明，也是后续渲染器的参考实现。
+ * 渲染走 `@ra2web/render`，与浏览器页面同一份代码；本工具只负责读文件、拼图、写 PNG。
  *
- * 用法：tsx tools/vanilla-model.ts <RA2.MIX> <单位ID=htnk> <输出.png=model.png> [scale=3]
+ * 用法：tsx tools/vanilla-model.ts <RA2.MIX> [单位ID=htnk] [out.png=model.png] [每体素像素=3] [朝向=0|all]
  */
-const [mixPath, unitId = 'htnk', outPath = 'model.png', scaleArg = '3'] = process.argv.slice(2)
+
+const BACKGROUND = { r: 20, g: 24, b: 28, a: 255 }
+
+const [mixPath, unitId = 'htnk', outPath = 'model.png', pixelsArg = '3', facingArg = '0'] = process.argv.slice(2)
 if (!mixPath) {
-  console.error('usage: vanilla-model.ts <RA2.MIX> [unitId=htnk] [out.png=model.png] [scale=3]')
+  console.error('usage: vanilla-model.ts <RA2.MIX> [unitId=htnk] [out.png=model.png] [pixelsPerVoxel=3] [facing=0|all]')
   process.exit(1)
 }
-const scale = Number(scaleArg)
 
 const archive = new Uint8Array(fs.readFileSync(mixPath))
-const root = readMixIndex(archive)
-const localEntry = findMixEntry(root, 'local.mix', crc32)
-if (!localEntry) throw new Error('RA2.MIX 里找不到 local.mix')
-const localBytes = readMixEntry(archive, root, localEntry)
-const local = readMixIndex(localBytes)
-
-/** local.mix 的条目偏移是相对 local.mix 的，读取时要换算回父档案。 */
-function readFromLocal(name: string): Uint8Array {
-  const entry = findMixEntry(local, name, crc32)
-  if (!entry) throw new Error(`local.mix 里找不到 ${name}`)
-  return readMixEntry(archive, root, absoluteEntryOffset(localEntry!, local, entry))
+const unit = loadVoxelUnit({ bytes: archive, containerFileName: 'local.mix' }, unitId)
+if (!unit) {
+  console.error(`档案里找不到 ${unitId}.vxl`)
+  process.exit(1)
 }
+const models = voxelUnitModels(unit)
+const model = positionVoxelModel(models)
+const pixelsPerVoxel = Math.max(1, Math.round(Number(pixelsArg)))
 
-const bodyBytes = readFromLocal(`${unitId}.vxl`)
-const body = readVxl(bodyBytes)
-const turret = (() => {
-  try {
-    return readVxl(readFromLocal(`${unitId}tur.vxl`))
-  } catch {
-    return undefined
-  }
-})()
+for (const entry of models) reportModel(entry)
+console.log(
+  `合计体素 ${model.voxels.length}，包围盒 ${model.spanX}x${model.spanY}x${model.spanZ}，` +
+    `内嵌调色板 ${model.palette ? `${model.palette.colors.length} 色` : '无'}`,
+)
 
-const palette = body.embeddedPalette ? readPalette(body.embeddedPalette) : undefined
-console.log(`模型 ${body.fileName || unitId}.vxl：节数 ${body.sections.length}，体素 ${body.voxelCount}`)
-for (const section of body.sections) {
+if (facingArg === 'all') {
+  const sprites = Array.from({ length: FACING_COUNT }, (_unused, facing) =>
+    renderVoxelSprite(model, { facing, pixelsPerVoxel, background: BACKGROUND }),
+  )
+  const strip = composeSpriteStrip(sprites, BACKGROUND)
+  fs.writeFileSync(outPath, writePng(strip.width, strip.height, strip.rgba))
+  console.log(`8 朝向 → ${outPath}（${strip.width}x${strip.height}）`)
+} else {
+  const sprite = renderVoxelSprite(model, { facing: Number(facingArg), pixelsPerVoxel, background: BACKGROUND })
+  fs.writeFileSync(outPath, writePng(sprite.width, sprite.height, sprite.rgba))
   console.log(
-    `  [${section.name}] ${section.sizeX}x${section.sizeY}x${section.sizeZ} 体素 ${section.voxels.length} hvaMultiplier=${section.hvaMultiplier.toFixed(4)}`,
+    `朝向 ${sprite.facing} → ${outPath}（${sprite.width}x${sprite.height}，锚点 ${sprite.anchorX}/${sprite.anchorY}）`,
   )
 }
-console.log(`内嵌调色板：${palette ? `${palette.colors.length} 色` : '无'}`)
 
-/**
- * 收集所有体素（机体 + 炮塔），统一到同一坐标系。
- *
- * 每节的体素是"该节局部坐标"，而 bounds 已经给出该节在整机空间中的位置
- * （例如炮塔 min.z≈11.7 正好接在机体 max.z≈11.4 之上），因此按 bounds.min 平移即可拼合。
- */
-interface PlacedVoxel {
-  readonly x: number
-  readonly y: number
-  readonly z: number
-  readonly colorIndex: number
-  readonly normalIndex: number
-}
-
-function place(model: {
-  sections: readonly { bounds: { min: readonly [number, number, number] }; voxels: readonly PlacedVoxel[] }[]
-}): PlacedVoxel[] {
-  const placed: PlacedVoxel[] = []
+function reportModel(model: VxlModel): void {
+  console.log(`模型 ${model.fileName}：节数 ${model.sections.length}，体素 ${model.voxelCount}`)
   for (const section of model.sections) {
-    const [ox, oy, oz] = section.bounds.min
-    for (const voxel of section.voxels) {
-      placed.push({
-        x: Math.round(ox) + voxel.x,
-        y: Math.round(oy) + voxel.y,
-        z: Math.round(oz) + voxel.z,
-        colorIndex: voxel.colorIndex,
-        normalIndex: voxel.normalIndex,
-      })
-    }
+    console.log(
+      `  [${section.name}] ${section.sizeX}x${section.sizeY}x${section.sizeZ} ` +
+        `体素 ${section.voxels.length} hvaMultiplier=${section.hvaMultiplier.toFixed(4)}`,
+    )
   }
-  return placed
 }
-
-const allVoxels = [...place(body), ...(turret ? place(turret) : [])]
-const minX = Math.min(...allVoxels.map((v) => v.x))
-const minY = Math.min(...allVoxels.map((v) => v.y))
-const minZ = Math.min(...allVoxels.map((v) => v.z))
-const normalized = allVoxels.map((v) => ({ ...v, x: v.x - minX, y: v.y - minY, z: v.z - minZ }))
-console.log(`合计体素 ${normalized.length}`)
-
-const light = { x: -0.35, y: 0.55, z: 0.75 }
-const normals = (() => {
-  const list: Array<{ x: number; y: number; z: number }> = []
-  const phi = Math.PI * (3 - Math.sqrt(5))
-  for (let i = 0; i < 36; i++) {
-    const y = 1 - (i / 35) * 2
-    const r = Math.sqrt(Math.max(0, 1 - y * y))
-    list.push({ x: Math.cos(phi * i) * r, y, z: Math.sin(phi * i) * r })
-  }
-  return list
-})()
-
-const spanX = Math.max(...normalized.map((v) => v.x)) + 1
-const spanY = Math.max(...normalized.map((v) => v.y)) + 1
-const spanZ = Math.max(...normalized.map((v) => v.z)) + 1
-const pad = 4
-const width = Math.ceil((spanX + spanY + pad * 2) * scale)
-const height = Math.ceil(((spanX + spanY) / 2 + spanZ + pad * 2) * scale)
-const pixels = new Uint8Array(width * height * 4)
-for (let i = 0; i < width * height; i++) {
-  pixels[i * 4] = 20
-  pixels[i * 4 + 1] = 24
-  pixels[i * 4 + 2] = 28
-  pixels[i * 4 + 3] = 255
-}
-
-const fallback: Rgb = { r: 200, g: 200, b: 200 }
-const put = (px: number, py: number, color: Rgb): void => {
-  if (px < 0 || py < 0 || px >= width || py >= height) return
-  const i = (py * width + px) * 4
-  pixels[i] = color.r
-  pixels[i + 1] = color.g
-  pixels[i + 2] = color.b
-}
-
-normalized.sort((a, b) => a.x + a.y + a.z - (b.x + b.y + b.z) || a.z - b.z)
-for (const voxel of normalized) {
-  const normal = normals[voxel.normalIndex % normals.length]!
-  const diffuse = Math.max(0.35, normal.x * light.x + normal.y * light.y + normal.z * light.z)
-  const base = palette ? paletteColor(palette, voxel.colorIndex) : fallback
-  const shade = 0.55 + 0.75 * diffuse
-  const color: Rgb = {
-    r: Math.min(255, Math.round(base.r * shade)),
-    g: Math.min(255, Math.round(base.g * shade)),
-    b: Math.min(255, Math.round(base.b * shade)),
-  }
-  const sx = Math.round((voxel.x - voxel.y + spanY + pad) * scale)
-  const sy = Math.round(((voxel.x + voxel.y) / 2 - voxel.z + spanZ + pad) * scale)
-  for (let dy = 0; dy < scale; dy++) for (let dx = 0; dx < scale; dx++) put(sx + dx, sy + dy, color)
-}
-
-fs.writeFileSync(outPath, writePng(width, height, pixels))
-console.log(`渲染完成 → ${outPath}（${width}x${height}）`)
