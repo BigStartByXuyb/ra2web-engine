@@ -1,4 +1,5 @@
 import { TruncatedInputError } from './errors.js'
+import { crc32 } from './crc32.js'
 import { Blowfish } from './vendor/blowfish.js'
 import { BlowfishKey } from './vendor/blowfish-key.js'
 
@@ -153,4 +154,31 @@ export function findMixEntry(
  */
 export function absoluteEntryOffset(container: MixEntry, innerIndex: MixIndex, entry: MixEntry): MixEntry {
   return { hash: entry.hash, offset: container.offset + innerIndex.dataStart + entry.offset, length: entry.length }
+}
+
+export interface MixFileLookup {
+  readonly bytes: Uint8Array
+  readonly fileName: string
+  /** 顶层找不到时再进这个内嵌档案找一层（原版安装里 rules/美术在 local.mix 内） */
+  readonly containerFileName?: string
+}
+
+/**
+ * 按名字取文件字节：先查顶层，再（可选）查一层内嵌档案。
+ *
+ * 内嵌档案里的条目偏移是相对内层数据区的，必须用 `absoluteEntryOffset` 换算回父档案，
+ * 否则会读到错误位置 —— 这里是唯一的换算实现，调用方不要再自己叠偏移。
+ */
+export function readMixFile(lookup: MixFileLookup): Uint8Array | undefined {
+  const archive = readMixIndex(lookup.bytes)
+  const direct = findMixEntry(archive, lookup.fileName, crc32)
+  if (direct) return readMixEntry(lookup.bytes, archive, direct)
+  if (!lookup.containerFileName) return undefined
+
+  const container = findMixEntry(archive, lookup.containerFileName, crc32)
+  if (!container) return undefined
+  const inner = readMixIndex(readMixEntry(lookup.bytes, archive, container))
+  const nested = findMixEntry(inner, lookup.fileName, crc32)
+  if (!nested) return undefined
+  return readMixEntry(lookup.bytes, archive, absoluteEntryOffset(container, inner, nested))
 }

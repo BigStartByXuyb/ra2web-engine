@@ -1,7 +1,15 @@
 export { crc32 } from './crc32.js'
 export { ParseError, TruncatedInputError } from './errors.js'
-export { MIX_ENTRY_BYTES, absoluteEntryOffset, findMixEntry, hashFileName, readMixEntry, readMixIndex } from './mix.js'
-export type { MixEntry, MixIndex } from './mix.js'
+export {
+  MIX_ENTRY_BYTES,
+  absoluteEntryOffset,
+  findMixEntry,
+  hashFileName,
+  readMixEntry,
+  readMixFile,
+  readMixIndex,
+} from './mix.js'
+export type { MixEntry, MixFileLookup, MixIndex } from './mix.js'
 export { iniValue, parseIni } from './ini.js'
 export type { IniDocument, IniSection } from './ini.js'
 export { PALETTE_BYTES, PALETTE_COLORS, paletteColor, readPalette } from './pal.js'

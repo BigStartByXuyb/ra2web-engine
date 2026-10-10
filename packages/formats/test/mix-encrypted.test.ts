@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { test } from 'node:test'
 import { crc32 } from '../src/crc32.js'
-import { findMixEntry, readMixEntry, readMixIndex } from '../src/mix.js'
+import { findMixEntry, readMixEntry, readMixFile, readMixIndex } from '../src/mix.js'
 
 /**
  * 加密索引（RA2/TS 型）的端到端核对：只有本机提供原版档案时才运行。
@@ -26,4 +26,7 @@ test('原版 RA2.MIX 的加密索引能被正确解密', { skip: !mixPath ? '未
   const rulesEntry = findMixEntry(localIndex, 'rules.ini', crc32)
   assert.ok(rulesEntry, 'local.mix 里应当有 rules.ini')
   assert.ok(rulesEntry!.length > 100_000, `rules.ini 长度异常：${rulesEntry!.length}`)
+
+  const rulesThroughContainer = readMixFile({ bytes: archive, fileName: 'rules.ini', containerFileName: 'local.mix' })
+  assert.equal(rulesThroughContainer?.length, rulesEntry!.length, '内嵌档案取文件的偏移换算不对')
 })
