@@ -1,5 +1,5 @@
 import { RA2_ISO_VIEW, cellToScreen } from '@ra2web/render'
-import { readMap, readMixEntry, readMixIndex } from '@ra2web/formats'
+import { readMap, readMixEntry, readMixIndex, type MapFile } from '@ra2web/formats'
 import { TICKS_PER_SECOND, enqueueCommand, fromFixed, step, type Cell } from '@ra2web/sim'
 import { createBattle, createDemoBattle, type Battle } from './battle.js'
 import { MIN_ZOOM, canvasToCell, canvasToWorld, createCamera, viewScale, zoomAt, type Camera } from './camera.js'
@@ -135,7 +135,7 @@ mapInput.addEventListener('change', () => {
     (buffer) => {
       try {
         const bytes = new Uint8Array(buffer)
-        const map = /\.map$/i.test(file.name) ? readMap(bytes) : readMap(readFirstMixEntry(bytes))
+        const map = /\.map$/i.test(file.name) ? readMap(bytes) : readFirstMap(bytes)
         mapPreview = buildMapPreview(map)
         battle = undefined
         artByUnit = []
@@ -198,12 +198,17 @@ function startLoop(): void {
   }
 }
 
-/** 地图档案（如 Maps01.mix）里第一条就是一张地图；按序取用，不做名字猜测。 */
-function readFirstMixEntry(bytes: Uint8Array): Uint8Array {
+/** 地图档案里条目顺序不保证都是地图：取前几条里第一个能解析成地图的。 */
+function readFirstMap(bytes: Uint8Array): MapFile {
   const index = readMixIndex(bytes)
-  const entry = index.entries[0]
-  if (!entry) throw new Error('档案里没有条目')
-  return readMixEntry(bytes, index, entry)
+  for (const entry of index.entries.slice(0, 8)) {
+    try {
+      return readMap(readMixEntry(bytes, index, entry))
+    } catch {
+      // 不是地图就试下一条；全都不是时由下面的报错说明
+    }
+  }
+  throw new Error('档案前 8 条都不是地图')
 }
 
 /** 真实战场按类型取原版 VXL；示例战场用合成模型并按阵营着色。 */
