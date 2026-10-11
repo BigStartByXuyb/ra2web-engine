@@ -1,5 +1,5 @@
 import fs from 'node:fs'
-import { loadTerrainPalette, openTheater } from '@ra2web/assets'
+import { loadTheaterPalette, openTheater } from '@ra2web/assets'
 import type { TmpFile } from '@ra2web/formats'
 import { paintTmpSubTile, type RgbaImage } from '@ra2web/render'
 import { writePng } from './png-write.js'
@@ -7,7 +7,7 @@ import { writePng } from './png-write.js'
 /**
  * 用**玩家自备的原版档案**渲染一个地块：RA2.MIX → theater 地块表 → `.tem/.sno/.urb` → PNG。
  *
- * 走的是引擎自己的取用路径（`openTheater` + `loadTerrainPalette`），因此渲染出来的
+ * 走的是引擎自己的取用路径（`openTheater` + `loadTheaterPalette`），因此渲染出来的
  * 颜色与战场页一致，可以直接和原版截图比对。
  *
  * 用法：tsx tools/vanilla-tile.ts <RA2.MIX> [theater=temperate] [tileIndex=0] [out.png=tile.png] [scale=2]
@@ -21,7 +21,7 @@ if (!mixPath) {
 const scale = Math.max(1, Math.round(Number(scaleArg)))
 const archive = new Uint8Array(fs.readFileSync(mixPath))
 const theater = openTheater(archive, theaterName)
-const palette = loadTerrainPalette(archive, theaterName)
+const palette = loadTheaterPalette(archive, theaterName, 'iso')
 if (!theater || !palette) {
   console.error(`取不到剧场资源：${theaterName}`)
   process.exit(1)

@@ -1,4 +1,4 @@
-import { loadTerrainPalette, openTheater, type TheaterAssets } from '@ra2web/assets'
+import { loadTheaterPalette, openTheater, type TheaterAssets } from '@ra2web/assets'
 import type { Palette } from '@ra2web/formats'
 import { paintTmpSubTile } from '@ra2web/render'
 import { toCanvas } from './canvas-image.js'
@@ -16,7 +16,7 @@ export interface TileLayer {
 export function openTileLayer(archiveBytes: Uint8Array, theaterName: string | undefined): TileLayer | undefined {
   if (!theaterName) return undefined
   const theater = openTheater(archiveBytes, theaterName)
-  const palette = loadTerrainPalette(archiveBytes, theaterName)
+  const palette = loadTheaterPalette(archiveBytes, theaterName, 'iso')
   if (!theater || !palette) return undefined
   return createTileLayer(theater, palette)
 }

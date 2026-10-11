@@ -32,6 +32,8 @@ interface TheaterFiles {
   readonly tiles: string
   readonly suffix: string
   readonly palette: string
+  /** 单位/建筑用的色板（`unittem.pal` 一类） */
+  readonly unitPalette: string
   /** 图形档案的搜索次序：非地块图形可能落在其中任何一个里（与客户端一致） */
   readonly mixes: readonly string[]
   /** `NewTheater` 名字替换用的剧场字母 */
@@ -44,6 +46,7 @@ const THEATERS: Readonly<Record<string, TheaterFiles>> = {
     tiles: 'isotemp.mix',
     suffix: '.tem',
     palette: 'isotem.pal',
+    unitPalette: 'unittem.pal',
     mixes: ['isotemp.mix', 'temperat.mix', 'tem.mix'],
     letter: 'T',
   },
@@ -52,6 +55,7 @@ const THEATERS: Readonly<Record<string, TheaterFiles>> = {
     tiles: 'isosnow.mix',
     suffix: '.sno',
     palette: 'isosno.pal',
+    unitPalette: 'unitsno.pal',
     mixes: ['isosnow.mix', 'snow.mix', 'sno.mix'],
     letter: 'A',
   },
@@ -60,6 +64,7 @@ const THEATERS: Readonly<Record<string, TheaterFiles>> = {
     tiles: 'isourb.mix',
     suffix: '.urb',
     palette: 'isourb.pal',
+    unitPalette: 'uniturb.pal',
     mixes: ['isourb.mix', 'urb.mix', 'urban.mix'],
     letter: 'U',
   },
@@ -198,12 +203,20 @@ export function imageFileCandidates(
 }
 
 /**
- * 地形调色板：`RA2.MIX` 的 `cache.mix` 里按剧场名存放（`isotem.pal` / `isosno.pal` / `isourb.pal`）。
+ * 剧场调色板：`RA2.MIX` 的 `cache.mix` 里按剧场名存放。
  *
- * 实测 `isotem.pal` 的 119 号色是 (140,144,84)、121 号是 (132,144,68)，正是温带草地；
- * `isosno.pal` 的 21..29 号是雪白。地块与调色板必须成对取用，用错会把绿地画成棕褐色。
+ * - `iso`：地块与覆盖物用（`isotem.pal` 一类）。实测 `isotem.pal` 的 119 号色是 (140,144,84)、
+ *   121 号是 (132,144,68)，正是温带草地；`isosno.pal` 的 21..29 号是雪白。
+ * - `unit`：单位与建筑用（`unittem.pal` 一类）。判定依据：客户端 `readPaletteAndLightingTypes`
+ *   默认 `paletteType=Default`，只有 art.ini 标了 `TerrainPalette`/`ShouldUseCellDrawer` 才改用地形色板。
+ *
+ * 地块与调色板必须成对取用，用错会把绿地画成棕褐色。
  */
-export function loadTerrainPalette(archiveBytes: Uint8Array, theaterName: string | undefined): Palette | undefined {
+export function loadTheaterPalette(
+  archiveBytes: Uint8Array,
+  theaterName: string | undefined,
+  which: 'iso' | 'unit',
+): Palette | undefined {
   const files = theaterName ? THEATERS[theaterName.trim().toLowerCase()] : undefined
   if (!files) return undefined
   const root = readMixIndex(archiveBytes)
@@ -211,6 +224,6 @@ export function loadTerrainPalette(archiveBytes: Uint8Array, theaterName: string
   if (!archiveEntry) return undefined
   const archive = readMixEntry(archiveBytes, root, archiveEntry)
   const index = readMixIndex(archive)
-  const entry = findMixEntry(index, files.palette, crc32)
+  const entry = findMixEntry(index, which === 'iso' ? files.palette : files.unitPalette, crc32)
   return entry ? readPalette(readMixEntry(archive, index, entry)) : undefined
 }

@@ -1,4 +1,4 @@
-import { loadTerrainPalette, openOverlays, type OverlayAssets } from '@ra2web/assets'
+import { loadTheaterPalette, openOverlays, type OverlayAssets } from '@ra2web/assets'
 import type { MapOverlay, Palette } from '@ra2web/formats'
 import { paintShpFrame } from '@ra2web/render'
 import { toCanvas } from './canvas-image.js'
@@ -18,7 +18,7 @@ export interface OverlayLayer {
 export function openOverlayLayer(archiveBytes: Uint8Array, theaterName: string | undefined): OverlayLayer | undefined {
   if (!theaterName) return undefined
   const overlays = openOverlays(archiveBytes, theaterName)
-  const palette = loadTerrainPalette(archiveBytes, theaterName)
+  const palette = loadTheaterPalette(archiveBytes, theaterName, 'iso')
   if (!overlays || !palette) return undefined
   return createOverlayLayer(overlays, palette)
 }

@@ -2,6 +2,7 @@ import { cellToScreen, type IsoView } from '@ra2web/render'
 import type { MapCell, MapFile } from '@ra2web/formats'
 import type { CellRange } from './camera.js'
 import type { OverlayLayer } from './overlay-layer.js'
+import type { StructureLayer, StructureSprite } from './structure-layer.js'
 import type { TileLayer } from './tile-layer.js'
 
 /**
@@ -22,12 +23,15 @@ export interface MapPreview {
   readonly tileLayer: TileLayer | undefined
   /** 覆盖物层（石头、枯树、桥板…）；没有时只画地块 */
   readonly overlayLayer: OverlayLayer | undefined
+  /** 地图预置的建筑；没有美术的已被过滤掉 */
+  readonly structures: readonly StructureSprite[]
 }
 
 export function buildMapPreview(
   map: MapFile,
   tileLayer: TileLayer | undefined = undefined,
   overlayLayer: OverlayLayer | undefined = undefined,
+  structureLayer: StructureLayer | undefined = undefined,
 ): MapPreview {
   const cellByIndex = new Map<number, MapCell>()
   let zMin = Number.POSITIVE_INFINITY
@@ -47,6 +51,19 @@ export function buildMapPreview(
     cellByIndex,
     tileLayer,
     overlayLayer,
+    structures: structureLayer
+      ? map.placements
+          .filter(
+            (placement) =>
+              placement.kind === 'structure' &&
+              placement.cellX >= 0 &&
+              placement.cellY >= 0 &&
+              placement.cellX < map.width &&
+              placement.cellY < map.height,
+          )
+          .map((placement) => structureLayer.spriteAt(placement))
+          .filter((sprite): sprite is StructureSprite => sprite !== undefined)
+      : [],
   }
 }
 
@@ -77,6 +94,17 @@ export function drawMapPreview(
       const overlay = preview.overlayLayer?.canvasAt(cell.overlay)
       if (overlay) context.drawImage(overlay, center.x - overlay.width / 2, center.y - overlay.height / 2)
     }
+  }
+  // 建筑单独一遍，按 (x+y) 升序：近处的房子盖住远处的
+  for (const sprite of [...preview.structures].sort(
+    (left, right) => left.placement.cellX + left.placement.cellY - (right.placement.cellX + right.placement.cellY),
+  )) {
+    const { placement, canvas, foundationWidth, foundationHeight } = sprite
+    const anchor = cellToScreen(view, {
+      x: placement.cellX + (foundationWidth - 1) / 2,
+      y: placement.cellY + (foundationHeight - 1) / 2,
+    })
+    context.drawImage(canvas, anchor.x - canvas.width / 2, anchor.y - canvas.height / 2)
   }
 }
 
