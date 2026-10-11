@@ -225,6 +225,58 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
   const buffer = gl.createBuffer()
   const textures = new WeakMap<HTMLCanvasElement, WebGLTexture>()
 
+  /**
+   * 顶点批处理：一帧里所有四边形先拼进同一个数组、**一次上传**，再逐个 `drawArrays`。
+   *
+   * 原来每个四边形都单独 `bufferData`（一帧上千次上传），是浏览器里的主要开销
+   * （实测开阴影+雾 12 fps）。批处理**不改变绘制顺序**，所以画面与逐次上传完全一致。
+   * 属性步长 24 字节：角(8) + 左上角(8) + 尺寸(8)，一次设置多次复用。
+   */
+  let batchData = new Float32Array(4096 * 6)
+  let batchCursor = 0
+  const batchDraws: Array<{ texture: WebGLTexture; start: number }> = []
+
+  const resetBatch = (): void => {
+    batchCursor = 0
+    batchDraws.length = 0
+  }
+
+  const pushQuad = (texture: WebGLTexture, originX: number, originY: number, sizeX: number, sizeY: number): void => {
+    const needed = batchCursor + CORNERS.length * 3
+    if (batchData.length < needed) {
+      const grown = new Float32Array(Math.max(needed, batchData.length * 2))
+      grown.set(batchData.subarray(0, batchCursor))
+      batchData = grown
+    }
+    for (let index = 0; index < CORNERS.length / 2; index++) {
+      const at = batchCursor + index * 6
+      batchData[at] = CORNERS[index * 2]!
+      batchData[at + 1] = CORNERS[index * 2 + 1]!
+      batchData[at + 2] = originX
+      batchData[at + 3] = originY
+      batchData[at + 4] = sizeX
+      batchData[at + 5] = sizeY
+    }
+    batchDraws.push({ texture, start: batchCursor / 6 })
+    batchCursor += CORNERS.length * 3
+  }
+
+  const flushBatch = (corner: number, origin: number, size: number): void => {
+    if (batchDraws.length === 0) return
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
+    gl.bufferData(gl.ARRAY_BUFFER, batchData.subarray(0, batchCursor), gl.STREAM_DRAW)
+    gl.enableVertexAttribArray(corner)
+    gl.vertexAttribPointer(corner, 2, gl.FLOAT, false, 24, 0)
+    gl.enableVertexAttribArray(origin)
+    gl.vertexAttribPointer(origin, 2, gl.FLOAT, false, 24, 8)
+    gl.enableVertexAttribArray(size)
+    gl.vertexAttribPointer(size, 2, gl.FLOAT, false, 24, 16)
+    for (const draw of batchDraws) {
+      gl.bindTexture(gl.TEXTURE_2D, draw.texture)
+      gl.drawArrays(gl.TRIANGLES, draw.start, 6)
+    }
+  }
+
   gl.enable(gl.BLEND)
   gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
   gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true)
@@ -274,26 +326,10 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       const drawQuad = (source: HTMLCanvasElement, originX: number, originY: number): void => {
         const texture = textureFor(source)
         if (!texture) return
-        if (data.length < CORNERS.length * 3) data = new Float32Array(CORNERS.length * 3)
-        for (let index = 0; index < CORNERS.length / 2; index++) {
-          data[index * 6] = CORNERS[index * 2]!
-          data[index * 6 + 1] = CORNERS[index * 2 + 1]!
-          data[index * 6 + 2] = originX
-          data[index * 6 + 3] = originY
-          data[index * 6 + 4] = source.width
-          data[index * 6 + 5] = source.height
-        }
-        gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
-        gl.bufferData(gl.ARRAY_BUFFER, data.subarray(0, CORNERS.length * 3), gl.STREAM_DRAW)
-        gl.enableVertexAttribArray(cornerLocation)
-        gl.vertexAttribPointer(cornerLocation, 2, gl.FLOAT, false, 24, 0)
-        gl.enableVertexAttribArray(originLocation)
-        gl.vertexAttribPointer(originLocation, 2, gl.FLOAT, false, 24, 8)
-        gl.enableVertexAttribArray(sizeLocation)
-        gl.vertexAttribPointer(sizeLocation, 2, gl.FLOAT, false, 24, 16)
-        gl.bindTexture(gl.TEXTURE_2D, texture)
-        gl.drawArrays(gl.TRIANGLES, 0, CORNERS.length / 2)
+        pushQuad(texture, originX, originY, source.width, source.height)
       }
+
+      resetBatch()
 
       // 地块与覆盖物按格序画（覆盖物跟在它那一格之后，与 2D 路径一致）
       for (let y = range.minY; y <= range.maxY; y++) {
@@ -339,6 +375,7 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       for (const unit of context.units) {
         drawQuad(unit.source, unit.worldX - unit.anchorX, unit.worldY - unit.anchorY)
       }
+      flushBatch(cornerLocation, originLocation, sizeLocation)
     },
     /**
      * 实时阴影：不单独做阴影贴图，直接把物体的贴图当**遮蔽掩模**，按光方向偏移、
@@ -366,26 +403,10 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
         // 影子底边与物体贴地线对齐，再按光方向偏移
         const shadowOriginX = originX + DEFAULT_SHADOW.offsetX
         const shadowOriginY = baseY - shadowHeight + DEFAULT_SHADOW.offsetY
-        if (data.length < CORNERS.length * 3) data = new Float32Array(CORNERS.length * 3)
-        for (let index = 0; index < CORNERS.length / 2; index++) {
-          data[index * 6] = CORNERS[index * 2]!
-          data[index * 6 + 1] = CORNERS[index * 2 + 1]!
-          data[index * 6 + 2] = shadowOriginX
-          data[index * 6 + 3] = shadowOriginY
-          data[index * 6 + 4] = source.width
-          data[index * 6 + 5] = shadowHeight
-        }
-        gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
-        gl.bufferData(gl.ARRAY_BUFFER, data.subarray(0, CORNERS.length * 3), gl.STREAM_DRAW)
-        gl.enableVertexAttribArray(shadowCornerLocation)
-        gl.vertexAttribPointer(shadowCornerLocation, 2, gl.FLOAT, false, 24, 0)
-        gl.enableVertexAttribArray(shadowOriginLocation)
-        gl.vertexAttribPointer(shadowOriginLocation, 2, gl.FLOAT, false, 24, 8)
-        gl.enableVertexAttribArray(shadowSizeLocation)
-        gl.vertexAttribPointer(shadowSizeLocation, 2, gl.FLOAT, false, 24, 16)
-        gl.bindTexture(gl.TEXTURE_2D, texture)
-        gl.drawArrays(gl.TRIANGLES, 0, CORNERS.length / 2)
+        pushQuad(texture, shadowOriginX, shadowOriginY, source.width, shadowHeight)
       }
+
+      resetBatch()
 
       const structures = [...context.preview.structures].sort(
         (left, right) => left.placement.cellX + left.placement.cellY - (right.placement.cellX + right.placement.cellY),
@@ -417,6 +438,7 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
           unit.worldY + (unit.source.height - unit.anchorY),
         )
       }
+      flushBatch(shadowCornerLocation, shadowOriginLocation, shadowSizeLocation)
     },
     renderFog() {
       if (!fogProgram || !fogBuffer) return
