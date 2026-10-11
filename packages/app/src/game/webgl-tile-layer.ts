@@ -234,11 +234,12 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
    */
   let batchData = new Float32Array(4096 * 6)
   let batchCursor = 0
-  const batchDraws: Array<{ texture: WebGLTexture; start: number }> = []
+  /** 一次 draw 的顶点区间：同纹理且连续的四边形会自动并成一段 */
+  const batchRuns: Array<{ texture: WebGLTexture; start: number; count: number }> = []
 
   const resetBatch = (): void => {
     batchCursor = 0
-    batchDraws.length = 0
+    batchRuns.length = 0
   }
 
   const pushQuad = (texture: WebGLTexture, originX: number, originY: number, sizeX: number, sizeY: number): void => {
@@ -257,12 +258,19 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       batchData[at + 4] = sizeX
       batchData[at + 5] = sizeY
     }
-    batchDraws.push({ texture, start: batchCursor / 6 })
+    const start = batchCursor / 6
+    const previous = batchRuns[batchRuns.length - 1]
+    // 与上一段同纹理且紧邻 → 直接延长那一段（地块按纹理分组后就是靠这条合并的）
+    if (previous && previous.texture === texture && previous.start + previous.count === start) {
+      previous.count += 6
+    } else {
+      batchRuns.push({ texture, start, count: 6 })
+    }
     batchCursor += CORNERS.length * 3
   }
 
   const flushBatch = (corner: number, origin: number, size: number): void => {
-    if (batchDraws.length === 0) return
+    if (batchRuns.length === 0) return
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
     gl.bufferData(gl.ARRAY_BUFFER, batchData.subarray(0, batchCursor), gl.STREAM_DRAW)
     gl.enableVertexAttribArray(corner)
@@ -271,9 +279,9 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
     gl.vertexAttribPointer(origin, 2, gl.FLOAT, false, 24, 8)
     gl.enableVertexAttribArray(size)
     gl.vertexAttribPointer(size, 2, gl.FLOAT, false, 24, 16)
-    for (const draw of batchDraws) {
-      gl.bindTexture(gl.TEXTURE_2D, draw.texture)
-      gl.drawArrays(gl.TRIANGLES, draw.start, 6)
+    for (const run of batchRuns) {
+      gl.bindTexture(gl.TEXTURE_2D, run.texture)
+      gl.drawArrays(gl.TRIANGLES, run.start, run.count)
     }
   }
 
@@ -281,6 +289,13 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
   gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
   gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true)
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
+
+  // 把实际的 GL 实现打到控制台：软件渲染（SwiftShader/llvmpipe）与真机 GPU 的帧率完全不可比，
+  // 性能结论必须带上这一行。
+  const debugInfo = gl.getExtension('WEBGL_debug_renderer_info')
+  console.info(
+    `[WebGL] renderer=${debugInfo ? String(gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)) : String(gl.getParameter(gl.RENDERER))}`,
+  )
 
   function textureFor(source: HTMLCanvasElement): WebGLTexture | undefined {
     const cached = textures.get(source)
@@ -332,6 +347,10 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       resetBatch()
 
       // 地块与覆盖物按格序画（覆盖物跟在它那一格之后，与 2D 路径一致）
+      // 但地块/覆盖物**互不重叠**，绘制顺序对它们没有意义 —— 先收集、按纹理分组，
+      // 再整组压进批里，draw call 就从"每格一次"降到"每种纹理一次"。
+      const grouped: Array<{ texture: WebGLTexture; originX: number; originY: number; sizeX: number; sizeY: number }> =
+        []
       for (let y = range.minY; y <= range.maxY; y++) {
         for (let x = range.minX; x <= range.maxX; x++) {
           if (x < 0 || y < 0 || x >= preview.width || y >= preview.height) continue
@@ -340,10 +359,32 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
           const painted = tileCanvasAt(cell.tileIndex, cell.subTile)
           const centerX = (x - y) * (view.cellWidth / 2)
           const centerY = (x + y) * (view.cellHeight / 2)
-          if (painted) drawQuad(painted, centerX - view.cellWidth / 2, centerY - view.cellHeight / 2)
+          const paintedTexture = painted ? textureFor(painted) : undefined
+          if (painted && paintedTexture) {
+            grouped.push({
+              texture: paintedTexture,
+              originX: centerX - view.cellWidth / 2,
+              originY: centerY - view.cellHeight / 2,
+              sizeX: painted.width,
+              sizeY: painted.height,
+            })
+          }
           const overlay = preview.overlayLayer?.canvasAt(cell.overlay)
-          if (overlay) drawQuad(overlay, centerX - overlay.width / 2, centerY - overlay.height / 2)
+          const overlayTexture = overlay ? textureFor(overlay) : undefined
+          if (overlay && overlayTexture) {
+            grouped.push({
+              texture: overlayTexture,
+              originX: centerX - overlay.width / 2,
+              originY: centerY - overlay.height / 2,
+              sizeX: overlay.width,
+              sizeY: overlay.height,
+            })
+          }
         }
+      }
+      grouped.sort((left, right) => (left.texture < right.texture ? -1 : left.texture > right.texture ? 1 : 0))
+      for (const quad of grouped) {
+        pushQuad(quad.texture, quad.originX, quad.originY, quad.sizeX, quad.sizeY)
       }
 
       // 建筑最后画，按 (x+y) 升序：近处的房子盖住远处的（与 2D 路径同一判据）
