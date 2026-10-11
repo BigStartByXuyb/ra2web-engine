@@ -36,6 +36,8 @@ export interface Scene {
   readonly time: number
   /** 给了就把地块层交给 WebGL 画（换渲染后端 spike），2D 只画其余层 */
   readonly glTiles?: GlTileLayer | undefined
+  /** 实时阴影（重制版增强，默认关闭）：只对 WebGL 路径有效 */
+  readonly shadows?: boolean
 }
 
 const VIEW = RA2_ISO_VIEW
@@ -59,14 +61,17 @@ export function drawScene(scene: Scene): void {
   const wet = isWetNight(scene.quality)
   if (scene.glTiles && scene.mapPreview) {
     const preview = scene.mapPreview
-    scene.glTiles.render({
+    const glContext = {
       preview,
       camera: scene.camera,
       range,
       view: VIEW,
-      tileCanvasAt: (tileIndex, subTile) => preview.tileLayer?.canvasAt(tileIndex, subTile),
+      tileCanvasAt: (tileIndex: number, subTile: number) => preview.tileLayer?.canvasAt(tileIndex, subTile),
       units: scene.battle ? collectUnits(scene.battle, scene.artByUnit) : [],
-    })
+    }
+    // 阴影先画（压在地面之上、物体之下），再画物体本身
+    if (scene.shadows) scene.glTiles.renderShadows(glContext)
+    scene.glTiles.render(glContext)
   }
   if (isEmpty) drawCanvasHint(context, scene.canvas, '先在上面选「RA2.MIX」与地图档案，或点「内置示例战场」')
   if (!battle && scene.mapPreview) {

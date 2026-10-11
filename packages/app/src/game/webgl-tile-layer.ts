@@ -27,6 +27,8 @@ export interface GlTileLayer {
   /** 画布尺寸/比例变化时同步后备缓冲 */
   resize(width: number, height: number): void
   readonly ready: boolean
+  /** 实时阴影：把物体按光方向压扁投影到地面（重制版增强，默认关闭） */
+  renderShadows(context: GlSceneContext): void
 }
 
 /** 一帧要画的静态地图内容：地块/覆盖物/建筑都从 `MapPreview` 取 */
@@ -74,6 +76,30 @@ void main() {
   gl_FragColor = texture2D(u_texture, v_uv);
 }`
 
+/**
+ * 阴影用的片元着色器：只取物体的 alpha 当遮蔽，颜色固定为黑、整体半透明。
+ * 纹理已按预乘 alpha 上传，所以黑 = (0,0,0, alpha)，混合出来就是"地面被压暗"。
+ */
+const SHADOW_FRAGMENT_SHADER = `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform float u_alpha;
+varying vec2 v_uv;
+void main() {
+  float mask = texture2D(u_texture, v_uv).a;
+  gl_FragColor = vec4(0.0, 0.0, 0.0, mask * u_alpha);
+}`
+
+/** 阴影设置：光从左上打下来，影子因此往右下偏、并按 `squash` 压扁。 */
+export interface ShadowStyle {
+  readonly offsetX: number
+  readonly offsetY: number
+  readonly squash: number
+  readonly alpha: number
+}
+
+export const DEFAULT_SHADOW: ShadowStyle = { offsetX: 10, offsetY: 6, squash: 0.45, alpha: 0.34 }
+
 function compile(gl: WebGLRenderingContext, type: number, source: string): WebGLShader | undefined {
   const shader = gl.createShader(type)
   if (!shader) return undefined
@@ -112,10 +138,26 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
   const cornerLocation = gl.getAttribLocation(program, 'a_corner')
   const originLocation = gl.getAttribLocation(program, 'a_origin')
   const sizeLocation = gl.getAttribLocation(program, 'a_size')
+  // 阴影另起一个程序：顶点变换与主程序一致，片元只输出黑色遮罩
+  const shadowFragment = compile(gl, gl.FRAGMENT_SHADER, SHADOW_FRAGMENT_SHADER)
+  const shadowProgram = shadowFragment ? gl.createProgram() : undefined
+  if (shadowProgram && vertex && shadowFragment) {
+    gl.attachShader(shadowProgram, vertex)
+    gl.attachShader(shadowProgram, shadowFragment)
+    gl.linkProgram(shadowProgram)
+  }
   const cameraLocation = gl.getUniformLocation(program, 'u_camera')
   const scaleLocation = gl.getUniformLocation(program, 'u_scale')
   const viewportLocation = gl.getUniformLocation(program, 'u_viewport')
   const textureLocation = gl.getUniformLocation(program, 'u_texture')
+  const shadowCameraLocation = shadowProgram ? gl.getUniformLocation(shadowProgram, 'u_camera') : undefined
+  const shadowScaleLocation = shadowProgram ? gl.getUniformLocation(shadowProgram, 'u_scale') : undefined
+  const shadowViewportLocation = shadowProgram ? gl.getUniformLocation(shadowProgram, 'u_viewport') : undefined
+  const shadowTextureLocation = shadowProgram ? gl.getUniformLocation(shadowProgram, 'u_texture') : undefined
+  const shadowAlphaLocation = shadowProgram ? gl.getUniformLocation(shadowProgram, 'u_alpha') : undefined
+  const shadowCornerLocation = shadowProgram ? gl.getAttribLocation(shadowProgram, 'a_corner') : -1
+  const shadowOriginLocation = shadowProgram ? gl.getAttribLocation(shadowProgram, 'a_origin') : -1
+  const shadowSizeLocation = shadowProgram ? gl.getAttribLocation(shadowProgram, 'a_size') : -1
   const buffer = gl.createBuffer()
   const textures = new WeakMap<HTMLCanvasElement, WebGLTexture>()
 
@@ -222,6 +264,75 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       // 单位最后画（与 2D 路径一致：单位在所有建筑之上），锚点是贴地点
       for (const unit of context.units) {
         drawQuad(unit.source, unit.worldX - unit.anchorX, unit.worldY - unit.anchorY)
+      }
+    },
+    /**
+     * 实时阴影：不单独做阴影贴图，直接把物体的贴图当**遮蔽掩模**，按光方向偏移、
+     * 垂直压扁后贴回地面 —— 代价是每个物体一次 draw call，RTS 的同屏数量完全够用。
+     * 只在开关打开时调用；关闭时画面与 2D 路径逐像素一致。
+     */
+    renderShadows(context) {
+      if (!shadowProgram) return
+      const { camera, view } = context
+      const width = canvas.width
+      const height = canvas.height
+      gl.useProgram(shadowProgram)
+      gl.uniform2f(shadowCameraLocation!, camera.x, camera.y)
+      gl.uniform1f(shadowScaleLocation!, viewScale(camera))
+      gl.uniform2f(shadowViewportLocation!, width, height)
+      gl.uniform1i(shadowTextureLocation!, 0)
+      gl.uniform1f(shadowAlphaLocation!, DEFAULT_SHADOW.alpha)
+      gl.activeTexture(gl.TEXTURE0)
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+
+      const drawShadow = (source: HTMLCanvasElement, originX: number, originY: number, baseY: number): void => {
+        const texture = textureFor(source)
+        if (!texture) return
+        const shadowHeight = Math.max(1, Math.round(source.height * DEFAULT_SHADOW.squash))
+        // 影子底边与物体贴地线对齐，再按光方向偏移
+        const shadowOriginX = originX + DEFAULT_SHADOW.offsetX
+        const shadowOriginY = baseY - shadowHeight + DEFAULT_SHADOW.offsetY
+        if (data.length < CORNERS.length * 3) data = new Float32Array(CORNERS.length * 3)
+        for (let index = 0; index < CORNERS.length / 2; index++) {
+          data[index * 6] = CORNERS[index * 2]!
+          data[index * 6 + 1] = CORNERS[index * 2 + 1]!
+          data[index * 6 + 2] = shadowOriginX
+          data[index * 6 + 3] = shadowOriginY
+          data[index * 6 + 4] = source.width
+          data[index * 6 + 5] = shadowHeight
+        }
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
+        gl.bufferData(gl.ARRAY_BUFFER, data.subarray(0, CORNERS.length * 3), gl.STREAM_DRAW)
+        gl.enableVertexAttribArray(shadowCornerLocation)
+        gl.vertexAttribPointer(shadowCornerLocation, 2, gl.FLOAT, false, 24, 0)
+        gl.enableVertexAttribArray(shadowOriginLocation)
+        gl.vertexAttribPointer(shadowOriginLocation, 2, gl.FLOAT, false, 24, 8)
+        gl.enableVertexAttribArray(shadowSizeLocation)
+        gl.vertexAttribPointer(shadowSizeLocation, 2, gl.FLOAT, false, 24, 16)
+        gl.bindTexture(gl.TEXTURE_2D, texture)
+        gl.drawArrays(gl.TRIANGLES, 0, CORNERS.length / 2)
+      }
+
+      const structures = [...context.preview.structures].sort(
+        (left, right) => left.placement.cellX + left.placement.cellY - (right.placement.cellX + right.placement.cellY),
+      )
+      for (const sprite of structures) {
+        const { placement, canvas: source, foundationWidth, foundationHeight } = sprite
+        const anchorX =
+          (placement.cellX + (foundationWidth - 1) / 2 - (placement.cellY + (foundationHeight - 1) / 2)) *
+          (view.cellWidth / 2)
+        const anchorY =
+          (placement.cellX + (foundationWidth - 1) / 2 + placement.cellY + (foundationHeight - 1) / 2) *
+          (view.cellHeight / 2)
+        drawShadow(source, anchorX - source.width / 2, anchorY - source.height / 2, anchorY + source.height / 2)
+      }
+      for (const unit of context.units) {
+        drawShadow(
+          unit.source,
+          unit.worldX - unit.anchorX,
+          unit.worldY - unit.anchorY,
+          unit.worldY + (unit.source.height - unit.anchorY),
+        )
       }
     },
   }
