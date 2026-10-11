@@ -100,7 +100,7 @@ export interface ShadowStyle {
   readonly alpha: number
 }
 
-export const DEFAULT_SHADOW: ShadowStyle = { offsetX: 10, offsetY: 6, squash: 0.45, alpha: 0.34 }
+export const DEFAULT_SHADOW: ShadowStyle = { offsetX: 14, offsetY: 9, squash: 0.42, alpha: 0.5 }
 
 /**
  * 大气雾：等距视角里**屏幕上越靠上 = 离镜头越远**，所以用屏幕纵向梯度当雾的浓度，
@@ -119,15 +119,19 @@ const FOG_FRAGMENT_SHADER = `
 precision mediump float;
 uniform vec3 u_color;
 uniform float u_strength;
+uniform float u_vignette;
 varying vec2 v_screen;
 void main() {
   // 画面上方 = 远处，雾更浓；用 1.6 次方让近处几乎不受影响
   float distance = pow(1.0 - v_screen.y, 1.6);
   float alpha = distance * u_strength;
-  gl_FragColor = vec4(u_color * alpha, alpha);
+  // 暗角：四角压暗，把视线收到画面中心（同一个全屏 pass 里做，不额外开管线）
+  vec2 centered = v_screen * 2.0 - 1.0;
+  float vignette = (1.0 - smoothstep(0.45, 1.3, length(centered))) * u_vignette;
+  gl_FragColor = vec4(u_color * alpha, alpha + vignette);
 }`
 
-export const DEFAULT_FOG = { r: 0.62, g: 0.68, b: 0.78, strength: 0.22 }
+export const DEFAULT_FOG = { r: 0.62, g: 0.68, b: 0.78, strength: 0.3, vignette: 0.38 }
 
 /**
  * 可见格范围 → 世界坐标包围盒（带余量）。
@@ -221,6 +225,7 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
   const fogPositionLocation = fogProgram ? gl.getAttribLocation(fogProgram, 'a_position') : -1
   const fogColorLocation = fogProgram ? gl.getUniformLocation(fogProgram, 'u_color') : undefined
   const fogStrengthLocation = fogProgram ? gl.getUniformLocation(fogProgram, 'u_strength') : undefined
+  const fogVignetteLocation = fogProgram ? gl.getUniformLocation(fogProgram, 'u_vignette') : undefined
   const fogBuffer = fogProgram ? gl.createBuffer() : undefined
   const buffer = gl.createBuffer()
   const textures = new WeakMap<HTMLCanvasElement, WebGLTexture>()
@@ -486,6 +491,7 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       gl.useProgram(fogProgram)
       gl.uniform3f(fogColorLocation!, DEFAULT_FOG.r, DEFAULT_FOG.g, DEFAULT_FOG.b)
       gl.uniform1f(fogStrengthLocation!, DEFAULT_FOG.strength)
+      gl.uniform1f(fogVignetteLocation!, DEFAULT_FOG.vignette)
       gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
       const quad = new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1])
       gl.bindBuffer(gl.ARRAY_BUFFER, fogBuffer)
