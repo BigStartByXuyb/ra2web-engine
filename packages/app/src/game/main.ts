@@ -8,6 +8,7 @@ import { drawScene } from './draw.js'
 import { createHud } from './hud.js'
 import { buildMapPreview, type MapPreview } from './map-preview.js'
 import { openOverlayLayer } from './overlay-layer.js'
+import { drawOfficialPreview } from './official-preview.js'
 import { openTileLayer } from './tile-layer.js'
 import { pickUnit } from './picking.js'
 import { facingFromDelta, buildDemoUnitArt, loadUnitArt, type UnitArt } from './unit-art.js'
@@ -51,6 +52,8 @@ const fitButton = document.getElementById('fit-map') as HTMLButtonElement
 const mapBattleButton = document.getElementById('battle-on-map') as HTMLButtonElement
 const status = document.getElementById('status')!
 const notice = document.getElementById('notice') as HTMLDivElement
+const previewBox = document.getElementById('official-preview-box') as HTMLDivElement
+const previewCanvas = document.getElementById('official-preview') as HTMLCanvasElement
 const hud = createHud({
   tick: document.getElementById('hud-tick')!,
   fps: document.getElementById('hud-fps')!,
@@ -66,6 +69,8 @@ let battle: Battle | undefined
 let mapPreview: MapPreview | undefined
 let gameArchive: Uint8Array | undefined
 let loadedMap: MapFile | undefined
+/** 当前地图档案（`.mix` 里有多张地图，切序号时直接用它重新读一张） */
+let mapArchive: { readonly name: string; readonly bytes: Uint8Array } | undefined
 let artByUnit: readonly (UnitArt | undefined)[] = []
 let accumulator = 0
 let lastFrameAt = 0
@@ -143,34 +148,52 @@ mapInput.addEventListener('change', () => {
   status.textContent = `读取 ${file.name}…`
   void file.arrayBuffer().then(
     (buffer) => {
-      try {
-        const bytes = new Uint8Array(buffer)
-        const map = /\.map$/i.test(file.name) ? readMap(bytes) : readFirstMap(bytes, Number(mapIndexInput.value) || 0)
-        loadedMap = map
-        const tileLayer = gameArchive && map.theater ? openTileLayer(gameArchive, map.theater) : undefined
-        const overlayLayer = gameArchive && map.theater ? openOverlayLayer(gameArchive, map.theater) : undefined
-        mapPreview = buildMapPreview(map, tileLayer, overlayLayer)
-        notice.hidden = true
-        battle = undefined
-        artByUnit = []
-        const overlayCount = new Set(map.cells.map((cell) => cell.overlay?.id).filter((id) => id !== undefined)).size
-        status.textContent = tileLayer
-          ? `地图 ${map.width}×${map.height}（${map.theater}），地形记录 ${map.cells.length} 条` +
-            `，覆盖物 ${overlayCount} 种 —— 地块与覆盖物美术已从剧场档案加载`
-          : `地图 ${map.width}×${map.height}（${map.theater ?? '未知剧场'}），地形记录 ${map.cells.length} 条 —— 先在上面选 RA2.MIX 才能加载地块美术（现在按 z 高度着色）`
-        // 默认 1:1（原版像素尺寸）：整张地图约 5000×2500 像素，整幅看会很小，想看全局再点"整幅显示"
-        camera.zoom = 1
-        centerOn(map.width / 2, map.height / 2)
-        startLoop()
-      } catch (error) {
-        status.textContent = error instanceof Error ? `失败：${error.message}` : '失败'
-      }
+      const bytes = new Uint8Array(buffer)
+      // 只有 `.mix` 是"多张地图的档案"，才记住它用来切序号；`.map` 是单张地图
+      mapArchive = /\.map$/i.test(file.name) ? undefined : { name: file.name, bytes }
+      showMap(bytes, file.name, Number(mapIndexInput.value) || 0)
     },
     (error: unknown) => {
       status.textContent = `读取失败：${String(error)}`
     },
   )
 })
+
+// 改序号就换地图：重选一次文件才能换图太别扭
+mapIndexInput.addEventListener('change', () => {
+  if (!mapArchive) return
+  showMap(mapArchive.bytes, mapArchive.name, Number(mapIndexInput.value) || 0)
+})
+
+/** 装载一张地图：接上地块/覆盖物美术与官方预览图，并把镜头对准地图中心。 */
+function showMap(bytes: Uint8Array, fileName: string, entryIndex: number): void {
+  try {
+    const map = /\.map$/i.test(fileName) ? readMap(bytes) : readFirstMap(bytes, entryIndex)
+    loadedMap = map
+    const tileLayer = gameArchive && map.theater ? openTileLayer(gameArchive, map.theater) : undefined
+    const overlayLayer = gameArchive && map.theater ? openOverlayLayer(gameArchive, map.theater) : undefined
+    mapPreview = buildMapPreview(map, tileLayer, overlayLayer)
+    drawOfficialPreview(previewBox, previewCanvas, map)
+    notice.hidden = true
+    battle = undefined
+    artByUnit = []
+    const overlayCount = new Set(map.cells.map((cell) => cell.overlay?.id).filter((id) => id !== undefined)).size
+    const mapLabel = mapArchive ? `${mapArchive.name} 第 ${entryIndex} 张` : fileName
+    const terrainNote = tileLayer
+      ? `地块与覆盖物美术已从剧场档案加载`
+      : `先在上面选 RA2.MIX 才能加载地块美术（现在按 z 高度着色）`
+    status.textContent =
+      `${mapLabel}：地图 ${map.width}×${map.height}（${map.theater ?? '未知剧场'}）` +
+      `，地形记录 ${map.cells.length} 条，覆盖物 ${overlayCount} 种 —— ${terrainNote}。` +
+      `现在是 1:1 原版像素尺寸，屏幕只装得下一部分：拖动平移、滚轮缩放，或点「整幅显示」看全图`
+    // 默认 1:1（原版像素尺寸）：整张地图约 5000×2500 像素，整幅看会很小，想看全局再点"整幅显示"
+    camera.zoom = 1
+    centerOn(map.width / 2, map.height / 2)
+    startLoop()
+  } catch (error) {
+    status.textContent = error instanceof Error ? `失败：${error.message}` : '失败'
+  }
+}
 
 fitButton.addEventListener('click', () => {
   const preview = mapPreview

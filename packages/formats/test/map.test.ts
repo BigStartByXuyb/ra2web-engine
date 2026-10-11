@@ -39,13 +39,6 @@ function buildSyntheticMap(): Uint8Array {
   }
   assert.equal(records.length, 10 * MAP_RECORD_BYTES)
 
-  const stream = Uint8Array.from([17 + records.length, ...records, 0x11, 0x00, 0x00])
-  const block = new Uint8Array(4 + stream.length)
-  const view = new DataView(block.buffer)
-  view.setUint16(0, stream.length, true)
-  view.setUint16(2, records.length, true)
-  block.set(stream, 4)
-
   return new Uint8Array(
     Buffer.from(
       [
@@ -55,12 +48,23 @@ function buildSyntheticMap(): Uint8Array {
         'Theater=TEMPERATE',
         '',
         '[IsoMapPack5]',
-        `1=${Buffer.from(block).toString('base64')}`,
+        `1=${packedBlock(Uint8Array.from(records))}`,
         '',
       ].join('\r\n'),
       'latin1',
     ),
   )
+}
+
+/** 把一个字节序列包成"单个 LZO 块"并转成 base64：首字节是字面量游程，末尾是结束标记。 */
+function packedBlock(payload: Uint8Array): string {
+  const stream = Uint8Array.from([17 + payload.length, ...payload, 0x11, 0x00, 0x00])
+  const block = new Uint8Array(4 + stream.length)
+  const view = new DataView(block.buffer)
+  view.setUint16(0, stream.length, true)
+  view.setUint16(2, payload.length, true)
+  block.set(stream, 4)
+  return Buffer.from(block).toString('base64')
 }
 
 test('合成地图：尺寸、剧场、记录与方格坐标', () => {
@@ -135,6 +139,47 @@ test('没有覆盖物段时不报错，覆盖物全部为空', () => {
     map.cells.some((cell) => cell.overlay !== undefined),
     false,
   )
+  assert.equal(map.preview, undefined, '没有 [Preview] 段时没有预览图')
+})
+
+test('合成地图：官方预览图按 24 位 RGB 解出', () => {
+  const rgb = Uint8Array.from([10, 20, 30, 40, 50, 60])
+  const text = new Uint8Array(
+    Buffer.from(
+      [
+        Buffer.from(buildSyntheticMap()).toString('latin1'),
+        '[Preview]',
+        'Size=0,0,2,1',
+        '',
+        '[PreviewPack]',
+        `1=${packedBlock(rgb)}`,
+        '',
+      ].join('\r\n'),
+      'latin1',
+    ),
+  )
+  const map = readMap(text)
+  assert.deepEqual(map.preview, { width: 2, height: 1, rgb })
+})
+
+test('预览图长度对不上时按"没有预览图"处理，不挡住地图本身', () => {
+  const text = new Uint8Array(
+    Buffer.from(
+      [
+        Buffer.from(buildSyntheticMap()).toString('latin1'),
+        '[Preview]',
+        'Size=0,0,9,9',
+        '',
+        '[PreviewPack]',
+        `1=${packedBlock(Uint8Array.from([1, 2, 3]))}`,
+        '',
+      ].join('\r\n'),
+      'latin1',
+    ),
+  )
+  const map = readMap(text)
+  assert.equal(map.preview, undefined)
+  assert.equal(map.cells.length, 10, '地图本身照常解出')
 })
 
 /**
@@ -143,6 +188,7 @@ test('没有覆盖物段时不报错，覆盖物全部为空', () => {
  */
 const mixPath = process.env.RA2_MIX
 const mapsPath = mixPath ? path.join(path.dirname(mixPath), 'Maps01.mix') : undefined
+const multiPath = mixPath ? path.join(path.dirname(mixPath), 'MULTI.MIX') : undefined
 const skip = !mapsPath || !fs.existsSync(mapsPath) ? '未提供 RA2_MIX（或同目录没有 Maps01.mix）' : false
 
 test('原版 Maps01.mix 的地形包能被完整解出', { skip }, () => {
@@ -184,4 +230,13 @@ test('原版 Maps01.mix 的覆盖物能被解出并落到格上', { skip }, () =
   assert.equal(inRange.length, 122)
   const ids = new Set(inRange.map((cell) => cell.overlay!.id))
   for (const id of [102, 240, 241, 171]) assert.ok(ids.has(id), `应当有覆盖物编号 ${id}`)
+})
+
+test('原版 MULTI.MIX 的官方预览图能解出', { skip: multiPath ? false : '同目录没有 MULTI.MIX' }, () => {
+  const archive = new Uint8Array(fs.readFileSync(multiPath!))
+  const index = readMixIndex(archive)
+  const map = readMap(readMixEntry(archive, index, index.entries[7]!))
+  assert.equal(map.theater, 'TEMPERATE')
+  assert.deepEqual([map.preview?.width, map.preview?.height], [102, 52])
+  assert.deepEqual([...map.preview!.rgb.subarray(0, 3)], [176, 184, 80], '首像素是草地绿')
 })

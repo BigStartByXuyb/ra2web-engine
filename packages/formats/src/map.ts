@@ -64,6 +64,16 @@ export interface MapFile {
   readonly localBounds: MapBounds | undefined
   readonly theater: string | undefined
   readonly cells: readonly MapCell[]
+  /** 地图档案自带的官方预览图；没有这张图或布局不认识时为 undefined */
+  readonly preview: MapPreviewImage | undefined
+}
+
+/** 官方预览图：24 位 RGB，不经调色板。 */
+export interface MapPreviewImage {
+  readonly width: number
+  readonly height: number
+  /** 长度 = width × height × 3 */
+  readonly rgb: Uint8Array
 }
 
 export function readMap(bytes: Uint8Array): MapFile {
@@ -82,7 +92,25 @@ export function readMap(bytes: Uint8Array): MapFile {
     localBounds: readBounds(document, 'localsize'),
     theater: iniValue(document, 'map', 'theater'),
     cells,
+    preview: readPreview(document),
   }
+}
+
+/**
+ * 官方预览图：`[Preview] Size=<左>,<上>,<宽>,<高>` + `[PreviewPack]`（LZO1X 分块包）。
+ *
+ * 解出的是 `宽 × 高 × 3` 字节的 **24 位 RGB**（实测 `MULTI.MIX` 第 7 张：`0,0,102,52` → 15912 字节、
+ * 首像素 (176,184,80)）。长度对不上时按"没有预览图"处理 —— 这张图是装饰，不该挡住地图本身。
+ */
+function readPreview(document: IniDocument): MapPreviewImage | undefined {
+  const size = iniValue(document, 'preview', 'size')
+  if (!size || !document.sections.has('previewpack')) return undefined
+  const parts = size.split(',').map((part) => Number.parseInt(part.trim(), 10))
+  const width = parts[2]
+  const height = parts[3]
+  if (parts.length !== 4 || !width || !height || width <= 0 || height <= 0) return undefined
+  const rgb = readPackedSection(document, 'PreviewPack', 'lzo1x')
+  return rgb.byteLength === width * height * 3 ? { width, height, rgb } : undefined
 }
 
 function readBounds(document: IniDocument, key: string): MapBounds | undefined {
