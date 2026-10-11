@@ -104,8 +104,8 @@
         color: var(--gold);
       }
     </style>
-    <script type="module" crossorigin src="./assets/game-DEVGkNw9.js"></script>
-    <link rel="modulepreload" crossorigin href="./assets/land-gRNfmQe1.js">
+    <script type="module" crossorigin src="./assets/game-DOGYqYo3.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/land-BW-urUwZ.js">
   </head>
   <body>
     <canvas id="stage"></canvas>
@@ -144,8 +144,9 @@
     <div id="hint" class="panel">
       地图与单位数值来自 <code>rules.ini</code>，单位美术由 <code>@ra2web/render</code> 从
       <code>&lt;单位&gt;.vxl</code> 实时渲染；地形是档案里的 TMP 地块，按剧场调色板上色。 石头、枯树、桥板等覆盖物已按
-      art.ini 的规则从剧场档案取用，地图预置的建筑按 art.ini 与 rules.ini 的图形名规则画上。 水面动画、单位攻击动作、
-      可破坏物与建筑的损毁帧尚未接入。
+      art.ini 的规则从剧场档案取用，地图预置的建筑按 art.ini 与 rules.ini 的图形名规则画上。 开战后有战争迷雾：
+      没探索过的格子是黑的，按单位 <code>Sight</code> 逐格揭开且不会重新变黑，敌方单位只在当前视野里显示。
+      水面动画、单位攻击动作、可破坏物与建筑的损毁帧尚未接入。
     </div>
 
   </body>
