@@ -57,3 +57,5 @@ formats  →  rules  →  sim  →  app
 - 提交信息用 Conventional Commits（`feat:`、`fix:`、`docs:`、`refactor:`、`test:`、`chore:`）。
 - 一个提交只做一件事；格式化与逻辑改动分开提交。
 - 提交前必须本地通过 `npm run typecheck && npm run test && npm run lint`。
+- 改到战场页的渲染或交互时，另外跑 `npm run test:ui`（需要玩家自备的原版档案，
+  缺档时整批跳过）：它比对的是画面事实，`npm run test` 那批纯逻辑用例覆盖不到。

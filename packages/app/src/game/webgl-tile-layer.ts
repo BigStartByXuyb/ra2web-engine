@@ -183,6 +183,29 @@ interface GroundedQuad {
   readonly groundY: number
 }
 
+/** 倒影四边形的世界落位：`top` 是世界坐标里翻转后的上边（`height` 为负表示上下翻转）。 */
+export interface ReflectionQuad {
+  readonly top: number
+  readonly height: number
+}
+
+/**
+ * 倒影的几何：贴图第 v 行落到 `贴地线 + squash × (贴地线 − v) − lift`。
+ * 即"关于贴地线上下翻转"再按离贴地线的距离压扁，最后整体抬 `lift` 像素。
+ *
+ * 贴地点因此不动（v = 贴地线时式中只剩 `贴地线 − lift`），远端（v 趋近贴图顶）贴向地面；
+ * 倒影整体落在物体下方，不会盖住物体本身。
+ */
+export function reflectionQuad(
+  sprite: { readonly originY: number; readonly groundY: number; readonly height: number },
+  lift: number,
+): ReflectionQuad {
+  return {
+    top: sprite.groundY + WET_REFLECTION.squash * (sprite.groundY - sprite.originY) - lift,
+    height: -sprite.height * WET_REFLECTION.squash,
+  }
+}
+
 function groundedQuads(context: GlSceneContext): readonly GroundedQuad[] {
   const { view } = context
   const bounds = visibleWorldBounds(context.range, view)
@@ -469,9 +492,11 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
     for (const quad of quads) {
       const texture = textureFor(quad.source)
       if (!texture) continue
-      const height = quad.source.height * WET_REFLECTION.squash
-      const top = quad.groundY + WET_REFLECTION.squash * (quad.groundY - quad.originY) - lift
-      pushQuad(texture, quad.originX, top, quad.source.width, -height)
+      const mirrored = reflectionQuad(
+        { originY: quad.originY, groundY: quad.groundY, height: quad.source.height },
+        lift,
+      )
+      pushQuad(texture, quad.originX, mirrored.top, quad.source.width, mirrored.height)
     }
     flushBatch(cornerLocation, originLocation, sizeLocation)
     gl.uniform1f(fadeLocation!, 0)

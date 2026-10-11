@@ -3,6 +3,7 @@ dist/
 packages/app/dist/
 *.tsbuildinfo
 .cache/
+tests/ui/out/
 # 防止误把编译产物落到源码目录（本项目源码只有 .ts）
 packages/*/src/**/*.js
 packages/*/src/**/*.d.ts

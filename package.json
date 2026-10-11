@@ -14,6 +14,7 @@
     "watch": "tsc -b --watch",
     "typecheck": "tsc -b && tsc -p tsconfig.tests.json && tsc -p tsconfig.app.json",
     "test": "tsx --test --test-concurrency=2 \"packages/**/*.test.ts\"",
+    "test:ui": "tsx tests/ui/run.ts",
     "lint": "prettier --check .",
     "format": "prettier --write .",
     "app:dev": "vite --config packages/app/vite.config.ts",
@@ -29,6 +30,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "playwright": "^1.64.0",
     "prettier": "^3.9.10",
     "tsx": "^4.23.15",
     "typescript": "^5.6.3",

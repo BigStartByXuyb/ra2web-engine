@@ -37,5 +37,6 @@ INI 加载例程已读出并归档。进行中：函数清单分类、数据格�
 npm install
 npm run typecheck
 npm run test
+npm run test:ui   # 战场页 UI 用例：需要原版档案，缺档时整批跳过
 npm run build
 ```
