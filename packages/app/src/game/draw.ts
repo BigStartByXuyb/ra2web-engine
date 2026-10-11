@@ -5,7 +5,8 @@ import { viewScale, visibleCellRange, type Camera } from './camera.js'
 import { drawMapPreview, type MapPreview } from './map-preview.js'
 import { HOVER_COLOR, SELECTED_COLOR, drawTerrain, strokeCell } from './terrain.js'
 import { blitFogCell, createFogSprites, type FogSprites } from './fog-layer.js'
-import type { UnitArt } from './unit-art.js'
+import { applyWetNightGrade, drawWetReflection } from './post-process.js'
+import { isWetNight, type QualityPreset, type UnitArt } from './unit-art.js'
 
 /**
  * 画面：每帧只读一次状态，不写任何模拟数据。
@@ -27,6 +28,10 @@ export interface Scene {
   readonly mapPreview: MapPreview | undefined
   readonly artByUnit: readonly (UnitArt | undefined)[]
   readonly hoverCell: { x: number; y: number } | undefined
+  /** 画质预设：`hd` 时画布用平滑放大（写实预设的一部分） */
+  readonly quality: QualityPreset
+  /** 帧时间戳（毫秒），雨夜预设的雨丝靠它推进 */
+  readonly time: number
 }
 
 const VIEW = RA2_ISO_VIEW
@@ -41,11 +46,13 @@ export function drawScene(scene: Scene): void {
   context.setTransform(scale, 0, 0, scale, -scene.camera.x * scale, -scene.camera.y * scale)
   // 原版地块是 60×30 像素一格：放大时用最近邻，像素边界才是硬的；
   // 缩到 1 倍以下时改平滑降采样，否则直接抽点会把草地的 1 像素质感整片丢掉、显得糊。
-  context.imageSmoothingEnabled = scale < 1
+  // 高清写实预设始终平滑放大 —— 那一档要的正是没有硬像素边的观感。
+  context.imageSmoothingEnabled = scene.quality === 'hd' || scale < 1
 
   const battle = scene.battle
   const range = visibleCellRange(scene.camera, VIEW, scene.canvas.width, scene.canvas.height)
   const isEmpty = !battle && !scene.mapPreview
+  const wet = isWetNight(scene.quality)
   if (isEmpty) drawCanvasHint(context, scene.canvas, '先在上面选「RA2.MIX」与地图档案，或点「内置示例战场」')
   if (!battle && scene.mapPreview) {
     drawMapPreview(context, scene.mapPreview, VIEW, range)
@@ -61,8 +68,12 @@ export function drawScene(scene: Scene): void {
       strokeCell(context, VIEW, { x: fromFixed(selected.x), y: fromFixed(selected.y) }, SELECTED_COLOR)
       drawPath(context, selected.path.slice(selected.pathIndex))
     }
-    drawUnits(context, battle, scene.artByUnit)
+    drawUnits(context, battle, scene.artByUnit, wet)
     drawShroud(context, battle, VIEW, range)
+  }
+  if (wet) {
+    context.setTransform(1, 0, 0, 1, 0, 0)
+    applyWetNightGrade(context, scene.canvas, { time: scene.time, scale })
   }
   context.setTransform(1, 0, 0, 1, 0, 0)
 }
@@ -129,6 +140,7 @@ function drawUnits(
   context: CanvasRenderingContext2D,
   battle: Battle,
   artByUnit: readonly (UnitArt | undefined)[],
+  wet: boolean,
 ): void {
   const order = battle.world.units
     .map((unit, index) => ({ unit, index }))
@@ -149,6 +161,9 @@ function drawUnits(
       continue
     }
     const frame = art.frames[battle.facingByUnit[index] ?? 0]!
-    context.drawImage(frame.canvas, ground.x - frame.anchorX, ground.y - frame.anchorY)
+    const left = ground.x - frame.anchorX
+    const top = ground.y - frame.anchorY
+    if (wet) drawWetReflection(context, frame.canvas, left, top, frame.anchorY, VIEW)
+    context.drawImage(frame.canvas, left, top)
   }
 }

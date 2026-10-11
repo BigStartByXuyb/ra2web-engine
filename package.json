@@ -18,6 +18,7 @@
     "format": "prettier --write .",
     "app:dev": "vite --config packages/app/vite.config.ts",
     "app:build": "vite build --config packages/app/vite.config.ts",
+    "game:serve": "tsx tools/serve-game.ts",
     "sim:scenario": "tsx tools/sim-scenario.ts",
     "vanilla:scene": "tsx tools/vanilla-scene.ts",
     "vanilla:mix": "tsx --test packages/formats/test/mix-encrypted.test.ts",

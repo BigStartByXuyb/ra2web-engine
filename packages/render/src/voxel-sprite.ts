@@ -1,6 +1,6 @@
 import { paletteColor, type Palette, type Rgb } from '@ra2web/formats'
 import { fillImage, type Rgba } from './image.js'
-import { DEFAULT_LIGHT, shadeColor, type Vec3 } from './shading.js'
+import { DEFAULT_LIGHT, PIXEL_STYLE, shadeColor, type ShadingStyle, type Vec3 } from './shading.js'
 import { groundPivot, modelBounds, type PositionedModel, type PositionedVoxel, type VoxelPoint } from './voxel-model.js'
 
 /**
@@ -20,6 +20,8 @@ export interface VoxelSpriteOptions {
   readonly facing: number
   readonly pixelsPerVoxel: number
   readonly light?: Vec3
+  /** 着色模型：像素风用 `PIXEL_STYLE`（默认），写实预设用 `METALLIC_STYLE` */
+  readonly shading?: ShadingStyle
   readonly background?: Rgba
   readonly paddingInVoxels?: number
 }
@@ -76,7 +78,7 @@ export function renderVoxelSprite(model: PositionedModel, options: VoxelSpriteOp
 
   const rgba = new Uint8Array(layout.width * layout.height * 4)
   if (options.background) fillImage(rgba, options.background)
-  drawProjected(rgba, layout, projected, model.palette, options.light ?? DEFAULT_LIGHT)
+  drawProjected(rgba, layout, projected, model.palette, options.light ?? DEFAULT_LIGHT, options.shading ?? PIXEL_STYLE)
   return {
     facing,
     width: layout.width,
@@ -162,6 +164,7 @@ function drawProjected(
   projected: readonly ProjectedVoxel[],
   palette: Palette | undefined,
   light: Vec3,
+  shading: ShadingStyle,
 ): void {
   for (const item of sortFarToNear(projected)) {
     const base = palette ? paletteColor(palette, item.voxel.colorIndex) : FALLBACK_COLOR
@@ -170,7 +173,7 @@ function drawProjected(
       layout,
       item.screenX - layout.originX + layout.paddingPixels,
       item.screenY - layout.originY + layout.paddingPixels,
-      shadeColor(base, item.voxel.normalIndex, light),
+      shadeColor(base, item.voxel.normalIndex, light, shading),
     )
   }
 }

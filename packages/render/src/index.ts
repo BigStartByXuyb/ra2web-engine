@@ -5,8 +5,15 @@ export { TILE_TRANSPARENT_INDEX, paintTmpSubTile } from './tile-image.js'
 export { paintShpFrame } from './shp-image.js'
 export { RA2_ISO_VIEW, cellToScreen, screenToCell } from './iso.js'
 export type { CellPoint, IsoView, ScreenPoint } from './iso.js'
-export { APPROXIMATE_NORMALS, DEFAULT_LIGHT, shadeColor } from './shading.js'
-export type { Vec3 } from './shading.js'
+export {
+  APPROXIMATE_NORMALS,
+  DEFAULT_LIGHT,
+  METALLIC_STYLE,
+  PIXEL_STYLE,
+  VIEW_DIRECTION,
+  shadeColor,
+} from './shading.js'
+export type { ShadingStyle, Vec3 } from './shading.js'
 export { composeSpriteStrip } from './sprite-strip.js'
 export { groundPivot, modelBounds, positionVoxelModel } from './voxel-model.js'
 export type { PositionedModel, PositionedVoxel, VoxelBounds, VoxelPoint } from './voxel-model.js'

@@ -126,6 +126,14 @@
       <input id="map-file" type="file" accept=".mix,.map" />
       <div class="row"><span>地图序号</span><input id="map-index" type="number" min="0" value="0" /></div>
       <button id="demo-battle" type="button">内置示例战场（无素材）</button>
+      <label class="row"
+        >画质预设
+        <select id="quality">
+          <option value="pixel">原版像素风</option>
+          <option value="hd">金属光泽（测试）</option>
+          <option value="wetNight">写实氛围 · 雨夜（测试）</option>
+        </select>
+      </label>
       <button id="battle-on-map" type="button">在这张地图上开战</button>
       <button id="fit-map" type="button">整幅显示</button>
       <div id="status">未加载</div>
@@ -144,7 +152,8 @@
       <code>&lt;单位&gt;.vxl</code> 实时渲染；地形是档案里的 TMP 地块，按剧场调色板上色。 石头、枯树、桥板等覆盖物已按
       art.ini 的规则从剧场档案取用，地图预置的建筑按 art.ini 与 rules.ini 的图形名规则画上。 开战后有战争迷雾：
       没探索过的格子是黑的，按单位 <code>Sight</code> 逐格揭开且不会重新变黑，敌方单位只在当前视野里显示。
-      水面动画、单位攻击动作、可破坏物与建筑的损毁帧尚未接入。
+      「画质预设」里的<b>高清写实</b>是引擎侧的测试档：素材仍是原版，它只换着色模型（带金属高光）与放大方式；
+      换成高清素材后同一套参数直接作用在新素材上。 水面动画、单位攻击动作、可破坏物与建筑的损毁帧尚未接入。
     </div>
 
     <script type="module" src="/src/game/main.ts"></script>

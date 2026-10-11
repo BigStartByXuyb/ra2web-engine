@@ -12,7 +12,7 @@ import { drawOfficialPreview } from './official-preview.js'
 import { openStructureLayer } from './structure-layer.js'
 import { openTileLayer } from './tile-layer.js'
 import { pickUnit } from './picking.js'
-import { facingFromDelta, buildDemoUnitArt, loadUnitArt, type UnitArt } from './unit-art.js'
+import { facingFromDelta, buildDemoUnitArt, loadUnitArt, type QualityPreset, type UnitArt } from './unit-art.js'
 
 /**
  * 战场入口：一局可玩的切片。
@@ -51,6 +51,7 @@ const mapInput = document.getElementById('map-file') as HTMLInputElement
 const mapIndexInput = document.getElementById('map-index') as HTMLInputElement
 const fitButton = document.getElementById('fit-map') as HTMLButtonElement
 const mapBattleButton = document.getElementById('battle-on-map') as HTMLButtonElement
+const qualitySelect = document.getElementById('quality') as HTMLSelectElement
 const status = document.getElementById('status')!
 const notice = document.getElementById('notice') as HTMLDivElement
 const previewBox = document.getElementById('official-preview-box') as HTMLDivElement
@@ -73,6 +74,8 @@ let loadedMap: MapFile | undefined
 /** 当前地图档案（`.mix` 里有多张地图，切序号时直接用它重新读一张） */
 let mapArchive: { readonly name: string; readonly bytes: Uint8Array } | undefined
 let artByUnit: readonly (UnitArt | undefined)[] = []
+/** 画质预设：影响单位体素的着色与超采样，也决定画布用什么方式放大 */
+let quality: QualityPreset = 'pixel'
 let accumulator = 0
 let lastFrameAt = 0
 let hoverCell: Cell | undefined
@@ -148,23 +151,34 @@ mapInput.addEventListener('change', () => {
   if (!file) return
   status.textContent = `读取 ${file.name}…`
   void file.arrayBuffer().then(
-    (buffer) => {
-      const bytes = new Uint8Array(buffer)
-      // 只有 `.mix` 是"多张地图的档案"，才记住它用来切序号；`.map` 是单张地图
-      mapArchive = /\.map$/i.test(file.name) ? undefined : { name: file.name, bytes }
-      showMap(bytes, file.name, Number(mapIndexInput.value) || 0)
-    },
+    (buffer) => openMapArchive(file.name, new Uint8Array(buffer), Number(mapIndexInput.value) || 0),
     (error: unknown) => {
       status.textContent = `读取失败：${String(error)}`
     },
   )
 })
 
+/** 打开一份地图档案：`.mix` 记住用于切序号，`.map` 是单张地图。 */
+function openMapArchive(fileName: string, bytes: Uint8Array, entryIndex: number): void {
+  mapArchive = /\.map$/i.test(fileName) ? undefined : { name: fileName, bytes }
+  showMap(bytes, fileName, entryIndex)
+}
+
 // 改序号就换地图：重选一次文件才能换图太别扭
 mapIndexInput.addEventListener('change', () => {
   if (!mapArchive) return
   showMap(mapArchive.bytes, mapArchive.name, Number(mapIndexInput.value) || 0)
 })
+
+// 换预设要重画单位美术（着色与超采样都在这一步决定），有战局时立刻重画
+qualitySelect.addEventListener('change', () => {
+  quality = toQualityPreset(qualitySelect.value)
+  if (battle) artByUnit = buildArt(battle, gameArchive)
+})
+
+function toQualityPreset(value: string): QualityPreset {
+  return value === 'hd' || value === 'wetNight' ? value : 'pixel'
+}
 
 /** 装载一张地图：接上地块/覆盖物美术与官方预览图，并把镜头对准地图中心。 */
 function showMap(bytes: Uint8Array, fileName: string, entryIndex: number): void {
@@ -205,7 +219,10 @@ fitButton.addEventListener('click', () => {
   fitOn(preview.width, preview.height)
 })
 
-mapBattleButton.addEventListener('click', () => {
+mapBattleButton.addEventListener('click', () => startBattleOnMap())
+
+/** 在当前地图上开战：按地块类型与高度差判定通行性，双方各找一个落脚点。 */
+function startBattleOnMap(): void {
   if (!gameArchive) {
     status.textContent = '先选 RA2.MIX：单位数值与地块美术都在里面'
     return
@@ -244,41 +261,46 @@ mapBattleButton.addEventListener('click', () => {
   } catch (error) {
     status.textContent = error instanceof Error ? `失败：${error.message}` : '失败'
   }
-})
+}
 
 mixInput.addEventListener('change', () => {
   const file = mixInput.files?.[0]
   if (!file) return
   status.textContent = `读取 ${file.name}…`
   void file.arrayBuffer().then(
-    (buffer) => {
-      const bytes = new Uint8Array(buffer)
-      gameArchive = bytes
-      try {
-        const created = createBattle(bytes, {
-          ...MAP_SIZE,
-          blocked: buildBlockedCells(),
-          spawns: BATTLE_SPAWNS,
-          seed: 20261010,
-        })
-        artByUnit = buildArt(created, bytes)
-        showPlaceholderNotice()
-        activate(
-          created,
-          `已装载 ${created.world.units.length} 个单位：数值来自 rules.ini，美术来自 <单位>.vxl；` +
-            `地形是内置示例战场 —— 再选一张地图档案就会换成原版地形`,
-        )
-      } catch (error) {
-        battle = undefined
-        artByUnit = []
-        status.textContent = error instanceof Error ? `失败：${error.message}` : '失败'
-      }
-    },
+    (buffer) => loadGameArchive(new Uint8Array(buffer)),
     (error: unknown) => {
       status.textContent = `读取失败：${String(error)}`
     },
   )
 })
+
+/**
+ * 装入原版档案：建一局内置示例战场（数值来自 rules.ini、美术来自 `<单位>.vxl`）。
+ * 再选一张地图档案就会换成原版地形。
+ */
+function loadGameArchive(bytes: Uint8Array): void {
+  gameArchive = bytes
+  try {
+    const created = createBattle(bytes, {
+      ...MAP_SIZE,
+      blocked: buildBlockedCells(),
+      spawns: BATTLE_SPAWNS,
+      seed: 20261010,
+    })
+    artByUnit = buildArt(created, bytes)
+    showPlaceholderNotice()
+    activate(
+      created,
+      `已装载 ${created.world.units.length} 个单位：数值来自 rules.ini，美术来自 <单位>.vxl；` +
+        `地形是内置示例战场 —— 再选一张地图档案就会换成原版地形`,
+    )
+  } catch (error) {
+    battle = undefined
+    artByUnit = []
+    status.textContent = error instanceof Error ? `失败：${error.message}` : '失败'
+  }
+}
 
 /** 装入一局：接上美术、把镜头对准己方第一辆车、开始循环。 */
 function activate(created: Battle, message: string, terrain: MapPreview | undefined = undefined): void {
@@ -328,7 +350,10 @@ function buildArt(created: Battle, archiveBytes: Uint8Array | undefined): readon
     const key = `${typeId}:${unit.owner}`
     if (!cache.has(key)) {
       const tint = OWNER_TINT[unit.owner % OWNER_TINT.length]
-      cache.set(key, archiveBytes ? loadUnitArt(archiveBytes, typeId) : buildDemoUnitArt(typeId, tint))
+      cache.set(
+        key,
+        archiveBytes ? loadUnitArt(archiveBytes, typeId, quality) : buildDemoUnitArt(typeId, tint, quality),
+      )
     }
     return cache.get(key)
   })
@@ -345,7 +370,7 @@ function frame(now: number): void {
       accumulator -= TICK_MS
     }
   }
-  drawScene({ canvas, camera, battle, mapPreview, artByUnit, hoverCell })
+  drawScene({ canvas, camera, battle, mapPreview, artByUnit, hoverCell, quality, time: now })
   hud.update(now, { battle, mapPreview, camera, hoverCell })
   requestAnimationFrame(frame)
 }
@@ -412,3 +437,47 @@ function buildBlockedCells(): readonly Cell[] {
 
 resizeCanvas()
 startLoop()
+void autoLoadFromQuery()
+
+/**
+ * 从 URL 参数自动装载，省掉每次手选档案：
+ *
+ * ```
+ * game.html?mix=/pack/RA2.MIX&map=/pack/Maps01.mix&index=0&battle=1
+ * ```
+ *
+ * `npm run game:serve` 会把原版档案目录挂到 `/pack/` 下，本地一条链接直接进战场。
+ * 参数缺省时什么都不做，页面照旧走"手选文件"那条路。
+ */
+async function autoLoadFromQuery(): Promise<void> {
+  const params = new URLSearchParams(location.search)
+  const mixUrl = params.get('mix')
+  const mapUrl = params.get('map')
+  if (!mixUrl && !mapUrl) return
+  try {
+    if (mixUrl) {
+      status.textContent = `读取 ${mixUrl}…`
+      loadGameArchive(await fetchBytes(mixUrl))
+    }
+    if (mapUrl) {
+      status.textContent = `读取 ${mapUrl}…`
+      const index = Number(params.get('index')) || 0
+      mapIndexInput.value = String(index)
+      openMapArchive(fileNameOf(mapUrl), await fetchBytes(mapUrl), index)
+      if (params.get('battle') === '1') startBattleOnMap()
+    }
+  } catch (error) {
+    status.textContent = `自动装载失败：${error instanceof Error ? error.message : String(error)}`
+  }
+}
+
+async function fetchBytes(url: string): Promise<Uint8Array> {
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`${url} → HTTP ${response.status}`)
+  return new Uint8Array(await response.arrayBuffer())
+}
+
+function fileNameOf(url: string): string {
+  const clean = url.split('?')[0] ?? url
+  return clean.slice(clean.lastIndexOf('/') + 1) || 'map.mix'
+}
