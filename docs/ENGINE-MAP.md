@@ -321,6 +321,30 @@ Format80 命令表（多字节字段小端）：
 未核对：`height` / `terrainType` / `rampType` / 雷达色的语义；两份额外数据的内容与用途；
 `flags` 的 bit2（实测在部分地块上为 1）。
 
+## 单位移动速度（已用原版公式核实）
+
+`rules.ini` 的 `[<Unit>] Speed=` **不是 lepton/tick，而是百分比**。原版算式（ModEnc 的 `Speed` 条目原文）：
+
+```
+每 tick 位移（lepton）= min( min(Speed, 100) * 256 / 100, 255 )
+```
+
+1 格 = 256 lepton，逻辑 15 帧/秒。实测值：犀牛 `Speed=6` → 15 lepton/tick（约 17.1 tick 走一格、
+0.88 格/秒），灰熊 `Speed=7` → 18，基地车与步兵 `Speed=4` → 10。
+
+改动前本项目把 `Speed` 直接当 lepton/tick 用（犀牛只有 6 lepton/tick），**整体慢 2.5 倍**，
+这是"单位看着走不动"的原因。
+
+对照：官方网页客户端（Chrono Divide）`BASE_TICKS_PER_SECOND` 同样是 15，但它对车/船/超时空用
+`256 × Speed / 65`、其余用 `/100` —— 同一条 Speed 下它的车辆比原版式子快 **1.54 倍**，
+属于那个客户端自己的取值，本项目按原版式子实现。
+
+**地块系数还没乘进速度**：`[Clear] Track=100%`、`[Tiberium] Track=70%` 这类百分比在原版里是
+速度乘数（ModEnc 同条目："subject to land characteristics which can set different speed modifiers
+per SpeedType, when passing over different LandTypes"）；现在这些系数只用于通行性判定，
+因为主战场地形几乎都是 100% 的地块，暂时看不出差别。同条目里另外两条也还没做：
+步兵爬行 2/3、行走 3/2 速度，车辆被击伤后 3/4 速度。
+
 ## 战争迷雾（已用客户端实现核实）
 
 迷雾是**永久揭开**模型，不是"看不见就重新变黑"的那种：

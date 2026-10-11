@@ -1,8 +1,39 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { ONE } from '../src/fixed.js'
+import { MAX_MOVEMENT_PER_TICK, speedToMovementPerTick } from '../src/movement-scale.js'
 import { unitCell } from '../src/unit.js'
 import { createWorld, enqueueCommand, run, step } from '../src/world.js'
+
+/**
+ * Speed 是百分比而不是 lepton/tick：每 tick 位移 = min( min(Speed,100) * 256/100, 255 )。
+ * 依据：ModEnc 的 `Speed` 条目给出的原版式子。
+ */
+test('Speed 按百分比换算成每 tick 位移', () => {
+  assert.equal(speedToMovementPerTick(6), 15, '犀牛 Speed=6 → 15.36 → 15 lepton/tick')
+  assert.equal(speedToMovementPerTick(7), 18, '灰熊 Speed=7 → 17.92 → 18')
+  assert.equal(speedToMovementPerTick(4), 10, '基地车/步兵 Speed=4 → 10.24 → 10')
+  assert.equal(speedToMovementPerTick(0), 0)
+  assert.equal(speedToMovementPerTick(-3), 0)
+  assert.equal(speedToMovementPerTick(100), MAX_MOVEMENT_PER_TICK, 'Speed=100 → 256 会被 255 截断')
+  assert.equal(speedToMovementPerTick(1000), MAX_MOVEMENT_PER_TICK, '超过 100 一律按 100')
+})
+
+test('换算后的速度真的落在模拟里：犀牛一格约 17 tick', () => {
+  const world = createWorld({
+    width: 8,
+    height: 3,
+    units: [{ owner: 0, cell: { x: 0, y: 1 }, speed: speedToMovementPerTick(6), health: 100 }],
+    seed: 1,
+  })
+  enqueueCommand(world, 1, { kind: 'move', unitId: 1, target: { x: 3, y: 1 } })
+  // 起点在格心：到第 3 格中心共 768 lepton，256/15 ≈ 17.1 tick/格，约 51 tick
+  run(world, 30)
+  assert.ok(unitCell(world.units[0]!).x < 3, `30 tick 时还没到第 3 格（现在 ${unitCell(world.units[0]!).x}）`)
+  run(world, 30)
+  assert.deepEqual(unitCell(world.units[0]!), { x: 3, y: 1 })
+  assert.equal(world.units[0]!.x, 3 * ONE + (ONE >> 1), '停在格心')
+})
 
 test('单位按速度推进并停在目标格中心', () => {
   const world = createWorld({
