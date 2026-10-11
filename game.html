@@ -77,6 +77,19 @@
         margin-top: 6px;
         padding: 6px 8px;
       }
+      #official-preview-box {
+        margin-top: 8px;
+      }
+      #official-preview-box .caption {
+        color: var(--muted);
+      }
+      #official-preview {
+        border: 1px solid var(--line);
+        display: block;
+        image-rendering: pixelated;
+        margin-top: 4px;
+        width: 100%;
+      }
       #hint {
         bottom: 12px;
         color: var(--muted);
@@ -91,7 +104,7 @@
         color: var(--gold);
       }
     </style>
-    <script type="module" crossorigin src="./assets/game-DNxG0rnw.js"></script>
+    <script type="module" crossorigin src="./assets/game-Btj55o7G.js"></script>
     <link rel="modulepreload" crossorigin href="./assets/voxel-unit-BtSpDPf3.js">
   </head>
   <body>
@@ -119,6 +132,12 @@
       <button id="fit-map" type="button">整幅显示</button>
       <div id="status">未加载</div>
       <div id="notice" hidden></div>
+      <div id="official-preview-box" hidden>
+        <div class="caption">
+          官方预览（地图档案自带）：方格俯视视角，和战场的等距斜视角不是同一种投影，形状不必一致
+        </div>
+        <canvas id="official-preview"></canvas>
+      </div>
       <div>左键选中 / 拖动平移 · 右键移动选中单位 · 滚轮缩放</div>
     </div>
 
