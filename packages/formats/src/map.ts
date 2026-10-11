@@ -26,6 +26,32 @@ export const MAP_RECORD_BYTES = 11
 export const OVERLAY_GRID_STRIDE = 512
 /** 覆盖物网格里的"无覆盖物"值。 */
 export const OVERLAY_NONE = 255
+/** 地图上摆放的建筑/单位坐标是**半格单位**：格子 = 坐标 / 2。 */
+export const PLACEMENT_UNITS_PER_CELL = 2
+
+export type PlacementKind = 'structure' | 'unit' | 'infantry' | 'aircraft' | 'terrain'
+
+/**
+ * 地图预置的对象（建筑、单位、步兵、飞机、树木）。
+ *
+ * 行格式（`[Structures]` / `[Units]` / `[Infantry]` / `[Aircraft]` 共用）：
+ * `所有者,类型,生命值,X,Y,朝向,标签,…`，其中 **X/Y 是半格单位**（格子 = X/2、Y/2）。
+ * 判定依据：`MULTI.MIX` 第 7 张 38/38、第 0 张 62/62、`Maps01.mix` 第 0 张 262/268 个建筑
+ * 按半格解释落在地图范围内（按"原值当格子"只有 13/38、11/62、76/268），
+ * 且落在水面/悬崖上的极少（0 / 0 / 4 个）。
+ *
+ * `[Terrain]` 的键就是坐标（`rx + 1000 × ry`），与建筑不同，因此单独一组。
+ */
+export interface MapPlacement {
+  readonly kind: PlacementKind
+  readonly owner: string
+  /** rules.ini 里的类型名（如 `CABHUT`、`NAFLAK`） */
+  readonly type: string
+  readonly health: number
+  readonly cellX: number
+  readonly cellY: number
+  readonly facing: number
+}
 
 export interface MapOverlay {
   /** 覆盖物编号，对应 rules.ini 的 `[OverlayTypes]` 顺序 */
@@ -66,6 +92,8 @@ export interface MapFile {
   readonly cells: readonly MapCell[]
   /** 地图档案自带的官方预览图；没有这张图或布局不认识时为 undefined */
   readonly preview: MapPreviewImage | undefined
+  /** 预置的建筑/单位/步兵/飞机（坐标为半格，已换算成格子） */
+  readonly placements: readonly MapPlacement[]
 }
 
 /** 官方预览图：24 位 RGB，不经调色板。 */
@@ -93,7 +121,39 @@ export function readMap(bytes: Uint8Array): MapFile {
     theater: iniValue(document, 'map', 'theater'),
     cells,
     preview: readPreview(document),
+    placements: [
+      ...readPlacements(document, 'Structures', 'structure'),
+      ...readPlacements(document, 'Units', 'unit'),
+      ...readPlacements(document, 'Infantry', 'infantry'),
+      ...readPlacements(document, 'Aircraft', 'aircraft'),
+    ],
   }
+}
+
+/** 放置段：`所有者,类型,生命值,X,Y,朝向,…`，X/Y 是半格单位。 */
+function readPlacements(document: IniDocument, sectionName: string, kind: PlacementKind): readonly MapPlacement[] {
+  const section = document.sections.get(sectionName.toLowerCase())
+  if (!section) return []
+  const placements: MapPlacement[] = []
+  for (const value of section.values.values()) {
+    const parts = value.split(',')
+    if (parts.length < 6) continue
+    const health = Number.parseInt(parts[2]!.trim(), 10)
+    const x = Number.parseInt(parts[3]!.trim(), 10)
+    const y = Number.parseInt(parts[4]!.trim(), 10)
+    const facing = Number.parseInt(parts[5]!.trim(), 10)
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue
+    placements.push({
+      kind,
+      owner: parts[0]!.trim(),
+      type: parts[1]!.trim(),
+      health: Number.isFinite(health) ? health : 0,
+      cellX: Math.floor(x / PLACEMENT_UNITS_PER_CELL),
+      cellY: Math.floor(y / PLACEMENT_UNITS_PER_CELL),
+      facing: Number.isFinite(facing) ? facing : 0,
+    })
+  }
+  return placements
 }
 
 /**

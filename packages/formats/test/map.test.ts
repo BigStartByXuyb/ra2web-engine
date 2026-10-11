@@ -140,6 +140,47 @@ test('没有覆盖物段时不报错，覆盖物全部为空', () => {
     false,
   )
   assert.equal(map.preview, undefined, '没有 [Preview] 段时没有预览图')
+  assert.deepEqual(map.placements, [], '没有放置段时没有对象')
+})
+
+test('合成地图：建筑坐标是半格单位', () => {
+  const text = new Uint8Array(
+    Buffer.from(
+      [
+        Buffer.from(buildSyntheticMap()).toString('latin1'),
+        '[Structures]',
+        '1024=Neutral,CABHUT,256,20,30,0,None,0,0,1,0,0,None,None,None,0,0',
+        '',
+        '[Units]',
+        '1025=BadGuy1,HTNK,256,7,9,64,None,0,0,1',
+        '',
+        '[Terrain]',
+        '1026=10,07ED09FC',
+        '',
+      ].join('\r\n'),
+      'latin1',
+    ),
+  )
+  const map = readMap(text)
+  assert.equal(map.placements.length, 2, '[Terrain] 的键是坐标，不按放置段解析')
+  assert.deepEqual(map.placements[0], {
+    kind: 'structure',
+    owner: 'Neutral',
+    type: 'CABHUT',
+    health: 256,
+    cellX: 10,
+    cellY: 15,
+    facing: 0,
+  })
+  assert.deepEqual(map.placements[1], {
+    kind: 'unit',
+    owner: 'BadGuy1',
+    type: 'HTNK',
+    health: 256,
+    cellX: 3,
+    cellY: 4,
+    facing: 64,
+  })
 })
 
 test('合成地图：官方预览图按 24 位 RGB 解出', () => {
@@ -239,4 +280,21 @@ test('原版 MULTI.MIX 的官方预览图能解出', { skip: multiPath ? false :
   assert.equal(map.theater, 'TEMPERATE')
   assert.deepEqual([map.preview?.width, map.preview?.height], [102, 52])
   assert.deepEqual([...map.preview!.rgb.subarray(0, 3)], [176, 184, 80], '首像素是草地绿')
+})
+
+test('原版地图的建筑坐标按半格解释才全部落在图内', { skip: multiPath ? false : '同目录没有 MULTI.MIX' }, () => {
+  const archive = new Uint8Array(fs.readFileSync(multiPath!))
+  const index = readMixIndex(archive)
+  const map = readMap(readMixEntry(archive, index, index.entries[7]!))
+  const structures = map.placements.filter((placement) => placement.kind === 'structure')
+  assert.equal(structures.length, 38)
+
+  const inside = structures.filter(
+    (structure) =>
+      structure.cellX >= 0 && structure.cellY >= 0 && structure.cellX < map.width && structure.cellY < map.height,
+  )
+  assert.equal(inside.length, structures.length, '半格解释下建筑应当全部落在图内')
+  // 文件里第一栋是 `CABHUT,256,31,53` → 半格换算 → (15, 26)
+  assert.deepEqual([structures[0]!.type, structures[0]!.cellX, structures[0]!.cellY], ['CABHUT', 15, 26])
+  assert.ok(new Set(structures.map((structure) => structure.type)).size > 1)
 })
