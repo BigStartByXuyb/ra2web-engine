@@ -143,9 +143,9 @@ canvas.addEventListener(
 
 window.addEventListener('resize', resizeCanvas)
 
-demoButton.addEventListener('click', () => {
+demoButton.addEventListener('click', async () => {
   const created = createDemoBattle()
-  artByUnit = buildArt(created, undefined)
+  artByUnit = await buildArt(created, undefined)
   showPlaceholderNotice()
   activate(created, '内置示例战场：合成模型 + 固定数值（不是原版数值）')
 })
@@ -155,7 +155,7 @@ mapInput.addEventListener('change', () => {
   if (!file) return
   status.textContent = `读取 ${file.name}…`
   void file.arrayBuffer().then(
-    (buffer) => openMapArchive(file.name, new Uint8Array(buffer), Number(mapIndexInput.value) || 0),
+    (buffer) => void openMapArchive(file.name, new Uint8Array(buffer), Number(mapIndexInput.value) || 0),
     (error: unknown) => {
       status.textContent = `读取失败：${String(error)}`
     },
@@ -163,21 +163,21 @@ mapInput.addEventListener('change', () => {
 })
 
 /** 打开一份地图档案：`.mix` 记住用于切序号，`.map` 是单张地图。 */
-function openMapArchive(fileName: string, bytes: Uint8Array, entryIndex: number): void {
+async function openMapArchive(fileName: string, bytes: Uint8Array, entryIndex: number): Promise<void> {
   mapArchive = /\.map$/i.test(fileName) ? undefined : { name: fileName, bytes }
-  showMap(bytes, fileName, entryIndex)
+  await showMap(bytes, fileName, entryIndex)
 }
 
 // 改序号就换地图：重选一次文件才能换图太别扭
 mapIndexInput.addEventListener('change', () => {
   if (!mapArchive) return
-  showMap(mapArchive.bytes, mapArchive.name, Number(mapIndexInput.value) || 0)
+  void showMap(mapArchive.bytes, mapArchive.name, Number(mapIndexInput.value) || 0)
 })
 
 // 换预设要重画单位美术（着色与超采样都在这一步决定），有战局时立刻重画
-qualitySelect.addEventListener('change', () => {
+qualitySelect.addEventListener('change', async () => {
   quality = toQualityPreset(qualitySelect.value)
-  if (battle) artByUnit = buildArt(battle, gameArchive)
+  if (battle) artByUnit = await buildArt(battle, gameArchive)
 })
 
 function toQualityPreset(value: string): QualityPreset {
@@ -202,18 +202,26 @@ packInput.addEventListener('change', () => {
 /** 有地图档案就按当前素材包重装一遍；没有就什么都不做。 */
 function reloadCurrentMap(): void {
   if (!mapArchive) return
-  showMap(mapArchive.bytes, mapArchive.name, Number(mapIndexInput.value) || 0)
+  void showMap(mapArchive.bytes, mapArchive.name, Number(mapIndexInput.value) || 0)
 }
 
 /** 装载一张地图：接上地块/覆盖物美术与官方预览图，并把镜头对准地图中心。 */
-function showMap(bytes: Uint8Array, fileName: string, entryIndex: number): void {
+async function showMap(bytes: Uint8Array, fileName: string, entryIndex: number): Promise<void> {
   try {
     const map = /\.map$/i.test(fileName) ? readMap(bytes) : readFirstMap(bytes, entryIndex)
     loadedMap = map
     const tileLayer = gameArchive && map.theater ? openTileLayer(gameArchive, map.theater, overrides) : undefined
     const overlayLayer = gameArchive && map.theater ? openOverlayLayer(gameArchive, map.theater, overrides) : undefined
+    // 素材包里的真彩贴图要先解码，所以建筑层这一步是异步的
     const structureLayer =
-      gameArchive && map.theater ? openStructureLayer(gameArchive, map.theater, overrides) : undefined
+      gameArchive && map.theater
+        ? await openStructureLayer(
+            gameArchive,
+            map.theater,
+            overrides,
+            map.placements.filter((placement) => placement.kind === 'structure').map((placement) => placement.type),
+          )
+        : undefined
     mapPreview = buildMapPreview(map, tileLayer, overlayLayer, structureLayer)
     drawOfficialPreview(previewBox, previewCanvas, map)
     notice.hidden = true
@@ -245,10 +253,10 @@ fitButton.addEventListener('click', () => {
   fitOn(preview.width, preview.height)
 })
 
-mapBattleButton.addEventListener('click', () => startBattleOnMap())
+mapBattleButton.addEventListener('click', () => void startBattleOnMap())
 
 /** 在当前地图上开战：按地块类型与高度差判定通行性，双方各找一个落脚点。 */
-function startBattleOnMap(): void {
+async function startBattleOnMap(): Promise<void> {
   if (!gameArchive) {
     status.textContent = '先选 RA2.MIX：单位数值与地块美术都在里面'
     return
@@ -272,7 +280,7 @@ function startBattleOnMap(): void {
       spawns: setup.spawns,
       seed: 20261010,
     })
-    artByUnit = buildArt(created, gameArchive)
+    artByUnit = await buildArt(created, gameArchive)
     const unknownNote =
       setup.unknownTerrainTypes.length > 0
         ? `；有 ${setup.unknownTerrainTypes.length} 种未认识的 TMP 地形类型（${setup.unknownTerrainTypes.join('/')}）按不可通行处理`
@@ -305,7 +313,7 @@ mixInput.addEventListener('change', () => {
  * 装入原版档案：建一局内置示例战场（数值来自 rules.ini、美术来自 `<单位>.vxl`）。
  * 再选一张地图档案就会换成原版地形。
  */
-function loadGameArchive(bytes: Uint8Array): void {
+async function loadGameArchive(bytes: Uint8Array): Promise<void> {
   gameArchive = bytes
   try {
     const created = createBattle(bytes, {
@@ -314,7 +322,7 @@ function loadGameArchive(bytes: Uint8Array): void {
       spawns: BATTLE_SPAWNS,
       seed: 20261010,
     })
-    artByUnit = buildArt(created, bytes)
+    artByUnit = await buildArt(created, bytes)
     showPlaceholderNotice()
     activate(
       created,
@@ -368,21 +376,29 @@ function readFirstMap(bytes: Uint8Array, entryIndex: number): MapFile {
   throw new Error('档案里没有可解析的地图')
 }
 
-/** 真实战场按类型取原版 VXL；示例战场用合成模型并按阵营着色。 */
-function buildArt(created: Battle, archiveBytes: Uint8Array | undefined): readonly (UnitArt | undefined)[] {
+/** 真实战场按类型取原版 VXL（或素材包里的写实贴图）；示例战场用合成模型并按阵营着色。 */
+async function buildArt(
+  created: Battle,
+  archiveBytes: Uint8Array | undefined,
+): Promise<readonly (UnitArt | undefined)[]> {
   const cache = new Map<string, UnitArt | undefined>()
-  return created.world.units.map((unit, index) => {
-    const typeId = created.typeByUnit[index] ?? 'unknown'
-    const key = `${typeId}:${unit.owner}`
-    if (!cache.has(key)) {
-      const tint = OWNER_TINT[unit.owner % OWNER_TINT.length]
-      cache.set(
-        key,
-        archiveBytes ? loadUnitArt(archiveBytes, typeId, quality, overrides) : buildDemoUnitArt(typeId, tint, quality),
-      )
-    }
-    return cache.get(key)
-  })
+  const art = await Promise.all(
+    created.world.units.map(async (unit, index) => {
+      const typeId = created.typeByUnit[index] ?? 'unknown'
+      const key = `${typeId}:${unit.owner}`
+      if (!cache.has(key)) {
+        const tint = OWNER_TINT[unit.owner % OWNER_TINT.length]
+        cache.set(
+          key,
+          archiveBytes
+            ? await loadUnitArt(archiveBytes, typeId, quality, overrides)
+            : buildDemoUnitArt(typeId, tint, quality),
+        )
+      }
+      return cache.get(key)
+    }),
+  )
+  return art
 }
 
 function frame(now: number): void {
@@ -496,8 +512,8 @@ async function autoLoadFromQuery(): Promise<void> {
       status.textContent = `读取 ${mapUrl}…`
       const index = Number(params.get('index')) || 0
       mapIndexInput.value = String(index)
-      openMapArchive(fileNameOf(mapUrl), await fetchBytes(mapUrl), index)
-      if (params.get('battle') === '1') startBattleOnMap()
+      await openMapArchive(fileNameOf(mapUrl), await fetchBytes(mapUrl), index)
+      if (params.get('battle') === '1') await startBattleOnMap()
     }
   } catch (error) {
     status.textContent = `自动装载失败：${error instanceof Error ? error.message : String(error)}`

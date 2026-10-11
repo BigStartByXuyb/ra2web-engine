@@ -1,4 +1,5 @@
-import { loadVoxelUnit, voxelUnitModels, type AssetOverride } from '@ra2web/assets'
+import { loadUnitSheet, loadVoxelUnit, voxelUnitModels, type AssetOverride } from '@ra2web/assets'
+import { decodePng, sliceUnitSheet } from './png-image.js'
 import {
   FACING_COUNT,
   METALLIC_STYLE,
@@ -59,12 +60,18 @@ export interface UnitArt {
 }
 
 /** 从原版档案取 `<单位>.vxl` + `<单位>tur.vxl` 并预渲染 8 朝向。 */
-export function loadUnitArt(
+export async function loadUnitArt(
   archiveBytes: Uint8Array,
   typeId: string,
   quality: QualityPreset = 'pixel',
   overrides?: readonly AssetOverride[],
-): UnitArt | undefined {
+): Promise<UnitArt | undefined> {
+  // 素材包给了 `<单位>.png` 就用它：写实包直接是画好的 8 帧贴条，不必再走体素渲染
+  const sheet = loadUnitSheet(overrides, typeId)
+  if (sheet) {
+    const frames = sliceUnitSheet(await decodePng(sheet))
+    if (frames.length > 0) return { typeId, frames }
+  }
   const unit = loadVoxelUnit(
     { bytes: archiveBytes, containerFileName: 'local.mix', ...(overrides ? { overrides } : {}) },
     typeId.toLowerCase(),

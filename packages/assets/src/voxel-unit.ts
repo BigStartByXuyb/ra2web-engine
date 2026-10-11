@@ -1,5 +1,5 @@
 import { readVxl, type VxlModel } from '@ra2web/formats'
-import { readAsset, type AssetOverride } from './overrides.js'
+import { findOverride, readAsset, type AssetOverride } from './overrides.js'
 
 /**
  * 取一个单位的体素美术：`<单位>.vxl` 是机体，`<单位>tur.vxl` 是炮塔（可选）。
@@ -26,6 +26,16 @@ export function loadVoxelUnit(lookup: VoxelUnitLookup, unitId: string): VoxelUni
   if (!bodyBytes) return undefined
   const turretBytes = readAsset(lookup.bytes, lookup.overrides, `${unitId}tur.vxl`, lookup.containerFileName)
   return { body: readVxl(bodyBytes), turret: turretBytes ? readVxl(turretBytes) : undefined }
+}
+
+/**
+ * 素材包里的单位贴图（写实包用）：`<单位>.png`。
+ *
+ * 约定：**横向 8 帧**、每帧正方形、贴地锚点在底边中点（解码与切帧在 `@ra2web/app` 里）。
+ * 有了它就不必再做体素渲染 —— 写实单位可以直接是画好的精灵图。
+ */
+export function loadUnitSheet(overrides: readonly AssetOverride[] | undefined, unitId: string): Uint8Array | undefined {
+  return findOverride(overrides, `${unitId.toLowerCase()}.png`)
 }
 
 /** 展平成渲染器要的模型列表：机体在前，炮塔在后。 */

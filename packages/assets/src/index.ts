@@ -1,4 +1,4 @@
-export { loadVoxelUnit, voxelUnitModels } from './voxel-unit.js'
+export { loadUnitSheet, loadVoxelUnit, voxelUnitModels } from './voxel-unit.js'
 export type { VoxelUnit, VoxelUnitLookup } from './voxel-unit.js'
 export { imageNameOf, readArtEntries, readRulesImageNames } from './art.js'
 export type { ArtEntry } from './art.js'

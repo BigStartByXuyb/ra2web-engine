@@ -17,7 +17,7 @@ test('原版建筑能取到图形与地基尺寸', { skip }, () => {
   // 民房：art.ini 里 Theater=yes → carus02a.sno 一类
   const house = structures.loadStructure('CARUS02A')
   assert.ok(house, 'CARUS02A 应当能取到图形')
-  assert.ok(house.shp.frames.some((frame) => !frame.isEmpty))
+  assert.ok(house.shp!.frames.some((frame) => !frame.isEmpty))
   assert.ok(house.foundationWidth >= 1 && house.foundationHeight >= 1)
 
   // 防空炮是雪地那张地图上数量最多的建筑之一
@@ -34,7 +34,7 @@ test('图形名按 art.ini Image= → rules.ini Image= → 类型名 取', { ski
   // TESLA 在 art.ini 里没有条目，rules.ini 写 `Image=NATSLA` → natsla.shp
   const tesla = structures.loadStructure('TESLA')
   assert.ok(tesla, '磁暴线圈应当按 rules.ini 的 Image=NATSLA 取到 natsla.shp')
-  assert.ok(tesla.shp.frames.some((frame) => !frame.isEmpty))
+  assert.ok(tesla.shp!.frames.some((frame) => !frame.isEmpty))
 
   // ATESLA 同理：rules.ini 写 `Image=GAPRIS`
   assert.ok(structures.loadStructure('ATESLA'), 'ATESLA 应当按 rules.ini 的 Image=GAPRIS 取到图形')

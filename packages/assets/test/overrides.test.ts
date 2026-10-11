@@ -2,7 +2,14 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { test } from 'node:test'
 import { crc32, hashFileName, readMixFile, readShp, readVxl } from '@ra2web/formats'
-import { findOverride, loadVoxelUnit, openStructures, openTheater, type AssetOverride } from '../src/index.js'
+import {
+  findOverride,
+  loadUnitSheet,
+  loadVoxelUnit,
+  openStructures,
+  openTheater,
+  type AssetOverride,
+} from '../src/index.js'
 
 /**
  * 覆盖素材包：包里的同名文件优先于原版。
@@ -54,14 +61,14 @@ test('原版档案 + 覆盖包：建筑图形换成包里的那一份', { skip }
   // 拿另一张真实 SHP 当"高清版"：只要它被优先取用，尺寸就会变
   const substitute = readMixFile({ bytes: archive, fileName: 'gapowr.shp', containerFileName: 'snow.mix' })!
   const substituteShp = readShp(substitute)
-  assert.notEqual(substituteShp.width, original.shp.width, '两张图必须尺寸不同才能区分')
+  assert.notEqual(substituteShp.width, original.shp!.width, '两张图必须尺寸不同才能区分')
 
   const overrides: readonly AssetOverride[] = [
     { name: 'hd.mix', bytes: buildMix([{ name: 'natsla.shp', data: substitute }]) },
   ]
   const replaced = openStructures(archive, 'snow', overrides)!.loadStructure('TESLA')!
-  assert.equal(replaced.shp.width, substituteShp.width, '应当取到覆盖包里的那一份')
-  assert.equal(replaced.shp.height, substituteShp.height)
+  assert.equal(replaced.shp!.width, substituteShp.width, '应当取到覆盖包里的那一份')
+  assert.equal(replaced.shp!.height, substituteShp.height)
 })
 
 test('覆盖包也能换单位体素模型', { skip }, () => {
@@ -84,4 +91,30 @@ test('覆盖包也能换单位体素模型', { skip }, () => {
   const replaced = loadVoxelUnit({ bytes: archive, containerFileName: 'local.mix', overrides }, 'htnk')!
   assert.equal(replaced.body.voxelCount, heavier.body.voxelCount)
   assert.ok(readVxl(readMixFile({ bytes: archive, fileName: 'htnk.vxl', containerFileName: 'local.mix' })!))
+})
+
+test('覆盖包给真彩 PNG 时优先用它（建筑与单位各一条）', { skip }, () => {
+  const archive = new Uint8Array(fs.readFileSync(mixPath!))
+  const fakePng = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3])
+  const overrides: readonly AssetOverride[] = [
+    {
+      name: 'hd.mix',
+      bytes: buildMix([
+        { name: 'natsla.png', data: fakePng },
+        { name: 'htnk.png', data: fakePng },
+      ]),
+    },
+  ]
+
+  // 建筑：图形名 NATSLA（TESLA 的 rules.ini Image=）→ natsla.png 命中，SHP 不再参与
+  const structure = openStructures(archive, 'snow', overrides)!.loadStructure('TESLA')!
+  assert.deepEqual([...(structure.pngBytes ?? [])], [...fakePng])
+  assert.equal(structure.shp, undefined, 'PNG 命中时不再去取 SHP')
+  // 没给 PNG 的类型仍走 SHP
+  assert.ok(openStructures(archive, 'snow', overrides)!.loadStructure('NAFLAK')!.shp)
+
+  // 单位：<单位>.png 命中
+  assert.deepEqual([...(loadUnitSheet(overrides, 'HTNK') ?? [])], [...fakePng])
+  assert.equal(loadUnitSheet(overrides, 'MTNK'), undefined)
+  assert.equal(loadUnitSheet(undefined, 'HTNK'), undefined)
 })

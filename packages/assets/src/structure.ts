@@ -1,6 +1,6 @@
 import type { ShpFile } from '@ra2web/formats'
 import { imageNameOf, readArtEntries, readRulesImageNames, type ArtEntry } from './art.js'
-import type { AssetOverride } from './overrides.js'
+import { findOverride, type AssetOverride } from './overrides.js'
 import { openTheater, type TheaterAssets } from './theater.js'
 
 /**
@@ -22,7 +22,13 @@ export interface StructureArt {
   readonly foundationHeight: number
   /** art.ini 标了 `TerrainPalette` / `ShouldUseCellDrawer`：用地形色板画，而不是单位色板 */
   readonly useTerrainPalette: boolean
-  readonly shp: ShpFile
+  /** 原版索引色 SHP；素材包给了真彩 PNG 时为 undefined */
+  readonly shp: ShpFile | undefined
+  /**
+   * 覆盖素材包里的真彩贴图（`<图形名>.png`，写实包用）。
+   * 解码交给浏览器（`createImageBitmap`），格式层不碰 PNG。
+   */
+  readonly pngBytes: Uint8Array | undefined
 }
 
 export interface StructureAssets {
@@ -49,18 +55,24 @@ export function openStructures(
       art ??= readArtEntries(archiveBytes, overrides)
       rulesImages ??= readRulesImageNames(archiveBytes, overrides)
       const entry = art.get(key)
-      const shp = theater.loadImage(imageNameOf(typeName, art, rulesImages), {
-        theaterExtension: entry?.theater ?? false,
-      })
-      const resolved = shp
-        ? {
-            name: typeName,
-            foundationWidth: entry?.foundationWidth ?? 1,
-            foundationHeight: entry?.foundationHeight ?? 1,
-            useTerrainPalette: entry?.useTerrainPalette ?? false,
-            shp,
-          }
-        : undefined
+      const image = imageNameOf(typeName, art, rulesImages)
+      const pngBytes = findOverride(overrides, `${image.toLowerCase()}.png`)
+      const shp = pngBytes
+        ? undefined
+        : theater.loadImage(image, {
+            theaterExtension: entry?.theater ?? false,
+          })
+      const resolved =
+        shp || pngBytes
+          ? {
+              name: typeName,
+              foundationWidth: entry?.foundationWidth ?? 1,
+              foundationHeight: entry?.foundationHeight ?? 1,
+              useTerrainPalette: entry?.useTerrainPalette ?? false,
+              shp,
+              pngBytes,
+            }
+          : undefined
       cache.set(key, resolved)
       return resolved
     },
