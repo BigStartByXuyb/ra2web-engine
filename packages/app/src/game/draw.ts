@@ -57,9 +57,14 @@ export function drawScene(scene: Scene): void {
   const isEmpty = !battle && !scene.mapPreview
   const wet = isWetNight(scene.quality)
   if (scene.glTiles && scene.mapPreview) {
-    scene.glTiles.render(scene.mapPreview, scene.camera, range, VIEW, (tileIndex, subTile) =>
-      scene.mapPreview?.tileLayer?.canvasAt(tileIndex, subTile),
-    )
+    const preview = scene.mapPreview
+    scene.glTiles.render({
+      preview,
+      camera: scene.camera,
+      range,
+      view: VIEW,
+      tileCanvasAt: (tileIndex, subTile) => preview.tileLayer?.canvasAt(tileIndex, subTile),
+    })
   }
   if (isEmpty) drawCanvasHint(context, scene.canvas, '先在上面选「RA2.MIX」与地图档案，或点「内置示例战场」')
   if (!battle && scene.mapPreview) {

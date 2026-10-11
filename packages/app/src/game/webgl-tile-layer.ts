@@ -19,32 +19,39 @@ import type { MapPreview } from './map-preview.js'
  */
 
 export interface GlTileLayer {
-  /** 画一帧地块层；没有可见地块时什么都不做 */
-  render(
-    preview: MapPreview,
-    camera: Camera,
-    range: CellRange,
-    view: IsoView,
-    tileCanvasAt: (tileIndex: number, subTile: number) => HTMLCanvasElement | undefined,
-  ): void
+  /**
+   * 画一帧"静态地图层"：地块 → 覆盖物 → 建筑，绘制次序与 2D 路径逐条对应
+   * （覆盖物跟在它那一格的地块之后；建筑最后按 (x+y) 升序，近处盖远处）。
+   */
+  render(context: GlSceneContext): void
   /** 画布尺寸/比例变化时同步后备缓冲 */
   resize(width: number, height: number): void
   readonly ready: boolean
 }
 
+/** 一帧要画的静态地图内容：地块/覆盖物/建筑都从 `MapPreview` 取 */
+export interface GlSceneContext {
+  readonly preview: MapPreview
+  readonly camera: Camera
+  readonly range: CellRange
+  readonly view: IsoView
+  readonly tileCanvasAt: (tileIndex: number, subTile: number) => HTMLCanvasElement | undefined
+}
+
 const VERTEX_SHADER = `
 attribute vec2 a_corner;
 attribute vec2 a_origin;
+attribute vec2 a_size;
 uniform vec2 u_camera;
 uniform float u_scale;
 uniform vec2 u_viewport;
 varying vec2 v_uv;
 void main() {
-  vec2 world = a_origin + a_corner;
+  vec2 world = a_origin + a_corner * a_size;
   vec2 pixel = (world - u_camera) * u_scale;
   vec2 clip = vec2(pixel.x / u_viewport.x * 2.0 - 1.0, 1.0 - pixel.y / u_viewport.y * 2.0);
   gl_Position = vec4(clip, 0.0, 1.0);
-  v_uv = a_corner / vec2(60.0, 30.0);
+  v_uv = a_corner;
 }`
 
 const FRAGMENT_SHADER = `
@@ -92,6 +99,7 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
 
   const cornerLocation = gl.getAttribLocation(program, 'a_corner')
   const originLocation = gl.getAttribLocation(program, 'a_origin')
+  const sizeLocation = gl.getAttribLocation(program, 'a_size')
   const cameraLocation = gl.getUniformLocation(program, 'u_camera')
   const scaleLocation = gl.getUniformLocation(program, 'u_scale')
   const viewportLocation = gl.getUniformLocation(program, 'u_viewport')
@@ -130,7 +138,8 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       canvas.height = height
       gl.viewport(0, 0, width, height)
     },
-    render(preview, camera, range, view, tileCanvasAt) {
+    render(context) {
+      const { preview, camera, range, view, tileCanvasAt } = context
       const width = canvas.width
       const height = canvas.height
       gl.clearColor(0, 0, 0, 0)
@@ -142,34 +151,56 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       gl.uniform1i(textureLocation, 0)
       gl.activeTexture(gl.TEXTURE0)
 
-      // 逐格画：可见格数量与视口有关（1:1 时约一两千），spike 阶段不做批次合并
+      /** 画一个画布四边形：`origin` 是世界坐标左上角，`size` 是像素尺寸。 */
+      const drawQuad = (source: HTMLCanvasElement, originX: number, originY: number): void => {
+        const texture = textureFor(source)
+        if (!texture) return
+        if (data.length < CORNERS.length * 3) data = new Float32Array(CORNERS.length * 3)
+        for (let index = 0; index < CORNERS.length / 2; index++) {
+          data[index * 6] = CORNERS[index * 2]!
+          data[index * 6 + 1] = CORNERS[index * 2 + 1]!
+          data[index * 6 + 2] = originX
+          data[index * 6 + 3] = originY
+          data[index * 6 + 4] = source.width
+          data[index * 6 + 5] = source.height
+        }
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
+        gl.bufferData(gl.ARRAY_BUFFER, data.subarray(0, CORNERS.length * 3), gl.STREAM_DRAW)
+        gl.enableVertexAttribArray(cornerLocation)
+        gl.vertexAttribPointer(cornerLocation, 2, gl.FLOAT, false, 24, 0)
+        gl.enableVertexAttribArray(originLocation)
+        gl.vertexAttribPointer(originLocation, 2, gl.FLOAT, false, 24, 8)
+        gl.enableVertexAttribArray(sizeLocation)
+        gl.vertexAttribPointer(sizeLocation, 2, gl.FLOAT, false, 24, 16)
+        gl.bindTexture(gl.TEXTURE_2D, texture)
+        gl.drawArrays(gl.TRIANGLES, 0, CORNERS.length / 2)
+      }
+
+      // 地块与覆盖物按格序画（覆盖物跟在它那一格之后，与 2D 路径一致）
       for (let y = range.minY; y <= range.maxY; y++) {
         for (let x = range.minX; x <= range.maxX; x++) {
           if (x < 0 || y < 0 || x >= preview.width || y >= preview.height) continue
           const cell = preview.cellByIndex.get(y * preview.width + x)
           if (!cell) continue
           const painted = tileCanvasAt(cell.tileIndex, cell.subTile)
-          if (!painted) continue
-          const texture = textureFor(painted)
-          if (!texture) continue
-          const originX = (x - y) * (view.cellWidth / 2) - view.cellWidth / 2
-          const originY = (x + y) * (view.cellHeight / 2) - view.cellHeight / 2
-          if (data.length < CORNERS.length * 2) data = new Float32Array(CORNERS.length * 2)
-          for (let index = 0; index < CORNERS.length / 2; index++) {
-            data[index * 4] = CORNERS[index * 2]!
-            data[index * 4 + 1] = CORNERS[index * 2 + 1]!
-            data[index * 4 + 2] = originX
-            data[index * 4 + 3] = originY
-          }
-          gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
-          gl.bufferData(gl.ARRAY_BUFFER, data.subarray(0, CORNERS.length * 2), gl.STREAM_DRAW)
-          gl.enableVertexAttribArray(cornerLocation)
-          gl.vertexAttribPointer(cornerLocation, 2, gl.FLOAT, false, 16, 0)
-          gl.enableVertexAttribArray(originLocation)
-          gl.vertexAttribPointer(originLocation, 2, gl.FLOAT, false, 16, 8)
-          gl.bindTexture(gl.TEXTURE_2D, texture)
-          gl.drawArrays(gl.TRIANGLES, 0, CORNERS.length / 2)
+          const centerX = (x - y) * (view.cellWidth / 2)
+          const centerY = (x + y) * (view.cellHeight / 2)
+          if (painted) drawQuad(painted, centerX - view.cellWidth / 2, centerY - view.cellHeight / 2)
+          const overlay = preview.overlayLayer?.canvasAt(cell.overlay)
+          if (overlay) drawQuad(overlay, centerX - overlay.width / 2, centerY - overlay.height / 2)
         }
+      }
+
+      // 建筑最后画，按 (x+y) 升序：近处的房子盖住远处的（与 2D 路径同一判据）
+      const structures = [...preview.structures].sort(
+        (left, right) =>
+          left.placement.cellX + left.placement.cellY - (right.placement.cellX + right.placement.cellY),
+      )
+      for (const sprite of structures) {
+        const { placement, canvas: source, foundationWidth, foundationHeight } = sprite
+        const anchorX = (placement.cellX + (foundationWidth - 1) / 2 - (placement.cellY + (foundationHeight - 1) / 2)) * (view.cellWidth / 2)
+        const anchorY = (placement.cellX + (foundationWidth - 1) / 2 + placement.cellY + (foundationHeight - 1) / 2) * (view.cellHeight / 2)
+        drawQuad(source, anchorX - source.width / 2, anchorY - source.height / 2)
       }
     },
   }

@@ -74,6 +74,8 @@ export function drawMapPreview(
   range: CellRange,
   options: { readonly drawTiles?: boolean } = {},
 ): void {
+  // 静态地图层（地块 + 覆盖物 + 建筑）交给 WebGL 时整层都不画，避免两层叠着对不齐
+  if (options.drawTiles === false) return
   context.lineWidth = 1
   for (let y = range.minY; y <= range.maxY; y++) {
     for (let x = range.minX; x <= range.maxX; x++) {
@@ -81,13 +83,6 @@ export function drawMapPreview(
       const cell = preview.cellByIndex.get(y * preview.width + x)
       if (!cell) continue
       const center = cellToScreen(view, { x, y })
-      // 地块层交给 WebGL 时这一格只补覆盖物：不要退化成"按 z 着色"的占位菱形，
-      // 那会盖在 GPU 画出来的地块上，两层对不齐看起来就像地图错位。
-      if (options.drawTiles === false) {
-        const overlaid = preview.overlayLayer?.canvasAt(cell.overlay)
-        if (overlaid) context.drawImage(overlaid, center.x - overlaid.width / 2, center.y - overlaid.height / 2)
-        continue
-      }
       const painted = preview.tileLayer?.canvasAt(cell.tileIndex, cell.subTile)
       if (painted) {
         context.drawImage(painted, center.x - view.cellWidth / 2, center.y - view.cellHeight / 2)
