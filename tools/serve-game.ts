@@ -6,12 +6,15 @@ import { extname, join, resolve } from 'node:path'
  * 本地跑战场页：把构建产物与原版档案一起挂出去，浏览器里一条链接直接进战场。
  *
  * 用法：tsx tools/serve-game.ts [原版档案目录] [端口=3120]
- *   - `/`        → `packages/app/dist`（战斗页 game.html）
- *   - `/pack/`   → 原版档案目录（RA2.MIX、Maps01.mix…），只读
+ *   - `/`         → `packages/app/dist`（战斗页 game.html）
+ *   - `/pack/`    → 原版档案目录（RA2.MIX、Maps01.mix…），只读
+ *   - `/packs/`   → 覆盖素材包目录（写实/超清包），只读
  *
  * 打开： http://127.0.0.1:3120/game.html?mix=/pack/RA2.MIX&map=/pack/Maps01.mix&battle=1
+ * 带素材包： …&pack=/packs/hd-sample.mix
  */
 const packDir = resolve(process.argv[2] ?? 'D:\\AI_GAME\\work\\assets\\pack')
+const overridesDir = resolve(process.argv[4] ?? 'D:\\AI_GAME\\work\\hd-packs')
 /** 默认 3120：3100 留给 `npm run app:dev`（vite 开发服务器） */
 const port = Number(process.argv[3] ?? 3120)
 const appDir = resolve('packages/app/dist')
@@ -59,6 +62,10 @@ const server = createServer((request, response) => {
     sendFile(join(packDir, ...segments.slice(1)), response)
     return
   }
+  if (segments[0] === 'packs') {
+    sendFile(join(overridesDir, ...segments.slice(1)), response)
+    return
+  }
   sendFile(join(appDir, ...(segments.length > 0 ? segments : ['game.html'])), response)
 })
 
@@ -76,4 +83,5 @@ server.listen(port, '127.0.0.1', () => {
   console.log(`战场页：http://127.0.0.1:${port}/game.html`)
   console.log(`自动开战：http://127.0.0.1:${port}/game.html${query}`)
   console.log(`原版档案：${packDir} → /pack/`)
+  console.log(`素材包：${overridesDir} → /packs/`)
 })

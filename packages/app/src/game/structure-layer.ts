@@ -1,4 +1,4 @@
-import { loadTheaterPalette, openStructures, type StructureAssets } from '@ra2web/assets'
+import { loadTheaterPalette, openStructures, type AssetOverride, type StructureAssets } from '@ra2web/assets'
 import type { MapPlacement, Palette } from '@ra2web/formats'
 import { paintShpFrame } from '@ra2web/render'
 import { toCanvas } from './canvas-image.js'
@@ -28,9 +28,10 @@ export interface StructureLayer {
 export function openStructureLayer(
   archiveBytes: Uint8Array,
   theaterName: string | undefined,
+  overrides?: readonly AssetOverride[],
 ): StructureLayer | undefined {
   if (!theaterName) return undefined
-  const structures = openStructures(archiveBytes, theaterName)
+  const structures = openStructures(archiveBytes, theaterName, overrides)
   const unitPalette = loadTheaterPalette(archiveBytes, theaterName, 'unit')
   const terrainPalette = loadTheaterPalette(archiveBytes, theaterName, 'iso')
   if (!structures || !unitPalette || !terrainPalette) return undefined

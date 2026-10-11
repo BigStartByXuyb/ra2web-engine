@@ -1,6 +1,7 @@
 import { parseIni, type MapOverlay, type ShpFile, type ShpFrame } from '@ra2web/formats'
 import { readArtEntries, type ArtEntry } from './art.js'
 import { readLocalText } from './local-ini.js'
+import type { AssetOverride } from './overrides.js'
 import { openTheater, type TheaterAssets } from './theater.js'
 
 /**
@@ -30,8 +31,12 @@ export interface OverlayAssets {
   loadOverlay(overlay: MapOverlay): OverlayArt | undefined
 }
 
-export function openOverlays(archiveBytes: Uint8Array, theaterName: string | undefined): OverlayAssets | undefined {
-  const theater = theaterName ? openTheater(archiveBytes, theaterName) : undefined
+export function openOverlays(
+  archiveBytes: Uint8Array,
+  theaterName: string | undefined,
+  overrides?: readonly AssetOverride[],
+): OverlayAssets | undefined {
+  const theater = theaterName ? openTheater(archiveBytes, theaterName, overrides) : undefined
   if (!theater) return undefined
 
   const cache = new Map<string, OverlayArt | undefined>()
@@ -42,8 +47,8 @@ export function openOverlays(archiveBytes: Uint8Array, theaterName: string | und
     loadOverlay(overlay) {
       const key = `${overlay.id}:${overlay.data}`
       if (cache.has(key)) return cache.get(key)
-      names ??= readOverlayNames(archiveBytes)
-      art ??= readArtEntries(archiveBytes)
+      names ??= readOverlayNames(archiveBytes, overrides)
+      art ??= readArtEntries(archiveBytes, overrides)
       const name = names.get(overlay.id)
       const resolved = resolve(name, name ? art.get(name.toLowerCase()) : undefined, overlay, theater)
       cache.set(key, resolved)
@@ -75,9 +80,9 @@ function pickFrame(shp: ShpFile, data: number): ShpFrame | undefined {
 }
 
 /** `[OverlayTypes]` 的编号 → 图形名。 */
-function readOverlayNames(archiveBytes: Uint8Array): ReadonlyMap<number, string> {
+function readOverlayNames(archiveBytes: Uint8Array, overrides?: readonly AssetOverride[]): ReadonlyMap<number, string> {
   const names = new Map<number, string>()
-  const text = readLocalText(archiveBytes, 'rules.ini')
+  const text = readLocalText(archiveBytes, 'rules.ini', overrides)
   const section = text ? parseIni(text).sections.get('overlaytypes') : undefined
   if (!section) return names
   for (const [key, value] of section.values) {

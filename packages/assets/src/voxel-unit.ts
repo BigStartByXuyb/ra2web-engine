@@ -1,4 +1,5 @@
-import { readMixFile, readVxl, type VxlModel } from '@ra2web/formats'
+import { readVxl, type VxlModel } from '@ra2web/formats'
+import { readAsset, type AssetOverride } from './overrides.js'
 
 /**
  * 取一个单位的体素美术：`<单位>.vxl` 是机体，`<单位>tur.vxl` 是炮塔（可选）。
@@ -16,13 +17,14 @@ export interface VoxelUnitLookup {
   readonly bytes: Uint8Array
   /** 顶层找不到时再进这个内嵌档案找一层；原版安装传 `local.mix` */
   readonly containerFileName?: string
+  /** 覆盖素材包：命中就用包里的 `<单位>.vxl`（写实包可以换成更细的体素模型） */
+  readonly overrides?: readonly AssetOverride[]
 }
 
 export function loadVoxelUnit(lookup: VoxelUnitLookup, unitId: string): VoxelUnit | undefined {
-  const lookupBase = lookup.containerFileName ? { containerFileName: lookup.containerFileName } : {}
-  const bodyBytes = readMixFile({ bytes: lookup.bytes, fileName: `${unitId}.vxl`, ...lookupBase })
+  const bodyBytes = readAsset(lookup.bytes, lookup.overrides, `${unitId}.vxl`, lookup.containerFileName)
   if (!bodyBytes) return undefined
-  const turretBytes = readMixFile({ bytes: lookup.bytes, fileName: `${unitId}tur.vxl`, ...lookupBase })
+  const turretBytes = readAsset(lookup.bytes, lookup.overrides, `${unitId}tur.vxl`, lookup.containerFileName)
   return { body: readVxl(bodyBytes), turret: turretBytes ? readVxl(turretBytes) : undefined }
 }
 

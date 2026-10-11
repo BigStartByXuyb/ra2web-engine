@@ -1,4 +1,5 @@
 import { RA2_ISO_VIEW, cellToScreen } from '@ra2web/render'
+import type { AssetOverride } from '@ra2web/assets'
 import { readMap, readMixEntry, readMixIndex, type MapFile } from '@ra2web/formats'
 import { TICKS_PER_SECOND, enqueueCommand, fromFixed, step, type Cell } from '@ra2web/sim'
 import { createBattle, createDemoBattle, type Battle } from './battle.js'
@@ -52,6 +53,7 @@ const mapIndexInput = document.getElementById('map-index') as HTMLInputElement
 const fitButton = document.getElementById('fit-map') as HTMLButtonElement
 const mapBattleButton = document.getElementById('battle-on-map') as HTMLButtonElement
 const qualitySelect = document.getElementById('quality') as HTMLSelectElement
+const packInput = document.getElementById('pack-file') as HTMLInputElement
 const status = document.getElementById('status')!
 const notice = document.getElementById('notice') as HTMLDivElement
 const previewBox = document.getElementById('official-preview-box') as HTMLDivElement
@@ -76,6 +78,8 @@ let mapArchive: { readonly name: string; readonly bytes: Uint8Array } | undefine
 let artByUnit: readonly (UnitArt | undefined)[] = []
 /** 画质预设：影响单位体素的着色与超采样，也决定画布用什么方式放大 */
 let quality: QualityPreset = 'pixel'
+/** 覆盖素材包（写实/超清包）：按次序优先命中，空数组就是纯原版 */
+let overrides: readonly AssetOverride[] = []
 let accumulator = 0
 let lastFrameAt = 0
 let hoverCell: Cell | undefined
@@ -180,14 +184,36 @@ function toQualityPreset(value: string): QualityPreset {
   return value === 'hd' || value === 'wetNight' ? value : 'pixel'
 }
 
+// 素材包：换包就重新装载当前地图（地块/覆盖物/建筑都要按新包重取）
+packInput.addEventListener('change', () => {
+  const files = [...(packInput.files ?? [])]
+  if (files.length === 0) return
+  void Promise.all(files.map(async (file) => ({ name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) })))
+    .then((packed) => {
+      overrides = packed
+      reloadCurrentMap()
+      status.textContent = `已挂载覆盖素材包：${packed.map((pack) => pack.name).join('、')}`
+    })
+    .catch((error: unknown) => {
+      status.textContent = `素材包读取失败：${String(error)}`
+    })
+})
+
+/** 有地图档案就按当前素材包重装一遍；没有就什么都不做。 */
+function reloadCurrentMap(): void {
+  if (!mapArchive) return
+  showMap(mapArchive.bytes, mapArchive.name, Number(mapIndexInput.value) || 0)
+}
+
 /** 装载一张地图：接上地块/覆盖物美术与官方预览图，并把镜头对准地图中心。 */
 function showMap(bytes: Uint8Array, fileName: string, entryIndex: number): void {
   try {
     const map = /\.map$/i.test(fileName) ? readMap(bytes) : readFirstMap(bytes, entryIndex)
     loadedMap = map
-    const tileLayer = gameArchive && map.theater ? openTileLayer(gameArchive, map.theater) : undefined
-    const overlayLayer = gameArchive && map.theater ? openOverlayLayer(gameArchive, map.theater) : undefined
-    const structureLayer = gameArchive && map.theater ? openStructureLayer(gameArchive, map.theater) : undefined
+    const tileLayer = gameArchive && map.theater ? openTileLayer(gameArchive, map.theater, overrides) : undefined
+    const overlayLayer = gameArchive && map.theater ? openOverlayLayer(gameArchive, map.theater, overrides) : undefined
+    const structureLayer =
+      gameArchive && map.theater ? openStructureLayer(gameArchive, map.theater, overrides) : undefined
     mapPreview = buildMapPreview(map, tileLayer, overlayLayer, structureLayer)
     drawOfficialPreview(previewBox, previewCanvas, map)
     notice.hidden = true
@@ -352,7 +378,7 @@ function buildArt(created: Battle, archiveBytes: Uint8Array | undefined): readon
       const tint = OWNER_TINT[unit.owner % OWNER_TINT.length]
       cache.set(
         key,
-        archiveBytes ? loadUnitArt(archiveBytes, typeId, quality) : buildDemoUnitArt(typeId, tint, quality),
+        archiveBytes ? loadUnitArt(archiveBytes, typeId, quality, overrides) : buildDemoUnitArt(typeId, tint, quality),
       )
     }
     return cache.get(key)
@@ -453,8 +479,15 @@ async function autoLoadFromQuery(): Promise<void> {
   const params = new URLSearchParams(location.search)
   const mixUrl = params.get('mix')
   const mapUrl = params.get('map')
-  if (!mixUrl && !mapUrl) return
+  const packUrls = (params.get('pack') ?? '').split(',').filter((url) => url !== '')
+  if (!mixUrl && !mapUrl && packUrls.length === 0) return
   try {
+    if (packUrls.length > 0) {
+      status.textContent = `读取素材包…`
+      overrides = await Promise.all(
+        packUrls.map(async (url) => ({ name: fileNameOf(url), bytes: await fetchBytes(url) })),
+      )
+    }
     if (mixUrl) {
       status.textContent = `读取 ${mixUrl}…`
       loadGameArchive(await fetchBytes(mixUrl))

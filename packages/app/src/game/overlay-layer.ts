@@ -1,4 +1,4 @@
-import { loadTheaterPalette, openOverlays, type OverlayAssets } from '@ra2web/assets'
+import { loadTheaterPalette, openOverlays, type AssetOverride, type OverlayAssets } from '@ra2web/assets'
 import type { MapOverlay, Palette } from '@ra2web/formats'
 import { paintShpFrame } from '@ra2web/render'
 import { toCanvas } from './canvas-image.js'
@@ -15,9 +15,13 @@ export interface OverlayLayer {
   canvasAt(overlay: MapOverlay | undefined): HTMLCanvasElement | undefined
 }
 
-export function openOverlayLayer(archiveBytes: Uint8Array, theaterName: string | undefined): OverlayLayer | undefined {
+export function openOverlayLayer(
+  archiveBytes: Uint8Array,
+  theaterName: string | undefined,
+  overrides?: readonly AssetOverride[],
+): OverlayLayer | undefined {
   if (!theaterName) return undefined
-  const overlays = openOverlays(archiveBytes, theaterName)
+  const overlays = openOverlays(archiveBytes, theaterName, overrides)
   const palette = loadTheaterPalette(archiveBytes, theaterName, 'iso')
   if (!overlays || !palette) return undefined
   return createOverlayLayer(overlays, palette)

@@ -1,5 +1,6 @@
 import { parseIni } from '@ra2web/formats'
 import { readLocalText } from './local-ini.js'
+import type { AssetOverride } from './overrides.js'
 
 /**
  * art.ini 的图形条目：地图上的对象（建筑、覆盖物）靠它决定图形名、命名规则、地基尺寸与色板。
@@ -34,8 +35,11 @@ const DEFAULT_ENTRY: ArtEntry = {
 const EMPTY_ENTRIES: ReadonlyMap<string, ArtEntry> = new Map()
 
 /** art.ini 的图形名 → 条目；键已转小写。档案里没有 art.ini 时返回空表。 */
-export function readArtEntries(archiveBytes: Uint8Array): ReadonlyMap<string, ArtEntry> {
-  const text = readLocalText(archiveBytes, 'art.ini')
+export function readArtEntries(
+  archiveBytes: Uint8Array,
+  overrides?: readonly AssetOverride[],
+): ReadonlyMap<string, ArtEntry> {
+  const text = readLocalText(archiveBytes, 'art.ini', overrides)
   if (!text) return EMPTY_ENTRIES
   const entries = new Map<string, ArtEntry>()
   for (const [name, section] of parseIni(text).sections) {
@@ -55,8 +59,11 @@ export function readArtEntries(archiveBytes: Uint8Array): ReadonlyMap<string, Ar
 }
 
 /** rules.ini 的对象类型名 → `Image=`；键已转小写。只收写了 `Image=` 的节。 */
-export function readRulesImageNames(archiveBytes: Uint8Array): ReadonlyMap<string, string> {
-  const text = readLocalText(archiveBytes, 'rules.ini')
+export function readRulesImageNames(
+  archiveBytes: Uint8Array,
+  overrides?: readonly AssetOverride[],
+): ReadonlyMap<string, string> {
+  const text = readLocalText(archiveBytes, 'rules.ini', overrides)
   if (!text) return EMPTY_RULES_IMAGES
   const images = new Map<string, string>()
   for (const [name, section] of parseIni(text).sections) {

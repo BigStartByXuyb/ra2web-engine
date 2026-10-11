@@ -13,6 +13,7 @@ import {
   type TmpFile,
   type TheaterIni,
 } from '@ra2web/formats'
+import { findOverride, type AssetOverride } from './overrides.js'
 
 /**
  * 剧场（theater）资源：地块控制文件 + 地块图形档案 + 地形调色板。
@@ -122,7 +123,11 @@ export interface ImageOptions {
   readonly theaterExtension: boolean
 }
 
-export function openTheater(archiveBytes: Uint8Array, theaterName: string): TheaterAssets | undefined {
+export function openTheater(
+  archiveBytes: Uint8Array,
+  theaterName: string,
+  overrides?: readonly AssetOverride[],
+): TheaterAssets | undefined {
   const files = THEATERS[theaterName.trim().toLowerCase()]
   if (!files) return undefined
   const root = readMixIndex(archiveBytes)
@@ -170,6 +175,14 @@ export function openTheater(archiveBytes: Uint8Array, theaterName: string): Thea
   /** 候选文件名按优先级逐个试：剧场字母变体 → 通用字母变体 → 原名。 */
   function readImage(imageName: string, options: ImageOptions): ShpFile | undefined {
     for (const candidate of imageFileCandidates(imageName, options, files!.suffix, files!.letter)) {
+      const overridden = findOverride(overrides, candidate)
+      if (overridden) {
+        try {
+          return readShp(overridden)
+        } catch {
+          return undefined
+        }
+      }
       for (const mix of imageMixes) {
         const entry = findMixEntry(mix.index, candidate, crc32)
         if (!entry) continue
@@ -192,6 +205,14 @@ export function openTheater(archiveBytes: Uint8Array, theaterName: string): Thea
       candidates.push(`${base.slice(0, -files!.suffix.length)}${letter}${files!.suffix}`)
     }
     for (const candidate of candidates) {
+      const overridden = findOverride(overrides, candidate)
+      if (overridden) {
+        try {
+          return readTmp(overridden)
+        } catch {
+          return undefined
+        }
+      }
       const entry = findMixEntry(tiles, candidate, crc32)
       if (!entry) continue
       try {

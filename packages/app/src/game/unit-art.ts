@@ -1,4 +1,4 @@
-import { loadVoxelUnit, voxelUnitModels } from '@ra2web/assets'
+import { loadVoxelUnit, voxelUnitModels, type AssetOverride } from '@ra2web/assets'
 import {
   FACING_COUNT,
   METALLIC_STYLE,
@@ -63,8 +63,12 @@ export function loadUnitArt(
   archiveBytes: Uint8Array,
   typeId: string,
   quality: QualityPreset = 'pixel',
+  overrides?: readonly AssetOverride[],
 ): UnitArt | undefined {
-  const unit = loadVoxelUnit({ bytes: archiveBytes, containerFileName: 'local.mix' }, typeId.toLowerCase())
+  const unit = loadVoxelUnit(
+    { bytes: archiveBytes, containerFileName: 'local.mix', ...(overrides ? { overrides } : {}) },
+    typeId.toLowerCase(),
+  )
   if (!unit) return undefined
   return renderFrames(typeId, positionVoxelModel(voxelUnitModels(unit)), undefined, quality)
 }

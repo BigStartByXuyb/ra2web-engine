@@ -1,4 +1,4 @@
-import { loadTheaterPalette, openTheater, type TheaterAssets } from '@ra2web/assets'
+import { loadTheaterPalette, openTheater, type AssetOverride, type TheaterAssets } from '@ra2web/assets'
 import type { Palette } from '@ra2web/formats'
 import { paintTmpSubTile } from '@ra2web/render'
 import { toCanvas } from './canvas-image.js'
@@ -13,9 +13,13 @@ export interface TileLayer {
   canvasAt(tileIndex: number, subTile: number): HTMLCanvasElement | undefined
 }
 
-export function openTileLayer(archiveBytes: Uint8Array, theaterName: string | undefined): TileLayer | undefined {
+export function openTileLayer(
+  archiveBytes: Uint8Array,
+  theaterName: string | undefined,
+  overrides?: readonly AssetOverride[],
+): TileLayer | undefined {
   if (!theaterName) return undefined
-  const theater = openTheater(archiveBytes, theaterName)
+  const theater = openTheater(archiveBytes, theaterName, overrides)
   const palette = loadTheaterPalette(archiveBytes, theaterName, 'iso')
   if (!theater || !palette) return undefined
   return createTileLayer(theater, palette)

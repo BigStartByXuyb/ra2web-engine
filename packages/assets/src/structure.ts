@@ -1,5 +1,6 @@
 import type { ShpFile } from '@ra2web/formats'
 import { imageNameOf, readArtEntries, readRulesImageNames, type ArtEntry } from './art.js'
+import type { AssetOverride } from './overrides.js'
 import { openTheater, type TheaterAssets } from './theater.js'
 
 /**
@@ -29,8 +30,12 @@ export interface StructureAssets {
   loadStructure(typeName: string): StructureArt | undefined
 }
 
-export function openStructures(archiveBytes: Uint8Array, theaterName: string | undefined): StructureAssets | undefined {
-  const theater = theaterName ? openTheater(archiveBytes, theaterName) : undefined
+export function openStructures(
+  archiveBytes: Uint8Array,
+  theaterName: string | undefined,
+  overrides?: readonly AssetOverride[],
+): StructureAssets | undefined {
+  const theater = theaterName ? openTheater(archiveBytes, theaterName, overrides) : undefined
   if (!theater) return undefined
 
   const cache = new Map<string, StructureArt | undefined>()
@@ -41,8 +46,8 @@ export function openStructures(archiveBytes: Uint8Array, theaterName: string | u
     loadStructure(typeName) {
       const key = typeName.toLowerCase()
       if (cache.has(key)) return cache.get(key)
-      art ??= readArtEntries(archiveBytes)
-      rulesImages ??= readRulesImageNames(archiveBytes)
+      art ??= readArtEntries(archiveBytes, overrides)
+      rulesImages ??= readRulesImageNames(archiveBytes, overrides)
       const entry = art.get(key)
       const shp = theater.loadImage(imageNameOf(typeName, art, rulesImages), {
         theaterExtension: entry?.theater ?? false,
