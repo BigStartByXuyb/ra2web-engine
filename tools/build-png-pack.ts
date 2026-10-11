@@ -11,7 +11,7 @@ import {
   readVxl,
 } from '@ra2web/formats'
 import { loadTheaterPalette } from '@ra2web/assets'
-import { FACING_COUNT, positionVoxelModel, renderVoxelSprite } from '@ra2web/render'
+import { FACING_COUNT, METALLIC_STYLE, positionVoxelModel, renderVoxelSprite } from '@ra2web/render'
 
 /**
  * 把原版图形转成**真彩 PNG** 后打包成一个覆盖素材包 —— 写实/超清素材包的最小可用形态。
@@ -39,6 +39,8 @@ const options = rest.filter((value) => value.startsWith('--'))
 const names = rest.filter((value) => !value.startsWith('--'))
 const unitIds = options.filter((value) => value.startsWith('--unit=')).map((value) => value.slice('--unit='.length))
 const scale = Number(options.find((value) => value.startsWith('--scale='))?.slice('--scale='.length) ?? '3')
+/** 高清处理倍率：>1 时对建筑贴图放大 + 锐化 + 金属调色（超清包的观感预览，不是美术素材本身） */
+const hd = Number(options.find((value) => value.startsWith('--hd='))?.slice('--hd='.length) ?? '1')
 
 const archive = new Uint8Array(fs.readFileSync(archivePath))
 const palette = loadTheaterPalette(archive, theaterName, 'unit')
@@ -115,6 +117,105 @@ const CRC_TABLE = (() => {
   return table
 })()
 
+/**
+ * 超清包观感预览用的图像处理：双线性放大 + 反锐化 + 金属调色。
+ *
+ * **这不是写实美术**，只是把原版贴图放大后做"更细腻 + 金属感"的处理，
+ * 用来验证引擎能吃下更大、更细的贴图。真正的写实贴图要由美术或 AI 重绘产出。
+ */
+function enhance(
+  rgba: Uint8Array,
+  width: number,
+  height: number,
+  factor: number,
+): { rgba: Uint8Array; width: number; height: number } {
+  if (factor <= 1) return { rgba: gradeMetal(rgba), width, height }
+  const scaled = upscaleBilinear(rgba, width, height, factor)
+  return { rgba: gradeMetal(unsharp(scaled.rgba, scaled.width, scaled.height)), ...scaled }
+}
+
+function upscaleBilinear(
+  rgba: Uint8Array,
+  width: number,
+  height: number,
+  factor: number,
+): { rgba: Uint8Array; width: number; height: number } {
+  const outWidth = width * factor
+  const outHeight = height * factor
+  const out = new Uint8Array(outWidth * outHeight * 4)
+  for (let y = 0; y < outHeight; y++) {
+    const sourceY = Math.min(height - 1, Math.floor(y / factor))
+    for (let x = 0; x < outWidth; x++) {
+      const sourceX = Math.min(width - 1, Math.floor(x / factor))
+      // 在源图上做 1 像素的加权平均，得到比最近邻平滑的过渡
+      const left = Math.max(0, sourceX - 1)
+      const right = Math.min(width - 1, sourceX + 1)
+      const up = Math.max(0, sourceY - 1)
+      const down = Math.min(height - 1, sourceY + 1)
+      const at = (px: number, py: number) => (py * width + px) * 4
+      const target = (y * outWidth + x) * 4
+      for (let channel = 0; channel < 4; channel++) {
+        const center = rgba[at(sourceX, sourceY) + channel]!
+        const near =
+          (rgba[at(left, sourceY) + channel]! +
+            rgba[at(right, sourceY) + channel]! +
+            rgba[at(sourceX, up) + channel]! +
+            rgba[at(sourceX, down) + channel]!) /
+          4
+        out[target + channel] = Math.round(center * 0.6 + near * 0.4)
+      }
+    }
+  }
+  return { rgba: out, width: outWidth, height: outHeight }
+}
+
+/** 反锐化掩模：拉出边缘，放大后的贴图不至于糊。 */
+function unsharp(rgba: Uint8Array, width: number, height: number): Uint8Array {
+  const out = new Uint8Array(rgba.length)
+  const at = (x: number, y: number) =>
+    (Math.min(height - 1, Math.max(0, y)) * width + Math.min(width - 1, Math.max(0, x))) * 4
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const target = (y * width + x) * 4
+      for (let channel = 0; channel < 3; channel++) {
+        const center = rgba[target + channel]!
+        const blur =
+          (rgba[at(x - 1, y) + channel]! +
+            rgba[at(x + 1, y) + channel]! +
+            rgba[at(x, y - 1) + channel]! +
+            rgba[at(x, y + 1) + channel]!) /
+          4
+        out[target + channel] = Math.max(0, Math.min(255, Math.round(center + (center - blur) * 0.8)))
+      }
+      out[target + 3] = rgba[target + 3]!
+    }
+  }
+  return out
+}
+
+/** 金属调色：对比度略提、暗部偏冷蓝、亮部偏白 —— 只是预览用的风格化。 */
+function gradeMetal(rgba: Uint8Array): Uint8Array {
+  const out = new Uint8Array(rgba.length)
+  for (let index = 0; index < rgba.length; index += 4) {
+    if (rgba[index + 3] === 0) continue
+    const r = rgba[index]!
+    const g = rgba[index + 1]!
+    const b = rgba[index + 2]!
+    const luminance = (r * 0.3 + g * 0.59 + b * 0.11) / 255
+    const contrast = 1.14
+    const cool = (1 - luminance) * 0.16
+    out[index] = clampChannel((r - 128) * contrast + 128 - cool * 18)
+    out[index + 1] = clampChannel((g - 128) * contrast + 128 - cool * 8)
+    out[index + 2] = clampChannel((b - 128) * contrast + 128 + cool * 26 + luminance * 10)
+    out[index + 3] = rgba[index + 3]!
+  }
+  return out
+}
+
+function clampChannel(value: number): number {
+  return Math.max(0, Math.min(255, Math.round(value)))
+}
+
 /** 建筑：SHP 第一个非空帧 → 按色板上色 → 真彩 PNG。 */
 function structurePng(graphicName: string): Uint8Array | undefined {
   for (const candidate of [`${graphicName}.shp`, `${graphicName}.tem`, `${graphicName}.sno`, `${graphicName}.urb`]) {
@@ -134,8 +235,11 @@ function structurePng(graphicName: string): Uint8Array | undefined {
       rgba[at + 2] = color.b
       rgba[at + 3] = 255
     }
-    console.log(`${candidate} → ${graphicName}.png（${frame.width}×${frame.height}）`)
-    return writePng(frame.width, frame.height, rgba)
+    const enhanced = enhance(rgba, frame.width, frame.height, Math.max(1, Math.round(hd)))
+    console.log(
+      `${candidate} → ${graphicName}.png（${frame.width}×${frame.height}${hd > 1 ? ` → ${enhanced.width}×${enhanced.height}` : ''}）`,
+    )
+    return writePng(enhanced.width, enhanced.height, enhanced.rgba)
   }
   return undefined
 }
@@ -149,7 +253,13 @@ function unitSheet(unitId: string): Uint8Array | undefined {
   if (turretBytes) models.push(readVxl(turretBytes))
   const model = positionVoxelModel(models)
   const sprites = Array.from({ length: FACING_COUNT }, (_unused, facing) =>
-    renderVoxelSprite(model, { facing, pixelsPerVoxel: Math.max(1, Math.round(scale)), paddingInVoxels: 1 }),
+    renderVoxelSprite(model, {
+      facing,
+      pixelsPerVoxel: Math.max(1, Math.round(scale)),
+      paddingInVoxels: 1,
+      // 超清档给体素加金属光泽（引擎的着色模型，和素材无关）
+      ...(hd > 1 ? { shading: METALLIC_STYLE } : {}),
+    }),
   )
   const frameSize = Math.max(...sprites.map((sprite) => Math.max(sprite.width, sprite.height)))
   const rgba = new Uint8Array(frameSize * FACING_COUNT * frameSize * 4)
@@ -168,8 +278,12 @@ function unitSheet(unitId: string): Uint8Array | undefined {
       }
     }
   })
+  const enhanced =
+    hd > 1
+      ? { rgba: gradeMetal(rgba), width: frameSize * FACING_COUNT, height: frameSize }
+      : { rgba, width: frameSize * FACING_COUNT, height: frameSize }
   console.log(`${unitId}.vxl → ${unitId}.png（8 帧 × ${frameSize}×${frameSize}）`)
-  return writePng(frameSize * FACING_COUNT, frameSize, rgba)
+  return writePng(enhanced.width, enhanced.height, enhanced.rgba)
 }
 
 /** 明文头 MIX：u16 条目数 + u32 数据区长度 + 条目表 + 数据区。 */
