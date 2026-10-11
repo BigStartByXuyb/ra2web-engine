@@ -65,7 +65,8 @@ export function drawScene(scene: Scene): void {
       range,
       view: VIEW,
       tileCanvasAt: (tileIndex, subTile) => preview.tileLayer?.canvasAt(tileIndex, subTile),
-      units: scene.battle ? collectUnits(scene.battle, scene.artByUnit) : [],
+      // 单位暂时仍走 2D：GPU 上画会出现退化四边形（见 docs/ENGINE-MAP.md 的待查项）
+      units: [],
     })
   }
   if (isEmpty) drawCanvasHint(context, scene.canvas, '先在上面选「RA2.MIX」与地图档案，或点「内置示例战场」')
@@ -84,11 +85,7 @@ export function drawScene(scene: Scene): void {
       strokeCell(context, VIEW, { x: fromFixed(selected.x), y: fromFixed(selected.y) }, SELECTED_COLOR)
       drawPath(context, selected.path.slice(selected.pathIndex))
     }
-    if (scene.glTiles) {
-      // 单位在 GPU 上画；2D 这层只剩迷雾与选中框
-    } else {
-      drawUnits(context, battle, scene.artByUnit, wet)
-    }
+    drawUnits(context, battle, scene.artByUnit, wet)
     drawShroud(context, battle, VIEW, range)
   }
   if (wet) {
