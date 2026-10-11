@@ -82,10 +82,12 @@ const FRAGMENT_SHADER = `
 precision mediump float;
 uniform sampler2D u_texture;
 uniform float u_alpha;
+uniform float u_fade;
 varying vec2 v_uv;
 void main() {
   // 纹理已按预乘 alpha 上传，整体再乘一个系数即可做半透明的倒影
-  gl_FragColor = texture2D(u_texture, v_uv) * u_alpha;
+  // u_fade = 1 时额外沿贴图纵向渐隐：贴地线那一侧（uv.y = 1）最实，远端（uv.y = 0）最淡
+  gl_FragColor = texture2D(u_texture, v_uv) * (u_alpha * mix(1.0, v_uv.y, u_fade));
 }`
 
 /**
@@ -277,6 +279,7 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
   const viewportLocation = gl.getUniformLocation(program, 'u_viewport')
   const textureLocation = gl.getUniformLocation(program, 'u_texture')
   const alphaLocation = gl.getUniformLocation(program, 'u_alpha')
+  const fadeLocation = gl.getUniformLocation(program, 'u_fade')
   const shadowCameraLocation = shadowProgram ? gl.getUniformLocation(shadowProgram, 'u_camera') : undefined
   const shadowScaleLocation = shadowProgram ? gl.getUniformLocation(shadowProgram, 'u_scale') : undefined
   const shadowViewportLocation = shadowProgram ? gl.getUniformLocation(shadowProgram, 'u_viewport') : undefined
@@ -401,6 +404,7 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
     gl.uniform2f(viewportLocation, canvas.width, canvas.height)
     gl.uniform1i(textureLocation, 0)
     gl.uniform1f(alphaLocation!, 1)
+    gl.uniform1f(fadeLocation!, 0)
     gl.activeTexture(gl.TEXTURE0)
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
   }
@@ -449,21 +453,28 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
 
   /**
    * 湿地面倒影：把物体沿贴地线镜像一份画在下方、整体半透明 —— 湿/结冰的**材质线索**。
-   * 用 `sizeY` 取负实现上下翻转（顶点是 `origin + corner * size`），不需要第二个着色器；
-   * 透明度与抬高量取自 `WET_REFLECTION`，与 2D 路径的倒影是同一个效果。
+   * 用 `sizeY` 取负实现上下翻转（顶点是 `origin + corner * size`），不需要第二个着色器。
+   *
+   * 形态取自 `WET_REFLECTION`，与 2D 路径同一个式子：贴图第 v 行落到
+   * `贴地线 + squash × (贴地线 − v) − 抬高量` —— 镜像后按"离贴地线的距离"压缩，
+   * 贴地点因此不动、远端贴向地面；再用 `u_fade` 让远端渐隐，
+   * 否则等距精灵的镜像会被读成"朝另一个方向的另一个物体"。
    */
   const drawReflections = (camera: Camera, quads: readonly GroundedQuad[], view: IsoView): void => {
     useMainProgram(camera)
     gl.uniform1f(alphaLocation!, WET_REFLECTION.alpha)
+    gl.uniform1f(fadeLocation!, 1)
     const lift = Math.round(view.cellHeight * WET_REFLECTION.liftRatio)
     resetBatch()
     for (const quad of quads) {
       const texture = textureFor(quad.source)
       if (!texture) continue
-      // 贴图第 v 行落到 `2 × 贴地线 − v`，再整体抬 `lift` 像素：倒影因此比本体略扁
-      pushQuad(texture, quad.originX, 2 * quad.groundY - quad.originY - lift, quad.source.width, -quad.source.height)
+      const height = quad.source.height * WET_REFLECTION.squash
+      const top = quad.groundY + WET_REFLECTION.squash * (quad.groundY - quad.originY) - lift
+      pushQuad(texture, quad.originX, top, quad.source.width, -height)
     }
     flushBatch(cornerLocation, originLocation, sizeLocation)
+    gl.uniform1f(fadeLocation!, 0)
     gl.uniform1f(alphaLocation!, 1)
   }
 

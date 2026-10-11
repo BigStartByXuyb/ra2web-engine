@@ -24,10 +24,12 @@ const RAIN_COLOR = 'rgba(190, 220, 255, 0.30)'
 const VIGNETTE = 'rgba(2, 6, 14, 0.72)'
 
 /**
- * 湿地面倒影的形状：本体镜像一份（不拉伸），整体半透明，再沿贴地线向上抬 `liftRatio × 格高`。
- * 2D 路径与 WebGL 路径共用这一份 —— 同一档预设下两条路径的倒影必须是同一个效果。
+ * 湿地面倒影的形状：本体镜像一份，压扁到 `squash` 倍高度、整体半透明，再沿贴地线向上抬
+ * `liftRatio × 格高`。`alpha` 到贴地线一侧不变、远端渐隐（见 WebGL 的 `u_fade`），
+ * 否则镜像会把等距精灵读成"朝另一个方向的另一个物体"。
+ * 2D 路径与 WebGL 路径共用这一份 —— 两条路径的倒影必须是同一个效果。
  */
-export const WET_REFLECTION = { alpha: 0.28, liftRatio: 0.12 }
+export const WET_REFLECTION = { alpha: 0.28, squash: 0.6, liftRatio: 0.12 }
 
 /** 泛光用的缩小画布：全分辨率模糊太贵，缩到 1/4 再放大回来。 */
 let bloomCanvas: HTMLCanvasElement | undefined
@@ -125,8 +127,10 @@ function hash(value: number): number {
 }
 
 /**
- * 湿地面反射：把一个精灵沿它的贴地线上下镜像画一份，低透明度。
- * 精灵的贴地线就是 `anchorY`，所以镜像后不需要额外偏移。
+ * 湿地面倒影：把一个精灵沿它的贴地线上下镜像画一份，压扁 + 低透明度。
+ *
+ * 贴地线是精灵自己的 `anchorY` 那一行；镜像后再把"离贴地线的距离"乘 `squash`，
+ * 所以贴地点不动、远端贴向地面（这正是 WebGL 路径同一个式子的画布写法）。
  */
 export function drawWetReflection(
   context: CanvasRenderingContext2D,
@@ -138,10 +142,12 @@ export function drawWetReflection(
 ): void {
   context.save()
   context.globalAlpha = WET_REFLECTION.alpha
-  context.translate(x, y + anchorY * 2)
-  context.scale(1, -1)
-  // 倒影在等距视角下更扁、更淡；这里只压扁一点，保持像素对齐
-  context.translate(0, -Math.round(view.cellHeight * WET_REFLECTION.liftRatio))
+  const groundY = y + anchorY
+  context.translate(
+    x,
+    groundY + WET_REFLECTION.squash * anchorY - Math.round(view.cellHeight * WET_REFLECTION.liftRatio),
+  )
+  context.scale(1, -WET_REFLECTION.squash)
   context.drawImage(image, 0, 0)
   context.restore()
 }
