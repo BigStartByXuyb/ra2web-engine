@@ -151,6 +151,37 @@ test('原版 isotemp.mix 的地块能被完整解出', { skip }, () => {
   assert.equal(cliff.subTiles.filter((sub) => sub.isEmpty).length, 2)
 })
 
+test('原版地块能读出高度档位、地形类型与坡道类型', { skip }, () => {
+  const archive = new Uint8Array(fs.readFileSync(mixPath!))
+  const root = readMixIndex(archive)
+  const theaterBytes = readMixEntry(archive, root, findMixEntry(root, 'isotemp.mix', crc32)!)
+  const theater = readMixIndex(theaterBytes)
+
+  const heights = new Set<number>()
+  const terrainTypes = new Set<number>()
+  let ramps = 0
+  let subTiles = 0
+  for (const entry of theater.entries.slice(0, 200)) {
+    let parsed
+    try {
+      parsed = readTmp(readMixEntry(theaterBytes, theater, entry))
+    } catch {
+      continue
+    }
+    for (const sub of parsed.subTiles) {
+      if (sub.isEmpty) continue
+      subTiles += 1
+      heights.add(sub.height)
+      terrainTypes.add(sub.terrainType)
+      if (sub.rampType > 0) ramps += 1
+    }
+  }
+  assert.ok(subTiles > 200, `子块太少：${subTiles}`)
+  assert.ok(heights.size > 1, `高度档位应当不止一种：${[...heights].join(',')}`)
+  assert.ok(terrainTypes.size > 1, `地形类型应当不止一种：${[...terrainTypes].join(',')}`)
+  assert.ok(ramps > 0, '应当有坡道地块')
+})
+
 test('原版 isotemp.mix 全部地块都能解出（含带额外数据的）', { skip }, () => {
   const archive = new Uint8Array(fs.readFileSync(mixPath!))
   const root = readMixIndex(archive)

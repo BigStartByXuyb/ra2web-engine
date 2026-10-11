@@ -10,7 +10,17 @@ const palette: Palette = {
 const tile: TmpFile = { cellsX: 1, cellsY: 1, cellWidth: 60, cellHeight: 30, subTiles: [] }
 
 function subTileWith(pixels: Uint8Array): TmpSubTile {
-  return { pixelX: 0, pixelY: 0, size: pixels.length, flags: 0, pixels, isEmpty: false }
+  return {
+    pixelX: 0,
+    pixelY: 0,
+    size: pixels.length,
+    flags: 0,
+    height: 0,
+    terrainType: 0,
+    rampType: 0,
+    pixels,
+    isEmpty: false,
+  }
 }
 
 function colorAt(image: ReturnType<typeof paintTmpSubTile>, x: number, y: number): [number, number, number, number] {
@@ -44,7 +54,17 @@ test('索引 0 是透明索引，不是颜色', () => {
 })
 
 test('空槽位画出全透明图', () => {
-  const empty: TmpSubTile = { pixelX: 0, pixelY: 0, size: 0, flags: 0, pixels: new Uint8Array(0), isEmpty: true }
+  const empty: TmpSubTile = {
+    pixelX: 0,
+    pixelY: 0,
+    size: 0,
+    flags: 0,
+    height: 0,
+    terrainType: 0,
+    rampType: 0,
+    pixels: new Uint8Array(0),
+    isEmpty: true,
+  }
   const image = paintTmpSubTile(tile, empty, palette)
   const opaque = image.rgba.filter((_, index) => index % 4 === 3).some((alpha) => alpha !== 0)
   assert.equal(opaque, false)

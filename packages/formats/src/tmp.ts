@@ -80,6 +80,12 @@ export interface TmpSubTile {
   readonly size: number
   /** `flags` 原始值：bit0 有额外数据、bit1 有 z 数据 */
   readonly flags: number
+  /** 该格的地面高度档位（原版用它算崖壁高度） */
+  readonly height: number
+  /** 地形类型编号（0 普通、1 水、2 坡道…，原版按它决定通行与外观） */
+  readonly terrainType: number
+  /** 坡道类型：0 不是坡道，非 0 表示这一格是斜坡 */
+  readonly rampType: number
   /** 菱形像素，长度 = cellWidth×cellHeight/2；0 表示透明 */
   readonly pixels: Uint8Array
   /** 该槽位是否有图形（多格图块里允许为空） */
@@ -99,6 +105,9 @@ const EMPTY_SUB_TILE: TmpSubTile = {
   pixelY: 0,
   size: 0,
   flags: 0,
+  height: 0,
+  terrainType: 0,
+  rampType: 0,
   pixels: new Uint8Array(0),
   isEmpty: true,
 }
@@ -163,6 +172,9 @@ function readSubTile(bytes: Uint8Array, at: number, pixelCount: number, index: n
     pixelY: header.getInt32(4, true),
     size,
     flags,
+    height: header.getUint8(40),
+    terrainType: header.getUint8(41),
+    rampType: header.getUint8(42),
     pixels: bytes.subarray(at + BLOCK_HEADER_BYTES, at + BLOCK_HEADER_BYTES + pixelCount),
     isEmpty: false,
   }
