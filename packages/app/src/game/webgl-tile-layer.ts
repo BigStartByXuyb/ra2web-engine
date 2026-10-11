@@ -140,7 +140,8 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
   }
 
   // 每个格子 6 个顶点（两个三角形）；每个顶点 4 个 float：角偏移 + 世界左上角
-  const CORNERS = [0, 0, 60, 0, 0, 30, 0, 30, 60, 0, 60, 30]
+  // 单位正方形的两个三角形：顶点乘 `a_size` 得到实际尺寸，纹理坐标直接用它
+  const CORNERS = [0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1]
   let data = new Float32Array(0)
 
   return {
