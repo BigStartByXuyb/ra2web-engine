@@ -23,6 +23,12 @@ const BLOOM_COLOR = 'rgba(120, 190, 255, 0.16)'
 const RAIN_COLOR = 'rgba(190, 220, 255, 0.30)'
 const VIGNETTE = 'rgba(2, 6, 14, 0.72)'
 
+/**
+ * 湿地面倒影的形状：本体镜像一份（不拉伸），整体半透明，再沿贴地线向上抬 `liftRatio × 格高`。
+ * 2D 路径与 WebGL 路径共用这一份 —— 同一档预设下两条路径的倒影必须是同一个效果。
+ */
+export const WET_REFLECTION = { alpha: 0.28, liftRatio: 0.12 }
+
 /** 泛光用的缩小画布：全分辨率模糊太贵，缩到 1/4 再放大回来。 */
 let bloomCanvas: HTMLCanvasElement | undefined
 
@@ -131,11 +137,11 @@ export function drawWetReflection(
   view: IsoView,
 ): void {
   context.save()
-  context.globalAlpha = 0.28
+  context.globalAlpha = WET_REFLECTION.alpha
   context.translate(x, y + anchorY * 2)
   context.scale(1, -1)
   // 倒影在等距视角下更扁、更淡；这里只压扁一点，保持像素对齐
-  context.translate(0, -Math.round(view.cellHeight * 0.12))
+  context.translate(0, -Math.round(view.cellHeight * WET_REFLECTION.liftRatio))
   context.drawImage(image, 0, 0)
   context.restore()
 }

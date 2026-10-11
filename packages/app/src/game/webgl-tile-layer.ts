@@ -2,6 +2,7 @@ import type { IsoView } from '@ra2web/render'
 import type { Camera, CellRange } from './camera.js'
 import { viewScale } from './camera.js'
 import type { MapPreview } from './map-preview.js'
+import { WET_REFLECTION } from './post-process.js'
 
 /**
  * WebGL 地块层 —— 换渲染后端的第一步 spike。
@@ -20,17 +21,24 @@ import type { MapPreview } from './map-preview.js'
 
 export interface GlTileLayer {
   /**
-   * 画一帧"静态地图层"：地块 → 覆盖物 → 建筑，绘制次序与 2D 路径逐条对应
-   * （覆盖物跟在它那一格的地块之后；建筑最后按 (x+y) 升序，近处盖远处）。
+   * 画一帧。图层次序由本层排定，调用方只报开关：
+   * 清屏 → 地块/覆盖物 → 倒影 → 阴影 → 建筑/单位 → 雾。
+   * 三个 pass 都没有开关时，画面与 2D 路径逐像素一致。
    */
-  render(context: GlSceneContext): void
+  render(context: GlSceneContext, effects: GlFrameEffects): void
   /** 画布尺寸/比例变化时同步后备缓冲 */
   resize(width: number, height: number): void
   readonly ready: boolean
+}
+
+/** 一帧要叠的增强：都不开就是纯原版画面（与 2D 路径逐像素一致）。 */
+export interface GlFrameEffects {
+  /** 湿地面倒影：雨夜预设的一部分，物体在贴地线下方镜像一份 */
+  readonly reflections?: boolean | undefined
   /** 实时阴影：把物体按光方向压扁投影到地面（重制版增强，默认关闭） */
-  renderShadows(context: GlSceneContext): void
+  readonly shadows?: boolean | undefined
   /** 大气雾：按屏幕纵向梯度铺一层冷雾（重制版增强，默认关闭） */
-  renderFog(): void
+  readonly fog?: boolean | undefined
 }
 
 /** 一帧要画的静态地图内容：地块/覆盖物/建筑都从 `MapPreview` 取 */
@@ -73,9 +81,11 @@ void main() {
 const FRAGMENT_SHADER = `
 precision mediump float;
 uniform sampler2D u_texture;
+uniform float u_alpha;
 varying vec2 v_uv;
 void main() {
-  gl_FragColor = texture2D(u_texture, v_uv);
+  // 纹理已按预乘 alpha 上传，整体再乘一个系数即可做半透明的倒影
+  gl_FragColor = texture2D(u_texture, v_uv) * u_alpha;
 }`
 
 /**
@@ -155,6 +165,67 @@ function visibleWorldBounds(
   }
 }
 
+/**
+ * 一帧里要画的"贴地物体"：建筑按 (x+y) 升序、单位排在建筑之后（与 2D 路径同一判据），
+ * 视野外的建筑在这里就丢掉。
+ *
+ * 倒影/阴影/本体三个 pass 共用这一份定位结果，锚点、贴地线、裁剪判据只有这一处。
+ * `bottomY` 是贴图底边（阴影按它对齐）；`groundY` 是贴地线（倒影按它镜像）——
+ * 单位取贴图里的贴地锚点，建筑没有单独的贴地点数据、取贴图底边。
+ */
+interface GroundedQuad {
+  readonly source: HTMLCanvasElement
+  readonly originX: number
+  readonly originY: number
+  readonly bottomY: number
+  readonly groundY: number
+}
+
+function groundedQuads(context: GlSceneContext): readonly GroundedQuad[] {
+  const { view } = context
+  const bounds = visibleWorldBounds(context.range, view)
+  const quads: GroundedQuad[] = []
+  const structures = [...context.preview.structures].sort(
+    (left, right) => left.placement.cellX + left.placement.cellY - (right.placement.cellX + right.placement.cellY),
+  )
+  for (const sprite of structures) {
+    const { placement, canvas: source, foundationWidth, foundationHeight } = sprite
+    const centerX =
+      (placement.cellX + (foundationWidth - 1) / 2 - (placement.cellY + (foundationHeight - 1) / 2)) *
+      (view.cellWidth / 2)
+    const centerY =
+      (placement.cellX + (foundationWidth - 1) / 2 + placement.cellY + (foundationHeight - 1) / 2) *
+      (view.cellHeight / 2)
+    // 视野裁剪：屏幕外的建筑不提交（一张图几百个建筑，这一条省掉大部分绘制）
+    if (
+      centerX - source.width / 2 > bounds.maxX ||
+      centerX + source.width / 2 < bounds.minX ||
+      centerY + source.height / 2 < bounds.minY ||
+      centerY - source.height / 2 > bounds.maxY
+    ) {
+      continue
+    }
+    const bottomY = centerY + source.height / 2
+    quads.push({
+      source,
+      originX: centerX - source.width / 2,
+      originY: centerY - source.height / 2,
+      bottomY,
+      groundY: bottomY,
+    })
+  }
+  for (const unit of context.units) {
+    quads.push({
+      source: unit.source,
+      originX: unit.worldX - unit.anchorX,
+      originY: unit.worldY - unit.anchorY,
+      bottomY: unit.worldY + (unit.source.height - unit.anchorY),
+      groundY: unit.worldY,
+    })
+  }
+  return quads
+}
+
 function compile(gl: WebGLRenderingContext, type: number, source: string): WebGLShader | undefined {
   const shader = gl.createShader(type)
   if (!shader) return undefined
@@ -205,6 +276,7 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
   const scaleLocation = gl.getUniformLocation(program, 'u_scale')
   const viewportLocation = gl.getUniformLocation(program, 'u_viewport')
   const textureLocation = gl.getUniformLocation(program, 'u_texture')
+  const alphaLocation = gl.getUniformLocation(program, 'u_alpha')
   const shadowCameraLocation = shadowProgram ? gl.getUniformLocation(shadowProgram, 'u_camera') : undefined
   const shadowScaleLocation = shadowProgram ? gl.getUniformLocation(shadowProgram, 'u_scale') : undefined
   const shadowViewportLocation = shadowProgram ? gl.getUniformLocation(shadowProgram, 'u_viewport') : undefined
@@ -320,7 +392,96 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
   // 每个格子 6 个顶点（两个三角形）；每个顶点 4 个 float：角偏移 + 世界左上角
   // 单位正方形的两个三角形：顶点乘 `a_size` 得到实际尺寸，纹理坐标直接用它
   const CORNERS = [0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1]
-  let data = new Float32Array(0)
+
+  /** 主程序（地块/覆盖物/物体/倒影共用）的相机与采样设置；倒影在它之后自己改 `u_alpha`。 */
+  const useMainProgram = (camera: Camera): void => {
+    gl.useProgram(program!)
+    gl.uniform2f(cameraLocation, camera.x, camera.y)
+    gl.uniform1f(scaleLocation, viewScale(camera))
+    gl.uniform2f(viewportLocation, canvas.width, canvas.height)
+    gl.uniform1i(textureLocation, 0)
+    gl.uniform1f(alphaLocation!, 1)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+  }
+
+  /** 物体层：建筑与单位，次序就是 `groundedQuads` 的次序（远到近，近处盖远处）。 */
+  const drawObjects = (quads: readonly GroundedQuad[]): void => {
+    resetBatch()
+    for (const quad of quads) {
+      const texture = textureFor(quad.source)
+      if (!texture) continue
+      pushQuad(texture, quad.originX, quad.originY, quad.source.width, quad.source.height)
+    }
+    flushBatch(cornerLocation, originLocation, sizeLocation)
+  }
+
+  /**
+   * 实时阴影：不单独做阴影贴图，直接把物体的贴图当**遮蔽掩模**，按光方向偏移、
+   * 垂直压扁后贴回地面 —— 每个物体一次 draw call，RTS 同屏物体数完全够用。
+   */
+  const drawShadows = (camera: Camera, quads: readonly GroundedQuad[]): void => {
+    if (!shadowProgram) return
+    gl.useProgram(shadowProgram)
+    gl.uniform2f(shadowCameraLocation!, camera.x, camera.y)
+    gl.uniform1f(shadowScaleLocation!, viewScale(camera))
+    gl.uniform2f(shadowViewportLocation!, canvas.width, canvas.height)
+    gl.uniform1i(shadowTextureLocation!, 0)
+    gl.uniform1f(shadowAlphaLocation!, DEFAULT_SHADOW.alpha)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+    resetBatch()
+    for (const quad of quads) {
+      const texture = textureFor(quad.source)
+      if (!texture) continue
+      const shadowHeight = Math.max(1, Math.round(quad.source.height * DEFAULT_SHADOW.squash))
+      // 影子底边与物体贴图底边对齐，再按光方向偏移
+      pushQuad(
+        texture,
+        quad.originX + DEFAULT_SHADOW.offsetX,
+        quad.bottomY - shadowHeight + DEFAULT_SHADOW.offsetY,
+        quad.source.width,
+        shadowHeight,
+      )
+    }
+    flushBatch(shadowCornerLocation, shadowOriginLocation, shadowSizeLocation)
+  }
+
+  /**
+   * 湿地面倒影：把物体沿贴地线镜像一份画在下方、整体半透明 —— 湿/结冰的**材质线索**。
+   * 用 `sizeY` 取负实现上下翻转（顶点是 `origin + corner * size`），不需要第二个着色器；
+   * 透明度与抬高量取自 `WET_REFLECTION`，与 2D 路径的倒影是同一个效果。
+   */
+  const drawReflections = (camera: Camera, quads: readonly GroundedQuad[], view: IsoView): void => {
+    useMainProgram(camera)
+    gl.uniform1f(alphaLocation!, WET_REFLECTION.alpha)
+    const lift = Math.round(view.cellHeight * WET_REFLECTION.liftRatio)
+    resetBatch()
+    for (const quad of quads) {
+      const texture = textureFor(quad.source)
+      if (!texture) continue
+      // 贴图第 v 行落到 `2 × 贴地线 − v`，再整体抬 `lift` 像素：倒影因此比本体略扁
+      pushQuad(texture, quad.originX, 2 * quad.groundY - quad.originY - lift, quad.source.width, -quad.source.height)
+    }
+    flushBatch(cornerLocation, originLocation, sizeLocation)
+    gl.uniform1f(alphaLocation!, 1)
+  }
+
+  /** 大气雾：全屏一个四边形，屏幕纵向梯度加暗角（重制版增强，默认关闭）。 */
+  const drawFog = (): void => {
+    if (!fogProgram || !fogBuffer) return
+    gl.useProgram(fogProgram)
+    gl.uniform3f(fogColorLocation!, DEFAULT_FOG.r, DEFAULT_FOG.g, DEFAULT_FOG.b)
+    gl.uniform1f(fogStrengthLocation!, DEFAULT_FOG.strength)
+    gl.uniform1f(fogVignetteLocation!, DEFAULT_FOG.vignette)
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+    const quad = new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1])
+    gl.bindBuffer(gl.ARRAY_BUFFER, fogBuffer)
+    gl.bufferData(gl.ARRAY_BUFFER, quad, gl.STREAM_DRAW)
+    gl.enableVertexAttribArray(fogPositionLocation)
+    gl.vertexAttribPointer(fogPositionLocation, 2, gl.FLOAT, false, 0, 0)
+    gl.drawArrays(gl.TRIANGLES, 0, 6)
+  }
 
   return {
     ready: true,
@@ -329,25 +490,17 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       canvas.height = height
       gl.viewport(0, 0, width, height)
     },
-    render(context) {
+    /**
+     * 一帧的图层次序固定在这里：清屏 → 地块/覆盖物 → 倒影 → 阴影 → 建筑/单位 → 雾。
+     * 倒影与阴影压在地面之上、物体之下，所以地面那一批必须先画掉，否则会被地块盖住。
+     */
+    render(context, effects) {
       const { preview, camera, range, view, tileCanvasAt } = context
-      const width = canvas.width
-      const height = canvas.height
       gl.clearColor(0, 0, 0, 0)
       gl.clear(gl.COLOR_BUFFER_BIT)
-      gl.useProgram(program!)
-      gl.uniform2f(cameraLocation, camera.x, camera.y)
-      gl.uniform1f(scaleLocation, viewScale(camera))
-      gl.uniform2f(viewportLocation, width, height)
-      gl.uniform1i(textureLocation, 0)
-      gl.activeTexture(gl.TEXTURE0)
-
-      /** 画一个画布四边形：`origin` 是世界坐标左上角，`size` 是像素尺寸。 */
-      const drawQuad = (source: HTMLCanvasElement, originX: number, originY: number): void => {
-        const texture = textureFor(source)
-        if (!texture) return
-        pushQuad(texture, originX, originY, source.width, source.height)
-      }
+      useMainProgram(camera)
+      // 物体在这一帧的位置只算一次，倒影/阴影/本体三个 pass 共用（锚点与视野裁剪只有这一处）
+      const quads = groundedQuads(context)
 
       resetBatch()
 
@@ -391,114 +544,12 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       for (const quad of grouped) {
         pushQuad(quad.texture, quad.originX, quad.originY, quad.sizeX, quad.sizeY)
       }
-
-      // 建筑最后画，按 (x+y) 升序：近处的房子盖住远处的（与 2D 路径同一判据）
-      const visible = visibleWorldBounds(range, view)
-      const structures = [...preview.structures].sort(
-        (left, right) => left.placement.cellX + left.placement.cellY - (right.placement.cellX + right.placement.cellY),
-      )
-      for (const sprite of structures) {
-        const { placement, canvas: source, foundationWidth, foundationHeight } = sprite
-        const anchorX =
-          (placement.cellX + (foundationWidth - 1) / 2 - (placement.cellY + (foundationHeight - 1) / 2)) *
-          (view.cellWidth / 2)
-        const anchorY =
-          (placement.cellX + (foundationWidth - 1) / 2 + placement.cellY + (foundationHeight - 1) / 2) *
-          (view.cellHeight / 2)
-        // 视野裁剪：屏幕外的建筑不提交（一张图几百个建筑，这一条省掉大部分绘制）
-        if (
-          anchorX - source.width / 2 > visible.maxX ||
-          anchorX + source.width / 2 < visible.minX ||
-          anchorY + source.height / 2 < visible.minY ||
-          anchorY - source.height / 2 > visible.maxY
-        ) {
-          continue
-        }
-        drawQuad(source, anchorX - source.width / 2, anchorY - source.height / 2)
-      }
-
-      // 单位最后画（与 2D 路径一致：单位在所有建筑之上），锚点是贴地点
-      for (const unit of context.units) {
-        drawQuad(unit.source, unit.worldX - unit.anchorX, unit.worldY - unit.anchorY)
-      }
+      // 地面先落地：倒影与阴影压在地面之上、物体之下，所以地面这一批必须先画掉
       flushBatch(cornerLocation, originLocation, sizeLocation)
-    },
-    /**
-     * 实时阴影：不单独做阴影贴图，直接把物体的贴图当**遮蔽掩模**，按光方向偏移、
-     * 垂直压扁后贴回地面 —— 代价是每个物体一次 draw call，RTS 的同屏数量完全够用。
-     * 只在开关打开时调用；关闭时画面与 2D 路径逐像素一致。
-     */
-    renderShadows(context) {
-      if (!shadowProgram) return
-      const { camera, view } = context
-      const width = canvas.width
-      const height = canvas.height
-      gl.useProgram(shadowProgram)
-      gl.uniform2f(shadowCameraLocation!, camera.x, camera.y)
-      gl.uniform1f(shadowScaleLocation!, viewScale(camera))
-      gl.uniform2f(shadowViewportLocation!, width, height)
-      gl.uniform1i(shadowTextureLocation!, 0)
-      gl.uniform1f(shadowAlphaLocation!, DEFAULT_SHADOW.alpha)
-      gl.activeTexture(gl.TEXTURE0)
-      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
-
-      const drawShadow = (source: HTMLCanvasElement, originX: number, originY: number, baseY: number): void => {
-        const texture = textureFor(source)
-        if (!texture) return
-        const shadowHeight = Math.max(1, Math.round(source.height * DEFAULT_SHADOW.squash))
-        // 影子底边与物体贴地线对齐，再按光方向偏移
-        const shadowOriginX = originX + DEFAULT_SHADOW.offsetX
-        const shadowOriginY = baseY - shadowHeight + DEFAULT_SHADOW.offsetY
-        pushQuad(texture, shadowOriginX, shadowOriginY, source.width, shadowHeight)
-      }
-
-      resetBatch()
-
-      const structures = [...context.preview.structures].sort(
-        (left, right) => left.placement.cellX + left.placement.cellY - (right.placement.cellX + right.placement.cellY),
-      )
-      const visibleShadows = visibleWorldBounds(context.range, view)
-      for (const sprite of structures) {
-        const { placement, canvas: source, foundationWidth, foundationHeight } = sprite
-        const anchorX =
-          (placement.cellX + (foundationWidth - 1) / 2 - (placement.cellY + (foundationHeight - 1) / 2)) *
-          (view.cellWidth / 2)
-        const anchorY =
-          (placement.cellX + (foundationWidth - 1) / 2 + placement.cellY + (foundationHeight - 1) / 2) *
-          (view.cellHeight / 2)
-        if (
-          anchorX - source.width / 2 > visibleShadows.maxX ||
-          anchorX + source.width / 2 < visibleShadows.minX ||
-          anchorY + source.height / 2 < visibleShadows.minY ||
-          anchorY - source.height / 2 > visibleShadows.maxY
-        ) {
-          continue
-        }
-        drawShadow(source, anchorX - source.width / 2, anchorY - source.height / 2, anchorY + source.height / 2)
-      }
-      for (const unit of context.units) {
-        drawShadow(
-          unit.source,
-          unit.worldX - unit.anchorX,
-          unit.worldY - unit.anchorY,
-          unit.worldY + (unit.source.height - unit.anchorY),
-        )
-      }
-      flushBatch(shadowCornerLocation, shadowOriginLocation, shadowSizeLocation)
-    },
-    renderFog() {
-      if (!fogProgram || !fogBuffer) return
-      gl.useProgram(fogProgram)
-      gl.uniform3f(fogColorLocation!, DEFAULT_FOG.r, DEFAULT_FOG.g, DEFAULT_FOG.b)
-      gl.uniform1f(fogStrengthLocation!, DEFAULT_FOG.strength)
-      gl.uniform1f(fogVignetteLocation!, DEFAULT_FOG.vignette)
-      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
-      const quad = new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1])
-      gl.bindBuffer(gl.ARRAY_BUFFER, fogBuffer)
-      gl.bufferData(gl.ARRAY_BUFFER, quad, gl.STREAM_DRAW)
-      gl.enableVertexAttribArray(fogPositionLocation)
-      gl.vertexAttribPointer(fogPositionLocation, 2, gl.FLOAT, false, 0, 0)
-      gl.drawArrays(gl.TRIANGLES, 0, 6)
+      if (effects.reflections) drawReflections(camera, quads, view)
+      if (effects.shadows) drawShadows(camera, quads)
+      drawObjects(quads)
+      if (effects.fog) drawFog()
     },
   }
 }
