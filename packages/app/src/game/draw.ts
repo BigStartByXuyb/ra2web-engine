@@ -7,6 +7,7 @@ import { HOVER_COLOR, SELECTED_COLOR, drawTerrain, strokeCell } from './terrain.
 import { blitFogCell, createFogSprites, type FogSprites } from './fog-layer.js'
 import { applyWetNightGrade, drawWetReflection } from './post-process.js'
 import type { GlTileLayer } from './webgl-tile-layer.js'
+import type { GlUnitQuad } from './webgl-tile-layer.js'
 import { isWetNight, type QualityPreset, type UnitArt } from './unit-art.js'
 
 /**
@@ -64,6 +65,7 @@ export function drawScene(scene: Scene): void {
       range,
       view: VIEW,
       tileCanvasAt: (tileIndex, subTile) => preview.tileLayer?.canvasAt(tileIndex, subTile),
+      units: scene.battle ? collectUnits(scene.battle, scene.artByUnit) : [],
     })
   }
   if (isEmpty) drawCanvasHint(context, scene.canvas, '先在上面选「RA2.MIX」与地图档案，或点「内置示例战场」')
@@ -82,7 +84,11 @@ export function drawScene(scene: Scene): void {
       strokeCell(context, VIEW, { x: fromFixed(selected.x), y: fromFixed(selected.y) }, SELECTED_COLOR)
       drawPath(context, selected.path.slice(selected.pathIndex))
     }
-    drawUnits(context, battle, scene.artByUnit, wet)
+    if (scene.glTiles) {
+      // 单位在 GPU 上画；2D 这层只剩迷雾与选中框
+    } else {
+      drawUnits(context, battle, scene.artByUnit, wet)
+    }
     drawShroud(context, battle, VIEW, range)
   }
   if (wet) {
@@ -150,6 +156,38 @@ function drawPath(context: CanvasRenderingContext2D, path: readonly { x: number;
 }
 
 /** 按 (x+y) 升序画，保证近处单位盖住远处的。 */
+/**
+ * 收集要交给 GPU 的单位：只挑活着的、且对本地玩家可见的，按 (x+y) 升序
+ * （与 2D 路径同一套判据），坐标换算成世界坐标里的贴地锚点。
+ */
+function collectUnits(battle: Battle, artByUnit: readonly (UnitArt | undefined)[]): readonly GlUnitQuad[] {
+  const order = battle.world.units
+    .map((unit, index) => ({ unit, index }))
+    .filter(({ unit }) => unit.health > 0)
+    .filter(({ unit }) => {
+      if (unit.owner === LOCAL_OWNER) return true
+      const cell = unitCell(unit)
+      return isVisible(battle.world.shroud, LOCAL_OWNER, cell.x, cell.y)
+    })
+    .sort((left, right) => left.unit.x + left.unit.y - (right.unit.x + right.unit.y))
+
+  const quads: GlUnitQuad[] = []
+  for (const { unit, index } of order) {
+    const art = artByUnit[index]
+    if (!art) continue
+    const frame = art.frames[battle.facingByUnit[index] ?? 0]!
+    const ground = cellToScreen(VIEW, { x: fromFixed(unit.x), y: fromFixed(unit.y) })
+    quads.push({
+      source: frame.canvas,
+      anchorX: frame.anchorX,
+      anchorY: frame.anchorY,
+      worldX: ground.x,
+      worldY: ground.y,
+    })
+  }
+  return quads
+}
+
 function drawUnits(
   context: CanvasRenderingContext2D,
   battle: Battle,

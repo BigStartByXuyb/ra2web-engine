@@ -36,6 +36,18 @@ export interface GlSceneContext {
   readonly range: CellRange
   readonly view: IsoView
   readonly tileCanvasAt: (tileIndex: number, subTile: number) => HTMLCanvasElement | undefined
+  /** 单位：按 (x+y) 升序画在建筑之后（与 2D 路径同一判据）；坐标是世界坐标里的"贴地锚点" */
+  readonly units: readonly GlUnitQuad[]
+}
+
+export interface GlUnitQuad {
+  readonly source: HTMLCanvasElement
+  /** 贴地锚点在该图内的位置 */
+  readonly anchorX: number
+  readonly anchorY: number
+  /** 贴地锚点的世界坐标 */
+  readonly worldX: number
+  readonly worldY: number
 }
 
 const VERTEX_SHADER = `
@@ -193,14 +205,22 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
 
       // 建筑最后画，按 (x+y) 升序：近处的房子盖住远处的（与 2D 路径同一判据）
       const structures = [...preview.structures].sort(
-        (left, right) =>
-          left.placement.cellX + left.placement.cellY - (right.placement.cellX + right.placement.cellY),
+        (left, right) => left.placement.cellX + left.placement.cellY - (right.placement.cellX + right.placement.cellY),
       )
       for (const sprite of structures) {
         const { placement, canvas: source, foundationWidth, foundationHeight } = sprite
-        const anchorX = (placement.cellX + (foundationWidth - 1) / 2 - (placement.cellY + (foundationHeight - 1) / 2)) * (view.cellWidth / 2)
-        const anchorY = (placement.cellX + (foundationWidth - 1) / 2 + placement.cellY + (foundationHeight - 1) / 2) * (view.cellHeight / 2)
+        const anchorX =
+          (placement.cellX + (foundationWidth - 1) / 2 - (placement.cellY + (foundationHeight - 1) / 2)) *
+          (view.cellWidth / 2)
+        const anchorY =
+          (placement.cellX + (foundationWidth - 1) / 2 + placement.cellY + (foundationHeight - 1) / 2) *
+          (view.cellHeight / 2)
         drawQuad(source, anchorX - source.width / 2, anchorY - source.height / 2)
+      }
+
+      // 单位最后画（与 2D 路径一致：单位在所有建筑之上），锚点是贴地点
+      for (const unit of context.units) {
+        drawQuad(unit.source, unit.worldX - unit.anchorX, unit.worldY - unit.anchorY)
       }
     },
   }
