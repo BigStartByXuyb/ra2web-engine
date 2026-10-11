@@ -57,6 +57,7 @@ export function buildDataDrivenScene(
       cell: spawn.cell,
       health: type.strength,
       speed: speedToMovementPerTick(type.speed),
+      ...(type.sight !== undefined ? { sight: type.sight } : {}),
     }
   })
   const world = createWorld({ ...options, units })

@@ -17,5 +17,17 @@ export type { Unit } from './unit.js'
 export type { Command, CommandInput } from './command.js'
 export { createWorld, enqueueCommand, run, step } from './world.js'
 export type { UnitSpec, World, WorldOptions } from './world.js'
+export {
+  DEFAULT_SIGHT,
+  MAX_SIGHT,
+  SHROUD_EXPLORED,
+  SHROUD_UNEXPLORED,
+  createShroud,
+  exploredCount,
+  isExplored,
+  isVisible,
+  updateShroud,
+} from './shroud.js'
+export type { Shroud } from './shroud.js'
 export { hashWorld } from './hash.js'
 export { LEPTONS_PER_CELL, TICKS_PER_SECOND, speedToMovementPerTick } from './movement-scale.js'

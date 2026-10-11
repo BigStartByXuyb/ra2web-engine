@@ -8,7 +8,7 @@ import { ONE, createWorld, enqueueCommand, hashWorld, step, type World } from '@
 export const SCENARIO_TICKS = 200
 
 /** Node 端确认过的末态哈希；浏览器端跑出别的值就说明存在平台相关的不确定性。 */
-export const GOLDEN_FINAL_HASH = '52a0b076'
+export const GOLDEN_FINAL_HASH = 'fc71c296'
 
 export function buildScenarioWorld(): World {
   return createWorld({

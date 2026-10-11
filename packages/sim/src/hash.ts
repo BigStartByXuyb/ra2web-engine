@@ -59,5 +59,10 @@ export function hashWorld(world: World): string {
       stream.pushInt32(command.target.y)
     }
   }
+  // 迷雾是单向累积的世界状态：进哈希，保证"同输入同结果"包含它
+  stream.pushInt32(world.shroud.ownerCount)
+  for (const cells of world.shroud.explored) {
+    for (const value of cells) stream.pushInt32(value)
+  }
   return stream.value.toString(16).padStart(8, '0')
 }

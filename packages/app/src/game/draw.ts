@@ -1,12 +1,21 @@
 import { RA2_ISO_VIEW, cellToScreen } from '@ra2web/render'
-import { fromFixed } from '@ra2web/sim'
+import { fromFixed, isExplored, isVisible, unitCell } from '@ra2web/sim'
 import type { Battle } from './battle.js'
 import { viewScale, visibleCellRange, type Camera } from './camera.js'
 import { drawMapPreview, type MapPreview } from './map-preview.js'
-import { HOVER_COLOR, SELECTED_COLOR, drawTerrain, strokeCell } from './terrain.js'
+import { HOVER_COLOR, SELECTED_COLOR, drawTerrain, fillCell, strokeCell } from './terrain.js'
 import type { UnitArt } from './unit-art.js'
 
-/** 画面：每帧只读一次状态，不写任何模拟数据。 */
+/**
+ * 画面：每帧只读一次状态，不写任何模拟数据。
+ *
+ * 战争迷雾画在地形、覆盖物、建筑、单位**之上**：没探索过的格子铺黑；
+ * 敌方单位只有落在本地玩家的**当前视野**里才画（地形一旦探索过就永久可见，这是原版行为）。
+ */
+
+/** 本地玩家：迷雾与敌方单位的可见性按它算 */
+export const LOCAL_OWNER = 0
+const SHROUD_COLOR = '#05060a'
 
 export interface Scene {
   readonly canvas: HTMLCanvasElement
@@ -50,8 +59,24 @@ export function drawScene(scene: Scene): void {
       drawPath(context, selected.path.slice(selected.pathIndex))
     }
     drawUnits(context, battle, scene.artByUnit)
+    drawShroud(context, battle, VIEW, range)
   }
   context.setTransform(1, 0, 0, 1, 0, 0)
+}
+
+/** 没探索过的格子铺黑。只画镜头内的格子，代价与地图大小无关。 */
+function drawShroud(
+  context: CanvasRenderingContext2D,
+  battle: Battle,
+  view: typeof VIEW,
+  range: ReturnType<typeof visibleCellRange>,
+): void {
+  for (let y = range.minY; y <= range.maxY; y++) {
+    for (let x = range.minX; x <= range.maxX; x++) {
+      if (isExplored(battle.world.shroud, LOCAL_OWNER, x, y)) continue
+      fillCell(context, view, { x, y }, SHROUD_COLOR)
+    }
+  }
 }
 
 /** 画布提示条：空画布时说明该做什么，免得留一片黑。 */
@@ -97,6 +122,11 @@ function drawUnits(
 
   for (const { unit, index } of order) {
     if (unit.health <= 0) continue
+    // 敌方单位只有在自己或盟友的当前视野内才可见
+    if (unit.owner !== LOCAL_OWNER) {
+      const cell = unitCell(unit)
+      if (!isVisible(battle.world.shroud, LOCAL_OWNER, cell.x, cell.y)) continue
+    }
     const ground = cellToScreen(VIEW, { x: fromFixed(unit.x), y: fromFixed(unit.y) })
     const art = artByUnit[index]
     if (!art) {

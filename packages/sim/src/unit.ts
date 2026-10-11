@@ -11,12 +11,14 @@ export interface Unit {
   health: number
   /** 每 tick 推进的定点距离 */
   readonly speed: number
+  /** 视野半径（格）；迷雾按它揭开 */
+  readonly sight: number
   /** 剩余路径（格子），空表示无移动任务 */
   path: Cell[]
   pathIndex: number
 }
 
-export function createUnit(id: number, owner: number, cell: Cell, speed: number, health: number): Unit {
+export function createUnit(id: number, owner: number, cell: Cell, speed: number, health: number, sight: number): Unit {
   return {
     id,
     owner,
@@ -24,6 +26,7 @@ export function createUnit(id: number, owner: number, cell: Cell, speed: number,
     y: cell.y * ONE + (ONE >> 1),
     health,
     speed,
+    sight,
     path: [],
     pathIndex: 0,
   }

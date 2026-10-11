@@ -3,6 +3,7 @@ import { fromFixed } from './fixed.js'
 import { createGrid, type Cell, type Grid } from './grid.js'
 import { findPath } from './path.js'
 import { createRng, type RngState } from './rng.js'
+import { DEFAULT_SIGHT, createShroud, updateShroud, type Shroud } from './shroud.js'
 import { advanceAlongPath, createUnit, type Unit } from './unit.js'
 
 /**
@@ -17,6 +18,8 @@ export interface UnitSpec {
   readonly cell: Cell
   readonly speed: number
   readonly health: number
+  /** 视野半径（格）；不给按客户端缺省值 1 */
+  readonly sight?: number
 }
 
 export interface WorldOptions {
@@ -33,6 +36,8 @@ export interface World {
   tick: number
   readonly grid: Grid
   readonly units: Unit[]
+  /** 迷雾：每个玩家各一份"探索过 / 当前可见" */
+  readonly shroud: Shroud
   readonly rng: RngState
   pending: Command[]
   /** 入队序号，用于同 tick 指令的稳定排序 */
@@ -42,9 +47,12 @@ export interface World {
 export function createWorld(options: WorldOptions): World {
   const grid = createGrid(options.width, options.height, options.blocked ?? [], options.blockedSteps)
   const units = options.units.map((spec, index) =>
-    createUnit(index + 1, spec.owner, spec.cell, spec.speed, spec.health),
+    createUnit(index + 1, spec.owner, spec.cell, spec.speed, spec.health, spec.sight ?? DEFAULT_SIGHT),
   )
-  return { tick: 0, grid, units, rng: createRng(options.seed), pending: [], sequence: 0 }
+  const ownerCount = units.reduce((max, unit) => Math.max(max, unit.owner + 1), 1)
+  const shroud = createShroud(ownerCount, options.width, options.height)
+  updateShroud(shroud, units)
+  return { tick: 0, grid, units, shroud, rng: createRng(options.seed), pending: [], sequence: 0 }
 }
 
 export function enqueueCommand(world: World, tick: number, input: CommandInput): void {
@@ -86,6 +94,7 @@ export function step(world: World): void {
   for (const unit of world.units) {
     if (unit.health > 0) advanceAlongPath(unit)
   }
+  updateShroud(world.shroud, world.units)
 }
 
 export function run(world: World, ticks: number): void {
