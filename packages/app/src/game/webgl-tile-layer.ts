@@ -129,6 +129,28 @@ void main() {
 
 export const DEFAULT_FOG = { r: 0.62, g: 0.68, b: 0.78, strength: 0.22 }
 
+/**
+ * 可见格范围 → 世界坐标包围盒（带余量）。
+ *
+ * 等距投影下 `worldX = (x − y) · 30`、`worldY = (x + y) · 15`，所以在格子矩形上取极值即可：
+ * worldX 的最小值出现在 (minX, maxY)、最大值出现在 (maxX, minY)；worldY 同理。
+ * 建筑与单位的贴图会伸到格子之外（最高两百多像素、左右各几十像素），因此按最大贴图尺寸放余量。
+ */
+function visibleWorldBounds(
+  range: CellRange,
+  view: IsoView,
+): { minX: number; minY: number; maxX: number; maxY: number } {
+  const halfWidth = view.cellWidth / 2
+  const halfHeight = view.cellHeight / 2
+  const margin = 320
+  return {
+    minX: (range.minX - range.maxY) * halfWidth - margin,
+    maxX: (range.maxX - range.minY) * halfWidth + margin,
+    minY: (range.minX + range.minY) * halfHeight - margin,
+    maxY: (range.maxX + range.maxY) * halfHeight + margin,
+  }
+}
+
 function compile(gl: WebGLRenderingContext, type: number, source: string): WebGLShader | undefined {
   const shader = gl.createShader(type)
   if (!shader) return undefined
@@ -289,6 +311,7 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       }
 
       // 建筑最后画，按 (x+y) 升序：近处的房子盖住远处的（与 2D 路径同一判据）
+      const visible = visibleWorldBounds(range, view)
       const structures = [...preview.structures].sort(
         (left, right) => left.placement.cellX + left.placement.cellY - (right.placement.cellX + right.placement.cellY),
       )
@@ -300,6 +323,15 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
         const anchorY =
           (placement.cellX + (foundationWidth - 1) / 2 + placement.cellY + (foundationHeight - 1) / 2) *
           (view.cellHeight / 2)
+        // 视野裁剪：屏幕外的建筑不提交（一张图几百个建筑，这一条省掉大部分绘制）
+        if (
+          anchorX - source.width / 2 > visible.maxX ||
+          anchorX + source.width / 2 < visible.minX ||
+          anchorY + source.height / 2 < visible.minY ||
+          anchorY - source.height / 2 > visible.maxY
+        ) {
+          continue
+        }
         drawQuad(source, anchorX - source.width / 2, anchorY - source.height / 2)
       }
 
@@ -358,6 +390,7 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       const structures = [...context.preview.structures].sort(
         (left, right) => left.placement.cellX + left.placement.cellY - (right.placement.cellX + right.placement.cellY),
       )
+      const visibleShadows = visibleWorldBounds(context.range, view)
       for (const sprite of structures) {
         const { placement, canvas: source, foundationWidth, foundationHeight } = sprite
         const anchorX =
@@ -366,6 +399,14 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
         const anchorY =
           (placement.cellX + (foundationWidth - 1) / 2 + placement.cellY + (foundationHeight - 1) / 2) *
           (view.cellHeight / 2)
+        if (
+          anchorX - source.width / 2 > visibleShadows.maxX ||
+          anchorX + source.width / 2 < visibleShadows.minX ||
+          anchorY + source.height / 2 < visibleShadows.minY ||
+          anchorY - source.height / 2 > visibleShadows.maxY
+        ) {
+          continue
+        }
         drawShadow(source, anchorX - source.width / 2, anchorY - source.height / 2, anchorY + source.height / 2)
       }
       for (const unit of context.units) {
