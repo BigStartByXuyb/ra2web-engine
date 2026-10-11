@@ -47,26 +47,6 @@ export function strokeCell(
 export const HOVER_COLOR = HOVER_STROKE
 export const SELECTED_COLOR = SELECT_STROKE
 
-/**
- * 填满一个格子（菱形）：战争迷雾铺黑用它。
- *
- * 填完再按同色描 1 像素边：菱形顶点是按整像素算的，相邻两格之间会留下一条缝，
- * 不补的话整片黑幕上会浮出网格线。
- */
-export function fillCell(
-  context: CanvasRenderingContext2D,
-  view: IsoView,
-  cell: { x: number; y: number },
-  color: string,
-): void {
-  context.fillStyle = color
-  context.strokeStyle = color
-  context.lineWidth = 1
-  traceDiamond(context, cellToScreen(view, cell), view)
-  context.fill()
-  context.stroke()
-}
-
 function traceDiamond(context: CanvasRenderingContext2D, center: { x: number; y: number }, view: IsoView): void {
   const halfWidth = view.cellWidth / 2
   const halfHeight = view.cellHeight / 2

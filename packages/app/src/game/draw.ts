@@ -3,7 +3,8 @@ import { fromFixed, isExplored, isVisible, unitCell } from '@ra2web/sim'
 import type { Battle } from './battle.js'
 import { viewScale, visibleCellRange, type Camera } from './camera.js'
 import { drawMapPreview, type MapPreview } from './map-preview.js'
-import { HOVER_COLOR, SELECTED_COLOR, drawTerrain, fillCell, strokeCell } from './terrain.js'
+import { HOVER_COLOR, SELECTED_COLOR, drawTerrain, strokeCell } from './terrain.js'
+import { blitFogCell, createFogSprites, type FogSprites } from './fog-layer.js'
 import type { UnitArt } from './unit-art.js'
 
 /**
@@ -16,6 +17,8 @@ import type { UnitArt } from './unit-art.js'
 /** 本地玩家：迷雾与敌方单位的可见性按它算 */
 export const LOCAL_OWNER = 0
 const SHROUD_COLOR = '#05060a'
+/** 迷雾贴图按需生成一次（要 DOM canvas） */
+let fogSprites: FogSprites | undefined
 
 export interface Scene {
   readonly canvas: HTMLCanvasElement
@@ -64,17 +67,28 @@ export function drawScene(scene: Scene): void {
   context.setTransform(1, 0, 0, 1, 0, 0)
 }
 
-/** 没探索过的格子铺黑。只画镜头内的格子，代价与地图大小无关。 */
+/** 没探索过的格子铺黑，边界按邻格是否已探索做抖动柔化。只画镜头内的格子。 */
 function drawShroud(
   context: CanvasRenderingContext2D,
   battle: Battle,
   view: typeof VIEW,
   range: ReturnType<typeof visibleCellRange>,
 ): void {
+  fogSprites ??= createFogSprites(view, SHROUD_COLOR)
+  const sprites = fogSprites
+  const isExploredAt = (x: number, y: number) => isExplored(battle.world.shroud, LOCAL_OWNER, x, y)
   for (let y = range.minY; y <= range.maxY; y++) {
     for (let x = range.minX; x <= range.maxX; x++) {
-      if (isExplored(battle.world.shroud, LOCAL_OWNER, x, y)) continue
-      fillCell(context, view, { x, y }, SHROUD_COLOR)
+      if (isExploredAt(x, y)) continue
+      const center = cellToScreen(view, { x, y })
+      blitFogCell(
+        context,
+        sprites,
+        { x, y },
+        center.x - view.cellWidth / 2,
+        center.y - view.cellHeight / 2,
+        isExploredAt,
+      )
     }
   }
 }
