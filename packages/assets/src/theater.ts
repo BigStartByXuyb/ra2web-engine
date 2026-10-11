@@ -34,9 +34,9 @@ interface TheaterFiles {
   readonly palette: string
   /** 单位/建筑用的色板（`unittem.pal` 一类） */
   readonly unitPalette: string
-  /** 图形档案的搜索次序：非地块图形可能落在其中任何一个里（与客户端一致） */
+  /** 本剧场**优先**搜索的图形包；找不到时继续在 `SHARED_IMAGE_MIXES` 里找 */
   readonly mixes: readonly string[]
-  /** `NewTheater` 名字替换用的剧场字母 */
+  /** 图形名第 2 个字符替换用的剧场字母 */
   readonly letter: string
 }
 
@@ -72,7 +72,28 @@ const THEATERS: Readonly<Record<string, TheaterFiles>> = {
 
 /** 地形调色板所在的档案名：`RA2.MIX` 的内嵌档案。 */
 const PALETTE_ARCHIVE = 'cache.mix'
-/** `NewTheater` 名字替换只在这两段里做：首字母与次字母各须落在一组里（与客户端一致）。 */
+/**
+ * 其余剧场的图形包。原版把所有档案合成**一张全局图形表**，剧场只决定文件名后缀
+ * （客户端 `ImageFinder` 在一个扁平的 `images` 表里按文件名查找，没有"按剧场分表"这回事）。
+ *
+ * 判定依据：`gapowr.shp`（发电厂）、`napowr.shp`、`natsla.shp`、`galite.shp` 等 8 个主战图形
+ * 在本机档案里**只存在于 `snow.mix`**，而它们是温带/城市地图上的建筑 —— 只查本剧场的包会漏掉它们。
+ */
+const SHARED_IMAGE_MIXES = [
+  'temperat.mix',
+  'snow.mix',
+  'urban.mix',
+  'tem.mix',
+  'sno.mix',
+  'urb.mix',
+  'isogen.mix',
+  'conquer.mix',
+  'generic.mix',
+  'isotemp.mix',
+  'isosnow.mix',
+  'isourb.mix',
+] as const
+/** 图形名第 2 个字符替换只在这两段里做：首字母与次字母各须落在一组里（与客户端一致）。 */
 const NEW_THEATER_FIRST = 'GNCY'
 const NEW_THEATER_SECOND = 'ATUDLN'
 /** 剧场字母找不到时的通用回退字母。 */
@@ -87,7 +108,7 @@ export interface TheaterAssets {
    * 按 art.ini 的图形名取 SHP。两种名字规则合起来决定文件名：
    *
    *  - `theaterExtension`（art.ini 的 `Theater=yes`）：用剧场后缀 `.tem` / `.sno` / `.urb`，否则用 `.shp`；
-   *  - `newTheater`（art.ini 的 `NewTheater=yes`）：名字首字母在 `GNCY` 里、次字母在 `ATUDLN` 里时，
+   *  - 名字首字母在 `GNCY` 里、次字母在 `ATUDLN` 里时，
    *    把**第 2 个字符**换成剧场字母（`NAWALL` → 温带 `NTWALL`），找不到再试通用字母 `g`，再退回原名。
    *
    * 判定依据（真实档案命中）：温带下 `NAWALL` 命中 `ntwall.shp`、`SROCK01` 命中 `srock01.tem`、
@@ -99,8 +120,6 @@ export interface TheaterAssets {
 export interface ImageOptions {
   /** art.ini 的 `Theater=yes` */
   readonly theaterExtension: boolean
-  /** art.ini 的 `NewTheater=yes` */
-  readonly newTheater: boolean
 }
 
 export function openTheater(archiveBytes: Uint8Array, theaterName: string): TheaterAssets | undefined {
@@ -122,7 +141,7 @@ export function openTheater(archiveBytes: Uint8Array, theaterName: string): Thea
   const tilesBytes = readMixEntry(archiveBytes, root, tilesEntry)
   const tiles = readMixIndex(tilesBytes)
 
-  const imageMixes = files.mixes.flatMap((name) => {
+  const imageMixes = [...new Set([...files.mixes, ...SHARED_IMAGE_MIXES])].flatMap((name) => {
     const entry = findMixEntry(root, name, crc32)
     if (!entry) return []
     const bytes = readMixEntry(archiveBytes, root, entry)
@@ -142,7 +161,7 @@ export function openTheater(archiveBytes: Uint8Array, theaterName: string): Thea
       return parsed
     },
     loadImage(imageName, options) {
-      const key = `${imageName}\u0000${options.theaterExtension}\u0000${options.newTheater}`
+      const key = `${imageName}\u0000${options.theaterExtension}`
       if (!imageCache.has(key)) imageCache.set(key, readImage(imageName, options))
       return imageCache.get(key)
     },
@@ -185,7 +204,13 @@ export function openTheater(archiveBytes: Uint8Array, theaterName: string): Thea
   }
 }
 
-/** 按 art.ini 的两条规则给出候选文件名（已全部转小写）。 */
+/**
+ * 给出候选文件名（已全部转小写），按尝试次序排列。
+ *
+ * 客户端 `ImageFinder.getFilename` / `applyNewTheaterIfNeeded` 只看**名字本身的形态**：
+ * 首字母在 `GNCY`、次字母在 `ATUDLN` 时换成剧场字母，找不到用通用字母 `g`，再退回原名；
+ * 没有任何 art.ini 开关参与判断。
+ */
 export function imageFileCandidates(
   imageName: string,
   options: ImageOptions,
@@ -195,10 +220,10 @@ export function imageFileCandidates(
   const base = imageName.toLowerCase() + (options.theaterExtension ? theaterSuffix : '.shp')
   const upper = imageName.toUpperCase()
   const isNewTheaterName = NEW_THEATER_FIRST.includes(upper[0] ?? '') && NEW_THEATER_SECOND.includes(upper[1] ?? '')
-  if (!options.newTheater || !isNewTheaterName) return [base]
+  if (!isNewTheaterName) return [base]
   const head = base[0] ?? ''
   const tail = base.slice(2)
-  // 剧场字母与原名第二节相同等情况会重复，这里按出现次序去重
+  // 剧场字母与原名第 2 个字符相同等情况会重复，这里按出现次序去重
   return [...new Set([`${head}${theaterLetter.toLowerCase()}${tail}`, `${head}${GENERIC_LETTER}${tail}`, base])]
 }
 

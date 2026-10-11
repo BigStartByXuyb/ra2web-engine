@@ -1,5 +1,8 @@
 export { loadVoxelUnit, voxelUnitModels } from './voxel-unit.js'
 export type { VoxelUnit, VoxelUnitLookup } from './voxel-unit.js'
+export { imageNameOf, readArtEntries, readRulesImageNames } from './art.js'
+export type { ArtEntry } from './art.js'
+export { readLocalText } from './local-ini.js'
 export { loadTheaterPalette, openTheater } from './theater.js'
 export { imageFileCandidates } from './theater.js'
 export type { ImageOptions, TheaterAssets } from './theater.js'

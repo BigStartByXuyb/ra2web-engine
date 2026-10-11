@@ -1,4 +1,4 @@
-import { readMixFile } from '@ra2web/formats'
+import { readLocalText } from '@ra2web/assets'
 import { loadRules, parseUnitType, type UnitType } from '@ra2web/rules'
 import { buildDataDrivenScene, type UnitSpawn } from '@ra2web/scenarios'
 import { ONE, createWorld, type Cell, type World } from '@ra2web/sim'
@@ -92,9 +92,9 @@ function summarize(typeId: string, type: UnitType | undefined): UnitSummary {
 }
 
 function readRulesText(archiveBytes: Uint8Array): string {
-  const bytes = readMixFile({ bytes: archiveBytes, fileName: 'rules.ini', containerFileName: 'local.mix' })
-  if (!bytes) throw new Error('档案里找不到 local.mix/rules.ini')
-  return new TextDecoder('windows-1252').decode(bytes)
+  const text = readLocalText(archiveBytes, 'rules.ini')
+  if (!text) throw new Error('档案里找不到 local.mix/rules.ini')
+  return text
 }
 
 function buildDemoBlockedCells(): readonly Cell[] {

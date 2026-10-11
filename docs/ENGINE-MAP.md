@@ -182,6 +182,29 @@ Format80 命令表（多字节字段小端）：
 换算后的格子坐标与红块中心只差 0.7..1.6 像素。未核对：换算结果落在格子范围之外时（例如 52 宽的图
 算出 85）该出生点属于哪一格 —— 需要与地块网格"另一半"的关系一并查清。
 
+### 预置建筑的美术取用（已用真实档案核实）
+
+图形名与文件名规则见「SHP 图形」一节的「图形名与文件名规则」。三份地图档案全部地图、逐条按现在的实现判定：
+
+| 地图档案     | 预置建筑 | 画出 | 读了 rules.ini `Image=` 但只查本剧场的包 |
+| ------------ | -------- | ---- | ---------------------------------------- |
+| `Maps01.mix` | 2256     | 2252 | 2234                                     |
+| `MAPS02.MIX` | 2332     | 2322 | 2311                                     |
+| `MULTI.MIX`  | 2454     | 2437 | 2430                                     |
+| 合计         | 7042     | 7011 | 6975                                     |
+
+"改前"的完整数字（把 `rules.ini Image=` 与跨剧场包查找一并去掉）是 **5106 / 7042**：主力建筑
+`GAPOWR`×171、`GAPILL`×126、`NAPOWR`×99、`NASAM`×88、`TESLA`×116、`ATESLA`×124、灯柱 ×604
+全都画不出来。**7042 个里 1936 个（27%）不可见**，补上两条规则后降到 31 个。
+
+剩下的 31 个全部是城市地图上的赌场四块 `CASIN01E/N/S/W`：本机档案里确实没有它们 ——
+`casin01*.shp`/`.tem`/`.sno`/`.urb` 以及 `cg`/`ct`/`cu` 变体在 `local.mix`、`cache.mix`、
+`conquer.mix`、`generic.mix`、`isogen.mix` 与三套剧场包里都查不到。原版在这张图上同样画不出来。
+
+反例（曾经写错、已作废）：曾把 `TESLA`、`GAPOWR`、`NAIRON` 这些缺口记成"体素建筑（`.vxl`）尚未接入"。
+实测这些类型没有对应的 `.vxl`，也不是体素建筑；`art.ini` 里标 `Voxel=yes` 的 65 个条目都是**单位**，
+与建筑缺口无关。`TESLA` 的图形名来自 rules.ini 的 `Image=NATSLA`。
+
 ## 数据格式：地图自带的官方预览图（已用真实档案核实）
 
 地图档案里有原版自己渲染的缩略图，可以直接当"官方原图"用来比对我们的渲染：
@@ -228,15 +251,24 @@ Format80 命令表（多字节字段小端）：
 - 类型 3 的"非零字节即像素"与"`0x80` 后续字节是字面量份数"两种解法，在真实文件上可裁决：
   前者让 **48028/48028 行**正好产出帧宽个像素，后者只有 14732 行（337 个文件）。
 
-**文件名规则**（art.ini，客户端 `ImageFinder` 一致）：
+**图形名与文件名规则**（客户端 `ObjectArt.get imageName` 与 `ImageFinder` 一致）：
 
+- 图形名按 art.ini `Image=` → rules.ini `Image=` → 类型名自身 的优先级取。
+  实测：`[TESLA]` 在 art.ini 里没有条目、rules.ini 写 `Image=NATSLA` → `natsla.shp`；
+  `[ATESLA]` 是 `Image=GAPRIS`；灯柱 `INGALITE`/`INBLULMP`/`INYELWLAMP`/`INREDLMP`/`NEGLAMP` 共用 `Image=GALITE`。
 - `Theater=yes`：用剧场后缀 `.tem` / `.sno` / `.urb`，否则用 `.shp`。
-- `NewTheater=yes`：图形名首字母落在 `GNCY`、次字母落在 `ATUDLN` 时，把**第 2 个字符**换成剧场字母
+- 图形名首字母落在 `GNCY`、次字母落在 `ATUDLN` 时，把**第 2 个字符**换成剧场字母
   （温带 `T`、雪地 `A`、城市 `U`），找不到再试通用字母 `g`，再退回原名。
+  这一步只看**名字的形态**，没有任何 art.ini 开关参与（客户端 `applyNewTheaterIfNeeded` 里没有 art 参数）。
 - 实测命中：温带 `NAWALL` → `ntwall.shp`（`temperat.mix`），雪地 `NAWALL` → `nawall.shp`（`snow.mix`）；
-  `SROCK01` → `srock01.tem`（`temperat.mix`）；`LOBRDG26` → `lobrdg26.tem`（`isotemp.mix`）。
-- 图形档案按客户端给出的次序依次找：温带 `isotemp.mix` → `temperat.mix` → `tem.mix`，
-  雪地 `isosnow.mix` → `snow.mix` → `sno.mix`，城市 `isourb.mix` → `urb.mix` → `urban.mix`。
+  `SROCK01` → `srock01.tem`（`temperat.mix`）；`LOBRDG26` → `lobrdg26.tem`（`isotemp.mix`）；
+  城市地图上的 `CACHIG04` → `cgchig04.shp`（`isogen.mix`，走通用字母 `g`）。
+- **图形档案是一张全局表，剧场只决定后缀**：客户端把所有档案合成一个扁平的 `images` 表再按文件名查，
+  因此本剧场的包装不下时要在别的剧场包里继续找。实测 `gapowr.shp`、`napowr.shp`、`natsla.shp`、
+  `galite.shp` 等 8 个主战图形**只存在于 `snow.mix`**，而它们出现在温带/城市地图上。
+  查找次序：本剧场的包（温带 `isotemp.mix` → `temperat.mix` → `tem.mix` 等）→
+  `temperat.mix` / `snow.mix` / `urban.mix` / `tem.mix` / `sno.mix` / `urb.mix` →
+  `isogen.mix` / `conquer.mix` / `generic.mix` → 其余剧场包。
 
 ## 数据格式：TMP 地块与 theater 资源（已用真实档案核实）
 

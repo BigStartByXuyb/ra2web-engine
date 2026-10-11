@@ -1,4 +1,6 @@
-import { parseIni, readMixFile, type MapOverlay, type ShpFile, type ShpFrame } from '@ra2web/formats'
+import { parseIni, type MapOverlay, type ShpFile, type ShpFrame } from '@ra2web/formats'
+import { readArtEntries, type ArtEntry } from './art.js'
+import { readLocalText } from './local-ini.js'
 import { openTheater, type TheaterAssets } from './theater.js'
 
 /**
@@ -7,8 +9,8 @@ import { openTheater, type TheaterAssets } from './theater.js'
  * 画哪个图形由三样东西合起来决定：
  *
  *  - 地图给**编号**与一个**附加字节**：编号是 rules.ini `[OverlayTypes]` 里的次序；
- *  - art.ini 给**图形名**与两条命名规则（`Theater=yes` 用剧场后缀、`NewTheater=yes` 换字母，
- *    规则本身在 `TheaterAssets.loadImage` 里）；
+ *  - art.ini 给**图形名**与命名规则（`Theater=yes` 用剧场后缀、名字形态是 `GNCY`+`ATUDLN`
+ *    时换第 2 个字符，规则本身在 `TheaterAssets.loadImage` 里）；
  *  - 帧号取附加字节，越界或该帧为空时退回**第一个非空帧**
  *    （实测 `LOBRDG26` 6 帧里只有第 1 帧有图形，而地图给的附加字节是 0/4..10）。
  *
@@ -26,12 +28,6 @@ export interface OverlayArt {
 export interface OverlayAssets {
   /** 覆盖物 → 图形与帧；编号未定义或取不到美术时返回 undefined */
   loadOverlay(overlay: MapOverlay): OverlayArt | undefined
-}
-
-interface ArtEntry {
-  readonly image: string | undefined
-  readonly theater: boolean
-  readonly newTheater: boolean
 }
 
 export function openOverlays(archiveBytes: Uint8Array, theaterName: string | undefined): OverlayAssets | undefined {
@@ -65,7 +61,6 @@ function resolve(
   if (!name) return undefined
   const shp = theater.loadImage(entry?.image ?? name, {
     theaterExtension: entry?.theater ?? false,
-    newTheater: entry?.newTheater ?? false,
   })
   if (!shp) return undefined
   const frame = pickFrame(shp, overlay.data)
@@ -82,32 +77,12 @@ function pickFrame(shp: ShpFile, data: number): ShpFrame | undefined {
 /** `[OverlayTypes]` 的编号 → 图形名。 */
 function readOverlayNames(archiveBytes: Uint8Array): ReadonlyMap<number, string> {
   const names = new Map<number, string>()
-  const bytes = readMixFile({ bytes: archiveBytes, fileName: 'rules.ini', containerFileName: 'local.mix' })
-  const section = bytes ? parseIni(decodeLatin1(bytes)).sections.get('overlaytypes') : undefined
+  const text = readLocalText(archiveBytes, 'rules.ini')
+  const section = text ? parseIni(text).sections.get('overlaytypes') : undefined
   if (!section) return names
   for (const [key, value] of section.values) {
     const id = Number(key)
     if (Number.isInteger(id) && value !== '') names.set(id, value)
   }
   return names
-}
-
-/** art.ini 的图形名 → 命名规则。图形名缺省时用节名。 */
-function readArtEntries(archiveBytes: Uint8Array): ReadonlyMap<string, ArtEntry> {
-  const entries = new Map<string, ArtEntry>()
-  const bytes = readMixFile({ bytes: archiveBytes, fileName: 'art.ini', containerFileName: 'local.mix' })
-  if (!bytes) return entries
-  for (const [name, section] of parseIni(decodeLatin1(bytes)).sections) {
-    if (!section.values.has('theater') && !section.values.has('newtheater') && !section.values.has('image')) continue
-    entries.set(name, {
-      image: section.values.get('image'),
-      theater: section.values.get('theater')?.toLowerCase() === 'yes',
-      newTheater: section.values.get('newtheater')?.toLowerCase() === 'yes',
-    })
-  }
-  return entries
-}
-
-function decodeLatin1(bytes: Uint8Array): string {
-  return new TextDecoder('windows-1252').decode(bytes)
 }
