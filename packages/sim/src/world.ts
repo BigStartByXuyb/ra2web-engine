@@ -23,6 +23,8 @@ export interface WorldOptions {
   readonly width: number
   readonly height: number
   readonly blocked?: readonly Cell[]
+  /** 相邻格之间的阻挡（长度 width×height×4，见 `createGrid`）；不给就不做边判定 */
+  readonly blockedSteps?: Uint8Array
   readonly units: readonly UnitSpec[]
   readonly seed: number
 }
@@ -38,7 +40,7 @@ export interface World {
 }
 
 export function createWorld(options: WorldOptions): World {
-  const grid = createGrid(options.width, options.height, options.blocked ?? [])
+  const grid = createGrid(options.width, options.height, options.blocked ?? [], options.blockedSteps)
   const units = options.units.map((spec, index) =>
     createUnit(index + 1, spec.owner, spec.cell, spec.speed, spec.health),
   )

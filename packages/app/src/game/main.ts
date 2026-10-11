@@ -225,13 +225,20 @@ mapBattleButton.addEventListener('click', () => {
       width: setup.width,
       height: setup.height,
       blocked: setup.blocked,
+      blockedSteps: setup.blockedSteps,
       spawns: setup.spawns,
       seed: 20261010,
     })
     artByUnit = buildArt(created, gameArchive)
+    const unknownNote =
+      setup.unknownTerrainTypes.length > 0
+        ? `；有 ${setup.unknownTerrainTypes.length} 种未认识的 TMP 地形类型（${setup.unknownTerrainTypes.join('/')}）按不可通行处理`
+        : ''
     activate(
       created,
-      `官方地图开战：${setup.width}×${setup.height}，不可通行格 ${setup.blocked.length}（${setup.blockedSetNames.join('/')}），单位 ${setup.spawns.length} 辆`,
+      `官方地图开战：${setup.width}×${setup.height}，不可通行格 ${setup.blocked.length}` +
+        `（按地块类型判定：${setup.landTypeSummary}），高度差不小于 2 的相邻格不能迈过去；` +
+        `单位 ${setup.spawns.length} 辆${unknownNote}`,
       terrain,
     )
   } catch (error) {

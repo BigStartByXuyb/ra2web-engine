@@ -1,37 +1,65 @@
-import type { TheaterIni } from '@ra2web/formats'
+import type { MapFile } from '@ra2web/formats'
+import { landTypeOfTerrainType, type LandTypeName } from './land.js'
+import type { TheaterAssets } from './theater.js'
 
 /**
- * 通行性：按 theater INI 的**地块集分类**判定，而不是逐格数据。
+ * 通行性：逐格取 TMP 子块的 `terrainType` → 地块类型（LandType），
+ * 再按该类型对**移动方式**的通行系数判定（系数 0 = 不能进入）。
  *
- * `[General]` 里的锚点值是**地块集编号**（实测：`WaterSet=21` 正好是第 21 个集「Water」、
- * `CliffSet=10` 是「Cliff Set」、`BridgeSet=19` 是「Bridges」、`BlackTile=6` 是「Blank」），
- * 因此"某地块能不能走"= 它所属的集是不是水/悬崖/空白。
+ * 这条链与客户端一致（`TileCollection` 建格时算 `landType`、
+ * `getPassableSpeed` 查 `getSpeedModifier`），系数表由 `@ra2web/rules` 从 rules.ini 读。
  *
- * 待核对：原版可能对个别集（如斜坡、悬崖顶、可破坏悬崖）另有规定；这里先按
- * 水 / 悬崖 / 悬崖水面 / 可破坏悬崖 / 空白 判为不可通行。
+ * 早先按 theater INI 的**地块集锚点**（`WaterSet=21`、`CliffSet=10`…）分类的近似做法已作废：
+ * 它只能回答"这块地在不在水/悬崖集里"，答不了"哪种移动方式能进"，
+ * 也会把属于悬崖集的**斜坡**误判成不可通行。
+ *
+ * 高度差另算：相邻格 |Δz| ≥ 2 挡住这一步（见 `heightBlocksStep`），由调用方接进寻路的边判定。
  */
 
-const IMPASSABLE_ANCHORS = ['waterset', 'cliffset', 'watercliffs', 'destroyablecliffs', 'blacktile'] as const
+export interface PassabilityRequest {
+  /** 移动方式（履带车是 `Track`）；一次判定只按一种算 */
+  readonly speedType: string
+  /** 地块类型 → 该移动方式的通行系数；0 表示不能进入 */
+  readonly speedFactor: (landType: LandTypeName) => number
+}
 
 export interface Passability {
-  /** 下标 = 全局地块编号；1 表示不可通行 */
-  readonly blockedByTile: Uint8Array
-  /** 被判为不可通行的地块集名，便于界面说明 */
-  readonly blockedSetNames: readonly string[]
+  /** 不可进入的格子（地图范围内） */
+  readonly blocked: readonly { readonly x: number; readonly y: number }[]
+  /** 地图里出现过、但映射表不认识的 TMP terrainType（原版遇到会报错） */
+  readonly unknownTerrainTypes: readonly number[]
+  /** 各地块类型占了多少格，便于核对判定结果 */
+  readonly landTypeCounts: ReadonlyMap<LandTypeName, number>
 }
 
-export function buildPassability(ini: TheaterIni): Passability {
-  const blocked = new Uint8Array(ini.tiles.length)
-  const blockedSetNames: string[] = []
-  const anchors = IMPASSABLE_ANCHORS.map((key) => Number(ini.general.get(key)))
-
-  ini.sets.forEach((set, setIndex) => {
-    if (!anchors.includes(set.index)) return
-    blockedSetNames.push(set.name)
-    let at = 0
-    for (let previous = 0; previous < setIndex; previous++) at += ini.sets[previous]!.tilesInSet
-    for (let tile = 0; tile < set.tilesInSet; tile++) blocked[at + tile] = 1
-  })
-
-  return { blockedByTile: blocked, blockedSetNames }
+export function buildPassability(
+  map: MapFile,
+  theater: TheaterAssets | undefined,
+  request: PassabilityRequest,
+): Passability {
+  const blocked: { x: number; y: number }[] = []
+  const unknown = new Set<number>()
+  const landTypeCounts = new Map<LandTypeName, number>()
+  for (const cell of map.cells) {
+    if (cell.cellX < 0 || cell.cellY < 0 || cell.cellX >= map.width || cell.cellY >= map.height) continue
+    const subTile = theater?.loadTile(cell.tileIndex)?.subTiles[cell.subTile]
+    if (!subTile) {
+      unknown.add(NO_TERRAIN_DATA)
+      blocked.push({ x: cell.cellX, y: cell.cellY })
+      continue
+    }
+    const terrainType = subTile.terrainType
+    const landType = landTypeOfTerrainType(terrainType)
+    if (!landType) {
+      unknown.add(terrainType)
+      blocked.push({ x: cell.cellX, y: cell.cellY })
+      continue
+    }
+    landTypeCounts.set(landType, (landTypeCounts.get(landType) ?? 0) + 1)
+    if (request.speedFactor(landType) === 0) blocked.push({ x: cell.cellX, y: cell.cellY })
+  }
+  return { blocked, unknownTerrainTypes: [...unknown].sort((left, right) => left - right), landTypeCounts }
 }
+
+/** 拿不到 TMP 子块（没有剧场美术）时的记号：按不可通行处理。 */
+export const NO_TERRAIN_DATA = -1

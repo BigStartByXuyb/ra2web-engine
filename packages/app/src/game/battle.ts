@@ -33,6 +33,7 @@ export interface BattleOptions {
   readonly width: number
   readonly height: number
   readonly blocked: readonly Cell[]
+  readonly blockedSteps?: Uint8Array
   readonly spawns: readonly UnitSpawn[]
   readonly seed: number
 }
@@ -53,6 +54,7 @@ export function createBattle(archiveBytes: Uint8Array, options: BattleOptions): 
     width: options.width,
     height: options.height,
     blocked: options.blocked,
+    ...(options.blockedSteps ? { blockedSteps: options.blockedSteps } : {}),
     seed: options.seed,
   })
   return {

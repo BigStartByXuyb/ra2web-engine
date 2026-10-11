@@ -4,3 +4,5 @@ export { parseBoolean, parseFloatValue, parseInteger, parseList, parseNumberArra
 export type { ParseIssue } from './parse.js'
 export { listUnitIds, parseUnitType } from './unit-type.js'
 export type { MoveZone, UnitType } from './unit-type.js'
+export { LAND_TYPE_NAMES, SPEED_TYPES, landRulesSectionName, readLandRules, speedFactor } from './land-type.js'
+export type { LandTypeName, LandTypeRules, SpeedType } from './land-type.js'

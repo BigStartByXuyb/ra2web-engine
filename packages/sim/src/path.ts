@@ -1,4 +1,4 @@
-import { isBlocked, type Cell, type Grid } from './grid.js'
+import { CARDINAL_DIRECTIONS, canStep, isBlocked, type Cell, type Grid } from './grid.js'
 
 /**
  * A* 寻路，只走四方向。
@@ -15,13 +15,6 @@ interface Node {
   f: number
   parent: number
 }
-
-const DIRECTION_ORDER: readonly Cell[] = [
-  { x: 1, y: 0 },
-  { x: 0, y: 1 },
-  { x: -1, y: 0 },
-  { x: 0, y: -1 },
-]
 
 function heuristic(ax: number, ay: number, bx: number, by: number): number {
   return Math.abs(ax - bx) + Math.abs(ay - by)
@@ -64,9 +57,10 @@ export function findPath(grid: Grid, from: Cell, to: Cell): readonly Cell[] | un
     open.delete(current.index)
     closed.add(current.index)
 
-    for (const direction of DIRECTION_ORDER) {
-      const nx = current.x + direction.x
-      const ny = current.y + direction.y
+    for (let direction = 0; direction < CARDINAL_DIRECTIONS.length; direction++) {
+      if (!canStep(grid, current.x, current.y, direction)) continue
+      const nx = current.x + CARDINAL_DIRECTIONS[direction]!.x
+      const ny = current.y + CARDINAL_DIRECTIONS[direction]!.y
       if (isBlocked(grid, nx, ny)) continue
       const index = ny * grid.width + nx
       if (closed.has(index)) continue

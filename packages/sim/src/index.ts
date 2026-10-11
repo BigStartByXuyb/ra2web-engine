@@ -1,7 +1,15 @@
 export { ONE, FIXED_SHIFT, absFixed, fixedDiv, fixedLength, fixedMul, fromFixed, isqrt, toFixed } from './fixed.js'
 export { createRng, nextBelow, nextUint32 } from './rng.js'
 export type { RngState } from './rng.js'
-export { cellIndex, createGrid, inBounds, isBlocked } from './grid.js'
+export {
+  CARDINAL_DIRECTIONS,
+  STEP_DIRECTION_COUNT,
+  canStep,
+  cellIndex,
+  createGrid,
+  inBounds,
+  isBlocked,
+} from './grid.js'
 export type { Cell, Grid } from './grid.js'
 export { findPath } from './path.js'
 export { advanceAlongPath, createUnit, unitCell } from './unit.js'

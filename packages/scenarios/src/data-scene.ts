@@ -42,6 +42,7 @@ export function buildDataDrivenScene(
     readonly width: number
     readonly height: number
     readonly blocked?: readonly Cell[]
+    readonly blockedSteps?: Uint8Array
     readonly seed: number
   },
 ): DataSceneResult {
