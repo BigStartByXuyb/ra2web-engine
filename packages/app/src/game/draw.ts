@@ -36,6 +36,8 @@ export interface Scene {
   readonly time: number
   /** 给了就把地块层交给 WebGL 画（换渲染后端 spike），2D 只画其余层 */
   readonly glTiles?: GlTileLayer | undefined
+  /** WebGL 层的画布：雨夜后处理要作用于整幅画面时得把它搬回 2D 画布 */
+  readonly glCanvas?: HTMLCanvasElement | undefined
   /** 实时阴影（重制版增强，默认关闭）：只对 WebGL 路径有效 */
   readonly shadows?: boolean
   /** 大气雾（重制版增强，默认关闭）：只对 WebGL 路径有效 */
@@ -79,6 +81,14 @@ export function drawScene(scene: Scene): void {
       shadows: scene.shadows,
       fog: scene.fog,
     })
+  }
+  // 雨夜后处理（调色/泛光/雨丝/暗角）画在 2D 画布上，而 GPU 层是另一块画布：
+  // 先把它搬进来，后处理才作用于整幅画面；否则那层半透明叠加会把 GPU 层整块盖住。
+  // 只在雨夜预设下搬，平时省掉这一次全屏拷贝。
+  if (wet && scene.glCanvas) {
+    context.setTransform(1, 0, 0, 1, 0, 0)
+    context.drawImage(scene.glCanvas, 0, 0)
+    context.setTransform(scale, 0, 0, scale, -scene.camera.x * scale, -scene.camera.y * scale)
   }
   if (isEmpty) drawCanvasHint(context, scene.canvas, '先在上面选「RA2.MIX」与地图档案，或点「内置示例战场」')
   if (!battle && scene.mapPreview) {

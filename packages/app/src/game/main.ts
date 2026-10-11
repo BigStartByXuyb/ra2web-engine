@@ -432,6 +432,7 @@ function frame(now: number): void {
     quality,
     time: now,
     glTiles,
+    glCanvas,
     shadows,
     fog: fogEffect,
     reflections,
