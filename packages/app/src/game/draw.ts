@@ -34,7 +34,7 @@ export function drawScene(scene: Scene): void {
   const battle = scene.battle
   const range = visibleCellRange(scene.camera, VIEW, scene.canvas.width, scene.canvas.height)
   const isEmpty = !battle && !scene.mapPreview
-  if (isEmpty) drawEmptyHint(context, scene.canvas)
+  if (isEmpty) drawCanvasHint(context, scene.canvas, '先在上面选「RA2.MIX」与地图档案，或点「内置示例战场」')
   if (!battle && scene.mapPreview) {
     drawMapPreview(context, scene.mapPreview, VIEW, range)
     if (scene.hoverCell) strokeCell(context, VIEW, scene.hoverCell, HOVER_COLOR)
@@ -54,13 +54,19 @@ export function drawScene(scene: Scene): void {
   context.setTransform(1, 0, 0, 1, 0, 0)
 }
 
-/** 空状态：没有载入任何东西时也要让画面说明该做什么，别留一片黑。 */
-function drawEmptyHint(context: CanvasRenderingContext2D, canvas: HTMLCanvasElement): void {
+/** 画布提示条：空画布时说明该做什么，免得留一片黑。 */
+function drawCanvasHint(context: CanvasRenderingContext2D, canvas: HTMLCanvasElement, text: string): void {
   context.setTransform(1, 0, 0, 1, 0, 0)
-  context.fillStyle = 'rgba(147, 161, 177, 0.9)'
-  context.font = `${Math.round(14 * (window.devicePixelRatio || 1))}px "Microsoft YaHei", sans-serif`
+  const ratio = window.devicePixelRatio || 1
+  context.font = `${Math.round(13 * ratio)}px "Microsoft YaHei", sans-serif`
   context.textAlign = 'center'
-  context.fillText('先在上面选「RA2.MIX」与地图档案，或点「内置示例战场」', canvas.width / 2, canvas.height / 2)
+  const centerX = canvas.width / 2
+  const baseline = canvas.height / 2
+  const halfWidth = context.measureText(text).width / 2 + 10 * ratio
+  context.fillStyle = 'rgba(12, 16, 20, 0.82)'
+  context.fillRect(centerX - halfWidth, baseline - 17 * ratio, halfWidth * 2, 25 * ratio)
+  context.fillStyle = 'rgba(230, 237, 245, 0.92)'
+  context.fillText(text, centerX, baseline)
 }
 
 /** 选中单位的剩余路径：原版也用它表示"已接受这条移动指令"。 */

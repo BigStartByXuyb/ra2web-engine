@@ -5,8 +5,8 @@ import { decompressLzo1x } from './lzo1x.js'
 /**
  * 原版地图里的"分块包"容器：`[u16 压缩长度][u16 原始长度][压缩数据]` 依次排列。
  *
- * 同一个容器按段位选解码器 —— 原版 `[IsoMapPack5]` 用 LZO1X，`[OverlayPack]` /
- * `[OverlayDataPack]` / `[PreviewPack]` 用 Format80（LCW）。编码器只决定块内字节，
+ * 同一个容器按段位选解码器 —— `[IsoMapPack5]` 与 `[PreviewPack]` 用 LZO1X，
+ * `[OverlayPack]` / `[OverlayDataPack]` 用 Format80（LCW）。编码器只决定块内字节，
  * 切块方式相同，因此这里只留一份切块实现，解码器由调用方指定。
  *
  * 两种编码器对"块"的含义不同，这是实测出来的：

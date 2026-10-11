@@ -50,6 +50,7 @@ const mapIndexInput = document.getElementById('map-index') as HTMLInputElement
 const fitButton = document.getElementById('fit-map') as HTMLButtonElement
 const mapBattleButton = document.getElementById('battle-on-map') as HTMLButtonElement
 const status = document.getElementById('status')!
+const notice = document.getElementById('notice') as HTMLDivElement
 const hud = createHud({
   tick: document.getElementById('hud-tick')!,
   fps: document.getElementById('hud-fps')!,
@@ -132,6 +133,7 @@ window.addEventListener('resize', resizeCanvas)
 demoButton.addEventListener('click', () => {
   const created = createDemoBattle()
   artByUnit = buildArt(created, undefined)
+  showPlaceholderNotice()
   activate(created, '内置示例战场：合成模型 + 固定数值（不是原版数值）')
 })
 
@@ -148,6 +150,7 @@ mapInput.addEventListener('change', () => {
         const tileLayer = gameArchive && map.theater ? openTileLayer(gameArchive, map.theater) : undefined
         const overlayLayer = gameArchive && map.theater ? openOverlayLayer(gameArchive, map.theater) : undefined
         mapPreview = buildMapPreview(map, tileLayer, overlayLayer)
+        notice.hidden = true
         battle = undefined
         artByUnit = []
         const overlayCount = new Set(map.cells.map((cell) => cell.overlay?.id).filter((id) => id !== undefined)).size
@@ -225,7 +228,12 @@ mixInput.addEventListener('change', () => {
           seed: 20261010,
         })
         artByUnit = buildArt(created, bytes)
-        activate(created, `已装载 ${created.world.units.length} 个单位：数值来自 rules.ini，美术来自 <单位>.vxl`)
+        showPlaceholderNotice()
+        activate(
+          created,
+          `已装载 ${created.world.units.length} 个单位：数值来自 rules.ini，美术来自 <单位>.vxl；` +
+            `地形是内置示例战场 —— 再选一张地图档案就会换成原版地形`,
+        )
       } catch (error) {
         battle = undefined
         artByUnit = []
@@ -254,6 +262,12 @@ function startLoop(): void {
     lastFrameAt = performance.now()
     requestAnimationFrame(frame)
   }
+}
+
+/** 内置示例战场用的是合成地形：明说一句，别让人以为原版素材是灰的、糊的。 */
+function showPlaceholderNotice(): void {
+  notice.hidden = false
+  notice.textContent = '当前地形是内置示例战场（合成地形，不是原版素材）：选一张地图档案，就会换成原版 TMP 地块'
 }
 
 /** 地图档案里条目顺序不保证都是地图：先试给定序号，失败再顺序找第一个能解析的。 */

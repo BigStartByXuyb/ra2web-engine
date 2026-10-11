@@ -70,6 +70,13 @@
         color: var(--muted);
         margin-top: 6px;
       }
+      #notice {
+        background: rgba(245, 197, 66, 0.08);
+        border-left: 3px solid var(--gold);
+        color: var(--gold);
+        margin-top: 6px;
+        padding: 6px 8px;
+      }
       #hint {
         bottom: 12px;
         color: var(--muted);
@@ -109,6 +116,7 @@
       <button id="battle-on-map" type="button">在这张地图上开战</button>
       <button id="fit-map" type="button">整幅显示</button>
       <div id="status">未加载</div>
+      <div id="notice" hidden></div>
       <div>左键选中 / 拖动平移 · 右键移动选中单位 · 滚轮缩放</div>
     </div>
 
