@@ -54,9 +54,15 @@ test('覆盖包按文件名优先命中，未命中回落原版；内嵌包目�
 /** 本机原版档案：把一张真实 SHP 塞进覆盖包，验证它真的被优先取用。 */
 const mixPath = process.env.RA2_MIX
 const skip = !mixPath || !fs.existsSync(mixPath) ? '未设置 RA2_MIX' : false
+/** 281MB 的原版档案只读一次：几个用例各读一遍会把并行测试的内存顶爆 */
+let archiveBytes: Uint8Array | undefined
+function readArchive(): Uint8Array {
+  archiveBytes ??= new Uint8Array(fs.readFileSync(mixPath!))
+  return archiveBytes
+}
 
 test('原版档案 + 覆盖包：建筑图形换成包里的那一份', { skip }, () => {
-  const archive = new Uint8Array(fs.readFileSync(mixPath!))
+  const archive = readArchive()
   const original = openStructures(archive, 'snow')!.loadStructure('TESLA')!
   // 拿另一张真实 SHP 当"高清版"：只要它被优先取用，尺寸就会变
   const substitute = readMixFile({ bytes: archive, fileName: 'gapowr.shp', containerFileName: 'snow.mix' })!
@@ -72,7 +78,7 @@ test('原版档案 + 覆盖包：建筑图形换成包里的那一份', { skip }
 })
 
 test('覆盖包也能换单位体素模型', { skip }, () => {
-  const archive = new Uint8Array(fs.readFileSync(mixPath!))
+  const archive = readArchive()
   const original = loadVoxelUnit({ bytes: archive, containerFileName: 'local.mix' }, 'htnk')!
   const heavier = loadVoxelUnit({ bytes: archive, containerFileName: 'local.mix' }, 'mtnk')!
   assert.notEqual(heavier.body.voxelCount, original.body.voxelCount, '两个模型的体素数必须不同')
@@ -94,7 +100,7 @@ test('覆盖包也能换单位体素模型', { skip }, () => {
 })
 
 test('覆盖包给真彩 PNG 时优先用它（建筑与单位各一条）', { skip }, () => {
-  const archive = new Uint8Array(fs.readFileSync(mixPath!))
+  const archive = readArchive()
   const fakePng = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3])
   const overrides: readonly AssetOverride[] = [
     {

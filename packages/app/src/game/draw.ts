@@ -6,6 +6,7 @@ import { drawMapPreview, type MapPreview } from './map-preview.js'
 import { HOVER_COLOR, SELECTED_COLOR, drawTerrain, strokeCell } from './terrain.js'
 import { blitFogCell, createFogSprites, type FogSprites } from './fog-layer.js'
 import { applyWetNightGrade, drawWetReflection } from './post-process.js'
+import type { GlTileLayer } from './webgl-tile-layer.js'
 import { isWetNight, type QualityPreset, type UnitArt } from './unit-art.js'
 
 /**
@@ -32,6 +33,8 @@ export interface Scene {
   readonly quality: QualityPreset
   /** 帧时间戳（毫秒），雨夜预设的雨丝靠它推进 */
   readonly time: number
+  /** 给了就把地块层交给 WebGL 画（换渲染后端 spike），2D 只画其余层 */
+  readonly glTiles?: GlTileLayer | undefined
 }
 
 const VIEW = RA2_ISO_VIEW
@@ -53,15 +56,21 @@ export function drawScene(scene: Scene): void {
   const range = visibleCellRange(scene.camera, VIEW, scene.canvas.width, scene.canvas.height)
   const isEmpty = !battle && !scene.mapPreview
   const wet = isWetNight(scene.quality)
+  if (scene.glTiles && scene.mapPreview) {
+    scene.glTiles.render(scene.mapPreview, scene.camera, range, VIEW, (tileIndex, subTile) =>
+      scene.mapPreview?.tileLayer?.canvasAt(tileIndex, subTile),
+    )
+  }
   if (isEmpty) drawCanvasHint(context, scene.canvas, '先在上面选「RA2.MIX」与地图档案，或点「内置示例战场」')
   if (!battle && scene.mapPreview) {
-    drawMapPreview(context, scene.mapPreview, VIEW, range)
+    drawMapPreview(context, scene.mapPreview, VIEW, range, { drawTiles: scene.glTiles === undefined })
     if (scene.hoverCell) strokeCell(context, VIEW, scene.hoverCell, HOVER_COLOR)
   }
   if (battle) {
     // 有官方地图时就画真实地块，否则退回占位网格
-    if (scene.mapPreview) drawMapPreview(context, scene.mapPreview, VIEW, range)
-    else drawTerrain(context, battle.world.grid, VIEW, range)
+    if (scene.mapPreview) {
+      drawMapPreview(context, scene.mapPreview, VIEW, range, { drawTiles: scene.glTiles === undefined })
+    } else drawTerrain(context, battle.world.grid, VIEW, range)
     if (scene.hoverCell) strokeCell(context, VIEW, scene.hoverCell, HOVER_COLOR)
     const selected = battle.selectedIndex === undefined ? undefined : battle.world.units[battle.selectedIndex]
     if (selected) {

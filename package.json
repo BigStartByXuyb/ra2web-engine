@@ -13,7 +13,7 @@
     "build": "tsc -b",
     "watch": "tsc -b --watch",
     "typecheck": "tsc -b && tsc -p tsconfig.tests.json && tsc -p tsconfig.app.json",
-    "test": "tsx --test \"packages/**/*.test.ts\"",
+    "test": "tsx --test --test-concurrency=2 \"packages/**/*.test.ts\"",
     "lint": "prettier --check .",
     "format": "prettier --write .",
     "app:dev": "vite --config packages/app/vite.config.ts",

@@ -33,6 +33,15 @@
         height: 100%;
         width: 100%;
       }
+      /* WebGL 地块层垫在 2D 画布下面：`?renderer=webgl` 时才有内容 */
+      #stage-gl {
+        display: block;
+        height: 100%;
+        left: 0;
+        position: absolute;
+        top: 0;
+        width: 100%;
+      }
       .panel {
         background: var(--panel);
         border: 1px solid var(--line);
@@ -106,6 +115,7 @@
     </style>
   </head>
   <body>
+    <canvas id="stage-gl"></canvas>
     <canvas id="stage"></canvas>
 
     <div id="hud" class="panel">

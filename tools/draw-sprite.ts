@@ -187,7 +187,7 @@ function drawTeslaCoil(): { width: number; height: number; rgba: Uint8Array } {
     const base = mix(mix(STEEL_MID, STEEL_LIGHT, 0.35), [245, 250, 255, 255], Math.min(1, light * 1.15))
     return base
   })
-  canvas.ellipse(cx - 8, 44, 7, 6, () => [250, 253, 255, 220], 0.9)
+  canvas.ellipse(cx - 8, 44, 7, 6, () => [250, 253, 255, 220])
 
   // 描边：把不透明像素的边界压一圈深色，避免糊在地图上
   outline(canvas, OUTLINE)

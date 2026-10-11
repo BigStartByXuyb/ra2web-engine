@@ -131,7 +131,7 @@ function enhance(
 ): { rgba: Uint8Array; width: number; height: number } {
   if (factor <= 1) return { rgba: gradeMetal(rgba), width, height }
   const scaled = upscaleBilinear(rgba, width, height, factor)
-  return { rgba: gradeMetal(unsharp(scaled.rgba, scaled.width, scaled.height)), ...scaled }
+  return { ...scaled, rgba: gradeMetal(unsharp(scaled.rgba, scaled.width, scaled.height)) }
 }
 
 function upscaleBilinear(

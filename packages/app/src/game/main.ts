@@ -13,6 +13,7 @@ import { drawOfficialPreview } from './official-preview.js'
 import { openStructureLayer } from './structure-layer.js'
 import { openTileLayer } from './tile-layer.js'
 import { pickUnit } from './picking.js'
+import { createGlTileLayer, type GlTileLayer } from './webgl-tile-layer.js'
 import { facingFromDelta, buildDemoUnitArt, loadUnitArt, type QualityPreset, type UnitArt } from './unit-art.js'
 
 /**
@@ -46,6 +47,7 @@ interface PanDrag {
 }
 
 const canvas = document.getElementById('stage') as HTMLCanvasElement
+const glCanvas = document.getElementById('stage-gl') as HTMLCanvasElement
 const mixInput = document.getElementById('mix-file') as HTMLInputElement
 const demoButton = document.getElementById('demo-battle') as HTMLButtonElement
 const mapInput = document.getElementById('map-file') as HTMLInputElement
@@ -78,6 +80,8 @@ let mapArchive: { readonly name: string; readonly bytes: Uint8Array } | undefine
 let artByUnit: readonly (UnitArt | undefined)[] = []
 /** 画质预设：影响单位体素的着色与超采样，也决定画布用什么方式放大 */
 let quality: QualityPreset = 'pixel'
+/** `?renderer=webgl` 时把地块层交给 WebGL 画（换渲染后端 spike） */
+let glTiles: GlTileLayer | undefined
 /** 覆盖素材包（写实/超清包）：按次序优先命中，空数组就是纯原版 */
 let overrides: readonly AssetOverride[] = []
 let accumulator = 0
@@ -412,7 +416,7 @@ function frame(now: number): void {
       accumulator -= TICK_MS
     }
   }
-  drawScene({ canvas, camera, battle, mapPreview, artByUnit, hoverCell, quality, time: now })
+  drawScene({ canvas, camera, battle, mapPreview, artByUnit, hoverCell, quality, time: now, glTiles })
   hud.update(now, { battle, mapPreview, camera, hoverCell })
   requestAnimationFrame(frame)
 }
@@ -451,6 +455,7 @@ function resizeCanvas(): void {
   camera.pixelRatio = window.devicePixelRatio || 1
   canvas.width = Math.max(1, Math.floor(window.innerWidth * camera.pixelRatio))
   canvas.height = Math.max(1, Math.floor(window.innerHeight * camera.pixelRatio))
+  glTiles?.resize(canvas.width, canvas.height)
 }
 
 function pointerCanvas(event: MouseEvent): [number, number] {
@@ -479,6 +484,11 @@ function buildBlockedCells(): readonly Cell[] {
 
 resizeCanvas()
 startLoop()
+if (new URLSearchParams(location.search).get('renderer') === 'webgl') {
+  glTiles = createGlTileLayer(glCanvas)
+  if (!glTiles) status.textContent = 'WebGL 不可用：仍在用 2D 画布渲染'
+  else glTiles.resize(canvas.width, canvas.height)
+}
 void autoLoadFromQuery()
 
 /**
