@@ -38,6 +38,8 @@ export interface Scene {
   readonly glTiles?: GlTileLayer | undefined
   /** 实时阴影（重制版增强，默认关闭）：只对 WebGL 路径有效 */
   readonly shadows?: boolean
+  /** 大气雾（重制版增强，默认关闭）：只对 WebGL 路径有效 */
+  readonly fog?: boolean
 }
 
 const VIEW = RA2_ISO_VIEW
@@ -72,6 +74,7 @@ export function drawScene(scene: Scene): void {
     // 阴影先画（压在地面之上、物体之下），再画物体本身
     if (scene.shadows) scene.glTiles.renderShadows(glContext)
     scene.glTiles.render(glContext)
+    if (scene.fog) scene.glTiles.renderFog()
   }
   if (isEmpty) drawCanvasHint(context, scene.canvas, '先在上面选「RA2.MIX」与地图档案，或点「内置示例战场」')
   if (!battle && scene.mapPreview) {

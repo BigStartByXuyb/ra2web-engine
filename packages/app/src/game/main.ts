@@ -84,6 +84,8 @@ let quality: QualityPreset = 'pixel'
 let glTiles: GlTileLayer | undefined
 /** 实时阴影开关（重制版增强，默认关闭）：`?shadows=1` */
 let shadows = false
+/** 大气雾开关（重制版增强，默认关闭）：`?fog=1` */
+let fogEffect = false
 /** 覆盖素材包（写实/超清包）：按次序优先命中，空数组就是纯原版 */
 let overrides: readonly AssetOverride[] = []
 let accumulator = 0
@@ -418,7 +420,19 @@ function frame(now: number): void {
       accumulator -= TICK_MS
     }
   }
-  drawScene({ canvas, camera, battle, mapPreview, artByUnit, hoverCell, quality, time: now, glTiles, shadows })
+  drawScene({
+    canvas,
+    camera,
+    battle,
+    mapPreview,
+    artByUnit,
+    hoverCell,
+    quality,
+    time: now,
+    glTiles,
+    shadows,
+    fog: fogEffect,
+  })
   hud.update(now, { battle, mapPreview, camera, hoverCell })
   requestAnimationFrame(frame)
 }
@@ -492,6 +506,7 @@ if (new URLSearchParams(location.search).get('renderer') === 'webgl') {
   else glTiles.resize(canvas.width, canvas.height)
 }
 shadows = new URLSearchParams(location.search).get('shadows') === '1'
+fogEffect = new URLSearchParams(location.search).get('fog') === '1'
 void autoLoadFromQuery()
 
 /**

@@ -29,6 +29,8 @@ export interface GlTileLayer {
   readonly ready: boolean
   /** 实时阴影：把物体按光方向压扁投影到地面（重制版增强，默认关闭） */
   renderShadows(context: GlSceneContext): void
+  /** 大气雾：按屏幕纵向梯度铺一层冷雾（重制版增强，默认关闭） */
+  renderFog(): void
 }
 
 /** 一帧要画的静态地图内容：地块/覆盖物/建筑都从 `MapPreview` 取 */
@@ -100,6 +102,33 @@ export interface ShadowStyle {
 
 export const DEFAULT_SHADOW: ShadowStyle = { offsetX: 10, offsetY: 6, squash: 0.45, alpha: 0.34 }
 
+/**
+ * 大气雾：等距视角里**屏幕上越靠上 = 离镜头越远**，所以用屏幕纵向梯度当雾的浓度，
+ * 远处（画面上方）偏冷、偏灰，近处（画面下方）几乎透明。
+ * 全屏一个四边形 + 一个片元着色器，代价可以忽略。默认关闭（原版无此效果）。
+ */
+const FOG_VERTEX_SHADER = `
+attribute vec2 a_position;
+varying vec2 v_screen;
+void main() {
+  gl_Position = vec4(a_position, 0.0, 1.0);
+  v_screen = a_position * 0.5 + 0.5;
+}`
+
+const FOG_FRAGMENT_SHADER = `
+precision mediump float;
+uniform vec3 u_color;
+uniform float u_strength;
+varying vec2 v_screen;
+void main() {
+  // 画面上方 = 远处，雾更浓；用 1.6 次方让近处几乎不受影响
+  float distance = pow(1.0 - v_screen.y, 1.6);
+  float alpha = distance * u_strength;
+  gl_FragColor = vec4(u_color * alpha, alpha);
+}`
+
+export const DEFAULT_FOG = { r: 0.62, g: 0.68, b: 0.78, strength: 0.22 }
+
 function compile(gl: WebGLRenderingContext, type: number, source: string): WebGLShader | undefined {
   const shader = gl.createShader(type)
   if (!shader) return undefined
@@ -158,6 +187,19 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
   const shadowCornerLocation = shadowProgram ? gl.getAttribLocation(shadowProgram, 'a_corner') : -1
   const shadowOriginLocation = shadowProgram ? gl.getAttribLocation(shadowProgram, 'a_origin') : -1
   const shadowSizeLocation = shadowProgram ? gl.getAttribLocation(shadowProgram, 'a_size') : -1
+  // 雾：全屏四边形（两三角形覆盖 −1..1），顶点只传 clip 坐标
+  const fogVertex = compile(gl, gl.VERTEX_SHADER, FOG_VERTEX_SHADER)
+  const fogFragment = compile(gl, gl.FRAGMENT_SHADER, FOG_FRAGMENT_SHADER)
+  const fogProgram = fogVertex && fogFragment ? gl.createProgram() : undefined
+  if (fogProgram && fogVertex && fogFragment) {
+    gl.attachShader(fogProgram, fogVertex)
+    gl.attachShader(fogProgram, fogFragment)
+    gl.linkProgram(fogProgram)
+  }
+  const fogPositionLocation = fogProgram ? gl.getAttribLocation(fogProgram, 'a_position') : -1
+  const fogColorLocation = fogProgram ? gl.getUniformLocation(fogProgram, 'u_color') : undefined
+  const fogStrengthLocation = fogProgram ? gl.getUniformLocation(fogProgram, 'u_strength') : undefined
+  const fogBuffer = fogProgram ? gl.createBuffer() : undefined
   const buffer = gl.createBuffer()
   const textures = new WeakMap<HTMLCanvasElement, WebGLTexture>()
 
@@ -334,6 +376,19 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
           unit.worldY + (unit.source.height - unit.anchorY),
         )
       }
+    },
+    renderFog() {
+      if (!fogProgram || !fogBuffer) return
+      gl.useProgram(fogProgram)
+      gl.uniform3f(fogColorLocation!, DEFAULT_FOG.r, DEFAULT_FOG.g, DEFAULT_FOG.b)
+      gl.uniform1f(fogStrengthLocation!, DEFAULT_FOG.strength)
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+      const quad = new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1])
+      gl.bindBuffer(gl.ARRAY_BUFFER, fogBuffer)
+      gl.bufferData(gl.ARRAY_BUFFER, quad, gl.STREAM_DRAW)
+      gl.enableVertexAttribArray(fogPositionLocation)
+      gl.vertexAttribPointer(fogPositionLocation, 2, gl.FLOAT, false, 0, 0)
+      gl.drawArrays(gl.TRIANGLES, 0, 6)
     },
   }
 }
