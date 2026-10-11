@@ -31,6 +31,10 @@
       #stage {
         display: block;
         height: 100%;
+        /* 必须一起定位：否则静态的 2D 画布会被绝对定位的 GL 画布盖住 */
+        left: 0;
+        position: absolute;
+        top: 0;
         width: 100%;
       }
       /* WebGL 地块层垫在 2D 画布下面：`?renderer=webgl` 时才有内容 */
