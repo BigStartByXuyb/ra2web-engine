@@ -105,7 +105,9 @@ export function drawMapPreview(
           view.cellWidth,
           view.cellHeight,
         )
-      } else {
+      } else if (preview.tileLayer === undefined) {
+        // 只有"完全没装剧场档案"才退化成高度着色；单格没有地块（`0xFFFF`）就只留地面垫底，
+        // 与 WebGL 路径同一判据，否则两条路径会在这些格上不一致。
         traceDiamond(context, center, view)
         context.fillStyle = colorForHeight(preview, cell.z)
         context.fill()
