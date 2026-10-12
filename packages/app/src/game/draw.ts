@@ -1,4 +1,4 @@
-import { RA2_ISO_VIEW, cellToScreen } from '@ra2web/render'
+import { RA2_ISO_VIEW, cellToScreen, snapSpriteOrigin } from '@ra2web/render'
 import { fromFixed, isExplored, isVisible, unitCell } from '@ra2web/sim'
 import type { Battle } from './battle.js'
 import { viewScale, visibleCellRange, type Camera } from './camera.js'
@@ -247,9 +247,8 @@ function drawUnits(
       continue
     }
     const frame = art.frames[battle.facingByUnit[index] ?? 0]!
-    const left = ground.x - frame.anchorX
-    const top = ground.y - frame.anchorY
-    if (wet) drawWetReflection(context, frame.canvas, left, top, frame.anchorY, VIEW)
-    context.drawImage(frame.canvas, left, top)
+    const origin = snapSpriteOrigin(ground.x - frame.anchorX, ground.y - frame.anchorY)
+    if (wet) drawWetReflection(context, frame.canvas, origin.x, origin.y, frame.anchorY, VIEW)
+    context.drawImage(frame.canvas, origin.x, origin.y)
   }
 }

@@ -1,4 +1,4 @@
-import type { IsoView } from '@ra2web/render'
+import { snapSpriteOrigin, type IsoView } from '@ra2web/render'
 import type { Camera, CellRange } from './camera.js'
 import { viewScale } from './camera.js'
 import type { MapPreview } from './map-preview.js'
@@ -260,22 +260,22 @@ function groundedQuads(context: GlSceneContext): {
       continue
     }
     const bottomY = centerY + source.height / 2
+    const origin = snapSpriteOrigin(centerX - source.width / 2, centerY - source.height / 2)
     structures_.push({
       source,
-      // 精灵落位取整：原版精灵本来就画在整数像素上；不取整时 2D 路径会做次像素插值、
-      // WebGL 走 NEAREST 采样，两条路径就会在精灵边缘错开一像素。
-      originX: Math.round(centerX - source.width / 2),
-      originY: Math.round(centerY - source.height / 2),
+      originX: origin.x,
+      originY: origin.y,
       bottomY,
       groundY: bottomY,
     })
   }
   const units: GroundedQuad[] = []
   for (const unit of context.units) {
+    const origin = snapSpriteOrigin(unit.worldX - unit.anchorX, unit.worldY - unit.anchorY)
     units.push({
       source: unit.source,
-      originX: Math.round(unit.worldX - unit.anchorX),
-      originY: Math.round(unit.worldY - unit.anchorY),
+      originX: origin.x,
+      originY: origin.y,
       bottomY: unit.worldY + (unit.source.height - unit.anchorY),
       groundY: unit.worldY,
     })
@@ -650,10 +650,11 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
           const overlay = preview.overlayLayer?.canvasAt(cell.overlay)
           const overlayTexture = overlay ? textureFor(overlay) : undefined
           if (overlay && overlayTexture) {
+            const origin = snapSpriteOrigin(centerX - overlay.width / 2, centerY - overlay.height / 2)
             grouped.push({
               texture: overlayTexture,
-              originX: centerX - overlay.width / 2,
-              originY: centerY - overlay.height / 2,
+              originX: origin.x,
+              originY: origin.y,
               sizeX: overlay.width,
               sizeY: overlay.height,
             })

@@ -32,6 +32,17 @@ export function cellToScreen(view: IsoView, cell: CellPoint): ScreenPoint {
   }
 }
 
+/**
+ * 精灵落位取整：`left`/`top` 是贴图左上角的浮点屏幕像素，返回它落到的那个整数像素。
+ *
+ * 原版精灵本来就画在整数像素上。不取整时 2D 路径按次像素做双线性插值、WebGL 走 NEAREST
+ * 采样，两条路径会在精灵边缘错开一像素（覆盖物宽高为奇数时最明显）。地块之外的精灵落位
+ * ——覆盖物、建筑、单位——都走这一处，任何一条绘制路径都不再自己取整。
+ */
+export function snapSpriteOrigin(left: number, top: number): ScreenPoint {
+  return { x: Math.round(left), y: Math.round(top) }
+}
+
 /** 屏幕像素 → 最近的格（拾取用）。 */
 export function screenToCell(view: IsoView, point: ScreenPoint): CellPoint {
   const diagonal = (point.x * 2) / view.cellWidth

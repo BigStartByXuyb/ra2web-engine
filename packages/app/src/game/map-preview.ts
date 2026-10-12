@@ -1,4 +1,4 @@
-import { cellToScreen, type IsoView } from '@ra2web/render'
+import { cellToScreen, snapSpriteOrigin, type IsoView } from '@ra2web/render'
 import type { MapCell, MapFile } from '@ra2web/formats'
 import type { CellRange } from './camera.js'
 import type { OverlayLayer } from './overlay-layer.js'
@@ -143,7 +143,10 @@ export function drawMapPreview(
       }
       // 覆盖物跟在它所属那一格的地块之后画：近处的格子会盖住它伸出去的边
       const overlay = preview.overlayLayer?.canvasAt(cell.overlay)
-      if (overlay) context.drawImage(overlay, center.x - overlay.width / 2, center.y - overlay.height / 2)
+      if (overlay) {
+        const origin = snapSpriteOrigin(center.x - overlay.width / 2, center.y - overlay.height / 2)
+        context.drawImage(overlay, origin.x, origin.y)
+      }
     }
   }
   // 建筑单独一遍，按 (x+y) 升序：近处的房子盖住远处的
@@ -155,8 +158,8 @@ export function drawMapPreview(
       x: placement.cellX + (foundationWidth - 1) / 2,
       y: placement.cellY + (foundationHeight - 1) / 2,
     })
-    // 与 WebGL 路径同一判据：精灵落位取整，避免次像素插值造成两条路径在边缘错开一像素
-    context.drawImage(canvas, Math.round(anchor.x - canvas.width / 2), Math.round(anchor.y - canvas.height / 2))
+    const origin = snapSpriteOrigin(anchor.x - canvas.width / 2, anchor.y - canvas.height / 2)
+    context.drawImage(canvas, origin.x, origin.y)
   }
 }
 
