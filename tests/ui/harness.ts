@@ -30,6 +30,10 @@ export interface CaptureRequest {
   readonly quality?: string
   /** 是否按 URL 直接开战（默认 true） */
   readonly battle?: boolean
+  /** 换一张地图档案（默认用会话起的那一份），例如剧场比对要一次走三份图 */
+  readonly map?: string
+  /** 换地图档案里的第几张（默认用会话起的序号） */
+  readonly mapIndex?: number
   /** 就绪后再等这么久（毫秒），让首帧与美术加载完 */
   readonly settleMs?: number
 }
@@ -39,6 +43,8 @@ export interface UiSession {
   readonly page: Page
   /** 同一 name 只截一次，后续调用直接返回缓存 */
   capture(request: CaptureRequest): Promise<PngImage>
+  /** 该次截图装载完成后状态行里的原文；没截过这个名字时返回 undefined */
+  statusText(name: string): string | undefined
   /** 给当前页面状态照一张（不重新装载），供交互用例比对 */
   snapshot(name: string): Promise<PngImage>
   close(): Promise<void>
@@ -79,6 +85,7 @@ export async function openUiSession(options: UiSessionOptions = {}): Promise<UiS
   const mapIndex = options.mapIndex ?? 0
   const mapFile = options.map ?? MAP_FILE
   const cache = new Map<string, PngImage>()
+  const statuses = new Map<string, string>()
 
   page.on('pageerror', (error) => console.error(`[页面报错] ${error.message}`))
 
@@ -87,8 +94,8 @@ export async function openUiSession(options: UiSessionOptions = {}): Promise<UiS
     if (cached) return cached
     const params = new URLSearchParams()
     params.set('mix', '/pack/RA2.MIX')
-    params.set('map', `/pack/${mapFile}`)
-    params.set('index', String(mapIndex))
+    params.set('map', `/pack/${request.map ?? mapFile}`)
+    params.set('index', String(request.mapIndex ?? mapIndex))
     if (request.battle ?? true) params.set('battle', '1')
     for (const [key, value] of new URLSearchParams(request.query ?? '')) params.set(key, value)
 
@@ -104,6 +111,7 @@ export async function openUiSession(options: UiSessionOptions = {}): Promise<UiS
     )
     if (request.quality !== undefined) await page.selectOption('#quality', request.quality)
     await page.waitForTimeout(request.settleMs ?? 4000)
+    statuses.set(request.name, await page.evaluate(() => document.getElementById('status')?.textContent ?? ''))
     const file = join(outDir, `${request.name}.png`)
     await page.screenshot({ path: file })
     const image = decodePng(file)
@@ -121,6 +129,7 @@ export async function openUiSession(options: UiSessionOptions = {}): Promise<UiS
     origin: server.origin,
     page,
     capture,
+    statusText: (name) => statuses.get(name),
     snapshot,
     close: async () => {
       await browser.close()

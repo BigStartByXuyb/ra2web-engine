@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { diffImages, meanColor, transitionWidth, UI_PANELS, VIEWPORT, type UiSession } from './harness.js'
+import type { PngImage } from './png.js'
 
 /**
  * 战场页的 UI 验收点。每条都对着一个**画面事实**，不是"能跑起来"：
@@ -10,6 +11,8 @@ import { diffImages, meanColor, transitionWidth, UI_PANELS, VIEWPORT, type UiSes
  *    所以"开了跟没开一样"必须判失败。
  * 4. 雨夜后处理必须作用在整幅画面上：GL 路径曾经被 2D 画布那层半透明叠加整块盖住。
  * 5. 选中与移动指令必须真的起作用：HUD 要报出选中单位，画面要跟着变。
+ * 6. 三个剧场（雪地/城市/温带）各刷一帧：地块美术与建筑层要按各自的剧场档案取到图，
+ *    而且换图必须真的换到画面上 —— 只装一份档案的话，"支持剧场"这条线等于没测。
  */
 export interface UiCase {
   readonly name: string
@@ -25,6 +28,16 @@ const GL_BASE = { name: 'base-gl', query: 'renderer=webgl' }
  * 3D 单位那一块的差异由下面的「3D 单位只替换单位」用例单独卡。
  */
 const DIFF_TOLERANCE = 200
+
+/**
+ * 三个剧场的代表图（都在 MULTI.MIX 里）：地块美术、覆盖物、建筑贴图分别来自
+ * snow / urban / temperate 三套剧场档案，任一套取不到图，这一帧就会露。
+ */
+const THEATER_MAPS = [
+  { theater: '雪地', map: 'MULTI.MIX', mapIndex: 57 },
+  { theater: '城市', map: 'MULTI.MIX', mapIndex: 9 },
+  { theater: '温带', map: 'MULTI.MIX', mapIndex: 12 },
+] as const
 
 export const cases: readonly UiCase[] = [
   {
@@ -171,6 +184,43 @@ export const cases: readonly UiCase[] = [
       const width = transitionWidth(base, { y: 600, xFrom: 300, xTo: 1000 })
       assert.ok(width >= 40, `暗→亮只用了 ${width} 像素：迷雾边界还是格子台阶（"锯齿"就是这么来的）`)
       return `过渡宽度 ${width} 像素`
+    },
+  },
+  {
+    name: '三个剧场都能画出建筑，且两条绘制路径一致',
+    async run(session) {
+      const frames: { theater: string; image: PngImage; drawn: number; diff: number }[] = []
+      for (const { theater, map, mapIndex } of THEATER_MAPS) {
+        const gl = await session.capture({
+          name: `theater-${mapIndex}-gl`,
+          map,
+          mapIndex,
+          battle: false,
+          query: 'renderer=webgl',
+        })
+        const canvas = await session.capture({ name: `theater-${mapIndex}-2d`, map, mapIndex, battle: false })
+        const status = session.statusText(`theater-${mapIndex}-gl`) ?? ''
+        const drawn = /建筑 \d+ 个（画出 (\d+) 个）/.exec(status)
+        assert.ok(drawn, `${theater}地图没有报出建筑数，状态行是「${status}」`)
+        const drawnCount = Number(drawn[1])
+        assert.ok(drawnCount > 0, `${theater}地图一个建筑都没画出来（状态行：${status}）`)
+        const diff = diffImages(canvas, gl)
+        assert.ok(
+          diff.changed <= DIFF_TOLERANCE,
+          `${theater}地图两条路径差异 ${diff.changed} 像素（上限 ${DIFF_TOLERANCE}），首个在 ${JSON.stringify(diff.sample)}`,
+        )
+        frames.push({ theater, image: gl, drawn: drawnCount, diff: diff.changed })
+      }
+      // 换图必须真的换到画面上：同一张图跑三次会得到 0 差异，那样"支持三个剧场"等于没测。
+      // 三张图的剧场美术互不相同，整幅战场都该变（战场面积约 115 万像素，下限取不到一成）。
+      for (const frame of frames.slice(1)) {
+        const changed = diffImages(frames[0]!.image, frame.image).changed
+        assert.ok(
+          changed >= 100000,
+          `${frames[0]!.theater}与${frame.theater}的帧只差 ${changed} 像素：地图参数没生效，三帧是同一张图`,
+        )
+      }
+      return frames.map((frame) => `${frame.theater} 画出 ${frame.drawn} 个 / 路径差异 ${frame.diff}`).join('，')
     },
   },
 ]
