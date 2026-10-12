@@ -28,7 +28,7 @@ export interface UiCase {
 }
 
 /** 默认预设下的 GL 基线：后面的比对都拿它当参照 */
-const GL_BASE = { name: 'base-gl', query: 'renderer=webgl' }
+const GL_BASE = { name: 'base-gl', query: 'renderer=webgl&units3d=0' }
 /**
  * 两条绘制路径（canvas2D 与 WebGL）的允许差异。
  *
@@ -121,7 +121,7 @@ export const cases: readonly UiCase[] = [
     name: 'WebGL 路径与 2D 路径画的是同一张图',
     async run(session) {
       const gl = await session.capture(GL_BASE)
-      const canvas = await session.capture({ name: 'base-2d', battle: true })
+      const canvas = await session.capture({ name: 'base-2d', battle: true, query: 'units3d=0' })
       const diff = diffImages(canvas, gl)
       assert.ok(
         diff.changed <= DIFF_TOLERANCE,
@@ -134,7 +134,7 @@ export const cases: readonly UiCase[] = [
     name: '阴影开关必须落在画面上',
     async run(session) {
       const base = await session.capture(GL_BASE)
-      const withShadows = await session.capture({ name: 'shadows', query: 'renderer=webgl&shadows=1' })
+      const withShadows = await session.capture({ name: 'shadows', query: 'renderer=webgl&shadows=1&units3d=0' })
       const diff = diffImages(base, withShadows)
       assert.ok(diff.changed >= 500, `开阴影只改了 ${diff.changed} 像素，等于没上屏`)
       return `阴影改变 ${diff.changed} 像素`
@@ -144,7 +144,7 @@ export const cases: readonly UiCase[] = [
     name: '倒影开关必须落在画面上',
     async run(session) {
       const base = await session.capture(GL_BASE)
-      const withReflection = await session.capture({ name: 'reflect', query: 'renderer=webgl&reflect=1' })
+      const withReflection = await session.capture({ name: 'reflect', query: 'renderer=webgl&reflect=1&units3d=0' })
       const diff = diffImages(base, withReflection)
       // 倒影压扁 + 远端渐隐后本来就淡，阈值按"肉眼能看出来"定；几何正确性由单元测试管
       assert.ok(diff.changed >= 150, `开倒影只改了 ${diff.changed} 像素，等于没上屏`)
@@ -154,7 +154,11 @@ export const cases: readonly UiCase[] = [
   {
     name: '雨夜后处理作用在整幅画面上',
     async run(session) {
-      const glWet = await session.capture({ name: 'wet-gl', query: 'renderer=webgl&reflect=1', quality: 'wetNight' })
+      const glWet = await session.capture({
+        name: 'wet-gl',
+        query: 'renderer=webgl&reflect=1&units3d=0',
+        quality: 'wetNight',
+      })
       const canvasWet = await session.capture({ name: 'wet-2d', quality: 'wetNight' })
       const glBrightness = meanColor(glWet, { x: 0, y: 0, w: VIEWPORT.width, h: VIEWPORT.height })
       const canvasBrightness = meanColor(canvasWet, { x: 0, y: 0, w: VIEWPORT.width, h: VIEWPORT.height })
@@ -170,7 +174,7 @@ export const cases: readonly UiCase[] = [
     name: '泛光必须是提亮，不是整体压暗',
     async run(session) {
       const base = await session.capture(GL_BASE)
-      const bloom = await session.capture({ name: 'bloom', query: 'renderer=webgl&bloom=1' })
+      const bloom = await session.capture({ name: 'bloom', query: 'renderer=webgl&bloom=1&units3d=0' })
       const diff = diffImages(base, bloom)
       const before = meanColor(base, { x: 0, y: 0, w: VIEWPORT.width, h: VIEWPORT.height })
       const after = meanColor(bloom, { x: 0, y: 0, w: VIEWPORT.width, h: VIEWPORT.height })
@@ -287,6 +291,40 @@ export const cases: readonly UiCase[] = [
         `有一次变化摊到 ${widest} 像素宽（两格）：这不是"单位挪了一步"，画面里还有别东西在整块变`,
       )
       return `${frames.length - 1} 次采样里 ${advanced} 次有推进，单次最多变化 ${biggest} 像素、最宽 ${widest} 像素`
+    },
+  },
+  {
+    name: '「单位画法」开关能在 3D 模型与原版贴图之间切换',
+    async run(session) {
+      const page = session.page
+      const params = new URLSearchParams({
+        mix: '/pack/RA2.MIX',
+        map: '/pack/Maps01.mix',
+        index: '0',
+        battle: '1',
+        renderer: 'webgl',
+      })
+      await page.goto(`${session.origin}/game.html?${params.toString()}`, { waitUntil: 'load' })
+      await page.waitForFunction(() => /单位 \d+ 辆/.test(document.getElementById('status')?.textContent ?? ''), undefined, {
+        timeout: 300000,
+      })
+      // 等迷雾揭开的淡入走完：那一段每帧都在变，会把"只换了单位"这条判据喂满
+      await page.waitForTimeout(4000)
+      const initial = await page.evaluate(() => (document.getElementById('units3d') as HTMLSelectElement).value)
+      assert.equal(initial, '3d', `默认应当是 3D 模型档，实际是 ${initial}`)
+      const models = await session.snapshot('switch-3d')
+
+      await page.selectOption('#units3d', '2d')
+      await page.waitForTimeout(800)
+      const sprites = await session.snapshot('switch-2d')
+
+      const diff = diffImages(sprites, models)
+      assert.ok(diff.changed >= 500, `切到贴图档只改了 ${diff.changed} 像素：开关没接到画面上`)
+      assert.ok(
+        diff.box.height <= 140,
+        `差异高度 ${diff.box.height} 太大：换画法动了单位以外的东西（单位只占一条带）`,
+      )
+      return `默认 ${initial}，切换后变化 ${diff.changed} 像素，范围 ${diff.box.width}×${diff.box.height}`
     },
   },
   {

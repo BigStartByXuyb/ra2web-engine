@@ -56,6 +56,7 @@ const mapIndexInput = document.getElementById('map-index') as HTMLInputElement
 const fitButton = document.getElementById('fit-map') as HTMLButtonElement
 const mapBattleButton = document.getElementById('battle-on-map') as HTMLButtonElement
 const qualitySelect = document.getElementById('quality') as HTMLSelectElement
+const units3dSelect = document.getElementById('units3d') as HTMLSelectElement
 const packInput = document.getElementById('pack-file') as HTMLInputElement
 const status = document.getElementById('status')!
 const notice = document.getElementById('notice') as HTMLDivElement
@@ -199,6 +200,12 @@ qualitySelect.addEventListener('change', async () => {
 function toQualityPreset(value: string): QualityPreset {
   return value === 'hd' || value === 'wetNight' ? value : 'pixel'
 }
+
+// 单位画法：3D 模型 ↔ 原版 8 朝向贴图。开着时缺模型的类型照样退回贴图，所以这是个纯开关。
+units3dSelect.addEventListener('change', () => {
+  units3d = units3dSelect.value === '3d'
+  if (units3d && battle) void loadUnit3dModels(battle)
+})
 
 // 素材包：换包就重新装载当前地图（地块/覆盖物/建筑都要按新包重取）
 packInput.addEventListener('change', () => {
@@ -458,7 +465,7 @@ function frame(now: number): void {
     fog: fogEffect,
     reflections,
     bloom,
-    unit3d: (typeId) => glTiles?.unit3d(typeId),
+    unit3d: (typeId) => (units3d ? glTiles?.unit3d(typeId) : undefined),
   })
   hud.update(now, { battle, mapPreview, camera, hoverCell })
   requestAnimationFrame(frame)
@@ -568,27 +575,38 @@ shadows = new URLSearchParams(location.search).get('shadows') === '1'
 fogEffect = new URLSearchParams(location.search).get('fog') === '1'
 reflections = new URLSearchParams(location.search).get('reflect') === '1'
 bloom = new URLSearchParams(location.search).get('bloom') === '1'
-units3d = new URLSearchParams(location.search).get('units3d') === '1'
+// 3D 单位默认开：重制画面就是默认档，模型缺失的类型自动退回 8 朝向贴图。
+// 要比对"原版精灵"那条线（两条绘制路径逐像素一致、逐帧位置判据）时用 `?units3d=0`。
+units3d = new URLSearchParams(location.search).get('units3d') !== '0'
+units3dSelect.value = units3d ? '3d' : '2d'
 void autoLoadFromQuery()
 
 /**
- * B 路：按单位类型找 `/packs/units3d/<单位>.glb`，找到就交给实时 3D 画。
- * 找不到的类型什么都不做 —— 它继续走 8 朝向贴图或原版体素，三种来源因此可以逐单位混用。
+ * 3D 单位的模型槽位：`/packs/units3d/<单位>.glb` 是"最好的一版"，
+ * `<单位>-voxel.glb` 是从原版 `<单位>.vxl` 直接转出来的体素版（形体与原版一致、面数少）。
+ * 两档都按顺序试，谁先有就用谁 —— 素材包只要把模型放进这两个名字里，换模型不用改引擎。
+ *
+ * 找不到模型的类型什么都不做：它继续走 8 朝向贴图或原版体素，三种来源逐单位混用。
  */
+const UNIT3D_SLOTS = ['', '-voxel'] as const
+
 async function loadUnit3dModels(created: Battle): Promise<void> {
   if (!units3d || !glTiles) return
   for (const typeId of new Set(created.typeByUnit)) {
     if (glTiles.unit3d(typeId)) continue
-    const url = `/packs/units3d/${typeId.toLowerCase()}.glb`
-    try {
-      const response = await fetch(url)
-      if (!response.ok) continue
-      glTiles.loadUnit3d(typeId, await response.arrayBuffer())
-      console.info(`[3D] ${typeId} ← ${url}`)
-    } catch (error) {
-      console.info(
-        `[3D] ${typeId} 没有模型（${error instanceof Error ? error.message : String(error)}），退回贴图／原版`,
-      )
+    for (const slot of UNIT3D_SLOTS) {
+      const url = `/packs/units3d/${typeId.toLowerCase()}${slot}.glb`
+      try {
+        const response = await fetch(url)
+        if (!response.ok) continue
+        glTiles.loadUnit3d(typeId, await response.arrayBuffer())
+        console.info(`[3D] ${typeId} ← ${url}`)
+        break
+      } catch (error) {
+        console.info(
+          `[3D] ${typeId} 读 ${url} 失败（${error instanceof Error ? error.message : String(error)}），换下一个槽位`,
+        )
+      }
     }
   }
 }

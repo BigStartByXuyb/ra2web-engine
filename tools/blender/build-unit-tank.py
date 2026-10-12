@@ -220,17 +220,19 @@ add_box("TurretBustle", (-11.0, 0.0, turret_mid - 0.9), (5.2, 15.0, 3.0), armor,
 add_box("Basket", (-13.8, 0.0, turret_mid - 0.5), (1.4, 13.2, 2.4), bare_metal, bevel=0.12)
 add_cylinder("Mantlet", (10.2, 0.0, turret_mid + 0.2), 3.2, 2.6, armor, axis="X", bevel=0.5)
 
-barrel_length, barrel_radius = 11.8, 0.85
+barrel_length, barrel_radius = 15.9, 0.95
 add_cylinder(
     "Barrel", (11.2 + barrel_length / 2, 0.0, turret_mid + 0.2), barrel_radius, barrel_length, bare_metal, axis="X", vertices=20
 )
 # 炮管分三段照官方原画：炮尾套管 → 热护套 → 裸管加炮口制退器。
 # 等距摆四个环会读成一串珠子，不是炮管。
-add_cylinder("RecoilSleeve", (13.5, 0.0, turret_mid + 0.2), 1.5, 3.2, bare_metal, axis="X", vertices=20)
-add_cylinder("ThermalSleeve", (18.0, 0.0, turret_mid + 0.2), 1.06, 5.0, bare_metal, axis="X", vertices=20)
-add_cylinder("Muzzle", (21.7, 0.0, turret_mid + 0.2), 1.45, 2.6, bare_metal, axis="X", vertices=20)
+# 长度按参考（参考里含原版炮管）：炮口落在 x≈25.6。埋在车体轮廓里（车体前端 x≈21.9）的话，
+# 屏幕上只看得到"一块平板 + 一个圆盘"，用户报的就是这个。
+add_cylinder("RecoilSleeve", (13.4, 0.0, turret_mid + 0.2), 1.7, 3.4, bare_metal, axis="X", vertices=20)
+add_cylinder("ThermalSleeve", (18.4, 0.0, turret_mid + 0.2), 1.15, 6.4, bare_metal, axis="X", vertices=20)
+add_cylinder("Muzzle", (23.9, 0.0, turret_mid + 0.2), 1.6, 3.0, bare_metal, axis="X", vertices=20)
 for index in (-1, 1):
-    add_box(f"MuzzleSlot{index}", (21.7, index * 1.4, turret_mid + 0.2), (1.6, 0.5, 0.7), rubber, bevel=0.05)
+    add_box(f"MuzzleSlot{index}", (23.9, index * 1.6, turret_mid + 0.2), (1.8, 0.5, 0.8), rubber, bevel=0.05)
 
 add_frustum("Cupola", (-4.6, 0.0, turret_top + 0.7), 2.7, 2.2, 1.4, armor, sides=12, bevel=0.4)
 add_cylinder("Hatch", (-4.6, 0.0, turret_top + 1.5), 2.2, 0.4, armor_light, bevel=0.1)

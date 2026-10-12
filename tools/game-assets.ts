@@ -47,6 +47,10 @@ export function loadUnitModel(
   if (body) models.push(readVxl(body))
   const turret = findGameFile(archive, `${id}tur.vxl`)
   if (turret) models.push(readVxl(turret))
+  // 炮管是独立一份 VXL（`htnkbarl.vxl` 这类）：不读它就等于没装炮 ——
+  // 屏幕上只剩"一块平板 + 一个圆盘"，而参考模型的轮廓也少一截。
+  const barrel = findGameFile(archive, `${id}barl.vxl`)
+  if (barrel) models.push(readVxl(barrel))
   const model = positionVoxelModel(models)
   const palette = model.palette ?? loadTheaterPalette(archive, theaterName, 'unit')
   return { model, palette }
