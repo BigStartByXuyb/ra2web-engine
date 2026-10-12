@@ -24,6 +24,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from unit_build import (
     add_box,
     add_cylinder,
+    add_frustum,
     color_of,
     finish_and_export,
     make_material,
@@ -162,7 +163,8 @@ for side in (-1, 1):
             (centre_x, skirt_centre, hull_bottom + 0.7 + skirt_height / 2),
             (11.4, sponson_outer - sponson_inner, skirt_height),
             armor_light,
-            bevel=0.5,
+            bevel=0.6,
+            taper=0.9,
         )
     # 红色标识按原版体素的位置刷：下侧三块红块 + 上沿一条长红带
     # （原版 813/6317 个红色体素，z 只落在 7..14 这一带）
@@ -171,10 +173,19 @@ for side in (-1, 1):
     add_box(f"HullBand{tag}", (-2.0, side * (sponson_inner - 0.02), 8.8), (34.0, 0.14, 1.0), accent)
 
 """—— 车体 ——"""
-add_box("Tub", (0.0, 0.0, (hull_bottom + hull_top) / 2), (39.0, sponson_inner * 2, hull_top - hull_bottom), armor, bevel=0.8)
-add_box("Glacis", (17.8, 0.0, 6.6), (7.6, sponson_inner * 2 - 0.6, 1.5), armor, bevel=0.5, rotation=(0, -0.5, 0))
-add_box("LowerFront", (20.6, 0.0, 5.4), (2.4, sponson_inner * 2 - 0.6, 5.2), armor, bevel=0.6)
-add_box("EngineDeck", (-21.5, 0.0, 7.2), (3.0, sponson_inner * 2 - 0.8, 4.4), armor_light, bevel=0.6)
+# 车体侧面往里收（下窄上更窄）：等宽的长方体在这个尺度上是一大片纯色，收分才有"面在转"的观感
+add_box(
+    "Tub",
+    (0.0, 0.0, (hull_bottom + hull_top) / 2),
+    (39.0, sponson_inner * 2, hull_top - hull_bottom),
+    armor,
+    bevel=1.1,
+    taper=0.86,
+    taper_bottom=0.95,
+)
+add_box("Glacis", (17.4, 0.0, 6.6), (9.0, sponson_inner * 2 - 2.4, 1.6), armor, bevel=0.7, rotation=(0, -0.62, 0))
+add_box("LowerFront", (20.6, 0.0, 5.4), (2.4, sponson_inner * 2 - 1.8, 5.2), armor, bevel=0.8, taper=0.82, taper_bottom=0.94)
+add_box("EngineDeck", (-21.5, 0.0, 7.2), (3.0, sponson_inner * 2 - 2.2, 4.4), armor_light, bevel=0.8, taper=0.84, taper_bottom=0.96)
 for index in range(4):
     add_box(f"Grille{index}", (-22.4 + index * 0.85, 0.0, 9.55), (0.4, 19.0, 0.35), bare_metal)
 add_cylinder("Exhaust", (-22.4, -9.4, 8.0), 0.95, 1.6, bare_metal, axis="X")
@@ -189,11 +200,20 @@ for side in (-1, 1):
 """—— 炮塔 ——"""
 turret_mid = (turret_bottom + turret_top) / 2
 add_cylinder("TurretRing", (-1.2, 0.0, turret_bottom - 0.3), 9.0, 1.0, armor_light, vertices=24, bevel=0.15)
-add_cylinder(
-    "Turret", (-1.8, 0.0, turret_mid), 9.3, turret_top - turret_bottom - 0.8, armor, vertices=8, bevel=1.3, rotation_z=math.pi / 8
+# 炮塔做成"下大上小"的锥台（12 棱）：等径八角柱看着就是一块板，铸造感要收分 + 大倒角
+add_frustum(
+    "Turret",
+    (-1.8, 0.0, turret_mid),
+    9.3,
+    7.6,
+    turret_top - turret_bottom - 0.6,
+    armor,
+    sides=12,
+    bevel=1.2,
+    rotation_z=math.pi / 12,
 )
-add_box("TurretFront", (7.0, 0.0, turret_mid + 0.4), (7.4, 16.2, 4.6), armor, bevel=1.1, rotation=(0, -0.40, 0))
-add_box("TurretBustle", (-11.0, 0.0, turret_mid - 0.9), (5.2, 15.0, 3.0), armor, bevel=0.7)
+add_box("TurretFront", (7.0, 0.0, turret_mid + 0.4), (7.4, 16.2, 4.6), armor, bevel=1.3, rotation=(0, -0.40, 0), taper=0.86)
+add_box("TurretBustle", (-11.0, 0.0, turret_mid - 0.9), (5.2, 15.0, 3.0), armor, bevel=0.9, taper=0.86, taper_bottom=0.95)
 add_box("Basket", (-13.8, 0.0, turret_mid - 0.5), (1.4, 13.2, 2.4), bare_metal, bevel=0.12)
 add_cylinder("Mantlet", (10.2, 0.0, turret_mid + 0.2), 3.2, 2.6, armor, axis="X", bevel=0.5)
 
@@ -207,7 +227,7 @@ add_cylinder("Muzzle", (21.7, 0.0, turret_mid + 0.2), 1.45, 2.6, bare_metal, axi
 for index in (-1, 1):
     add_box(f"MuzzleSlot{index}", (21.7, index * 1.4, turret_mid + 0.2), (1.6, 0.5, 0.7), rubber, bevel=0.05)
 
-add_cylinder("Cupola", (-4.6, 0.0, turret_top + 0.7), 2.7, 1.4, armor, bevel=0.45)
+add_frustum("Cupola", (-4.6, 0.0, turret_top + 0.7), 2.7, 2.2, 1.4, armor, sides=12, bevel=0.4)
 add_cylinder("Hatch", (-4.6, 0.0, turret_top + 1.5), 2.2, 0.4, armor_light, bevel=0.1)
 for index, offset in enumerate((-1.6, 0.0, 1.6)):
     add_box(f"Periscope{index}", (5.6 + abs(offset) * 0.2, offset, turret_mid + 2.6), (1.0, 1.0, 0.8), optic, bevel=0.1)
@@ -228,5 +248,25 @@ for side in (-1, 1):
             vertices=12,
             rotation_z=side * 0.35,
         )
+
+"""—— 装饰件：官方原画上那些挂件与工具（都按 2 体素以上做，屏幕上才读得出来）——"""
+for side in (-1, 1):
+    tag = "LR"[side > 0]
+    # 挡泥板储物箱
+    add_box(f"StowBox{tag}", (12.0, side * 15.3, 6.6), (4.4, 2.0, 1.8), armor_light, bevel=0.3)
+    add_box(f"StowBoxB{tag}", (-15.6, side * 15.3, 6.6), (3.6, 2.0, 1.6), armor_light, bevel=0.3)
+    # 拖车缆绳：细而长，屏幕上就是一条线
+    add_box(f"Cable{tag}", (-5.0, side * (sponson_outer - 0.05), 9.7), (20.0, 0.4, 0.4), bare_metal)
+    # 抓握把手（三个一组，等距）
+    for index in range(3):
+        add_box(f"Handle{tag}{index}", (-13.0 + index * 9.0, side * (sponson_outer - 0.05), 7.7), (2.4, 0.4, 0.4), bare_metal)
+# 炮塔顶：装填手舱盖 + 探照灯
+add_frustum("LoaderHatch", (2.6, -4.4, turret_top + 0.3), 1.6, 1.25, 0.7, armor, sides=10, bevel=0.2)
+add_cylinder("Spotlight", (6.6, -5.0, turret_mid + 2.5), 1.2, 1.2, armor, bevel=0.2)
+add_cylinder("SpotlightLens", (6.6, -5.0, turret_mid + 3.15), 1.0, 0.3, optic)
+# 尾部：备用负重轮 + 两只油桶（原画上常见的那种外挂）
+add_cylinder("SpareWheel", (-19.4, 7.0, 10.0), 1.8, 1.4, armor)
+for index, offset in enumerate((-9.8, -5.4)):
+    add_cylinder(f"FuelDrum{index}", (-20.2, offset, 9.8), 1.5, 3.8, bare_metal, axis="X", vertices=16)
 
 sys.exit(finish_and_export(out_glb, reference_low, reference_high))

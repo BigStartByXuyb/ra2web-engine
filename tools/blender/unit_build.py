@@ -119,13 +119,63 @@ def make_material(
     return material
 
 
-def add_box(name, center, size, material, bevel=0.0, rotation=(0.0, 0.0, 0.0)):
-    """边长给 2 再乘 size/2 才等于 size：`size=1` 乘 size/2 会把每个盒子砍成一半。"""
+def add_box(
+    name,
+    center,
+    size,
+    material,
+    bevel=0.0,
+    rotation=(0.0, 0.0, 0.0),
+    taper=1.0,
+    taper_bottom=1.0,
+):
+    """边长给 2 再乘 size/2 才等于 size：`size=1` 乘 size/2 会把每个盒子砍成一半。
+
+    `taper` / `taper_bottom` 是顶面、底面的收分系数（1 = 不收）。车体侧面往里收一点，
+    在这个尺度上才有"面在转"的观感；两个盒子侧面完全平行 = 一大片纯色。
+    """
     bpy.ops.mesh.primitive_cube_add(size=2, location=center, rotation=rotation)
     obj = bpy.context.active_object
     obj.name = name
     obj.scale = (size[0] / 2, size[1] / 2, size[2] / 2)
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    if taper != 1.0 or taper_bottom != 1.0:
+        for vertex in obj.data.vertices:
+            factor = taper if vertex.co.z > 0 else taper_bottom
+            vertex.co.x *= factor
+            vertex.co.y *= factor
+        obj.data.update()
+    return _finish(obj, material, bevel)
+
+
+def add_frustum(
+    name,
+    center,
+    radius_bottom,
+    radius_top,
+    depth,
+    material,
+    sides=12,
+    bevel=0.0,
+    rotation_z=0.0,
+    axis="Z",
+):
+    """锥台：上下半径不同的多棱体。炮塔做成"下大上小"才像铸造件，等径棱柱看着就是一块板。"""
+    import math
+
+    rotation = {"Z": (0, 0, 0), "X": (0, math.pi / 2, 0), "Y": (math.pi / 2, 0, 0)}[axis]
+    bpy.ops.mesh.primitive_cone_add(
+        vertices=sides,
+        radius1=radius_bottom,
+        radius2=radius_top,
+        depth=depth,
+        location=center,
+        rotation=rotation,
+    )
+    obj = bpy.context.active_object
+    obj.name = name
+    if rotation_z:
+        obj.rotation_euler.rotate_axis("Z", rotation_z)
     return _finish(obj, material, bevel)
 
 
