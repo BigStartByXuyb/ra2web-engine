@@ -3,7 +3,7 @@ import { fromFixed, fromFixedExact, isExplored, isVisible, unitCell, type Unit }
 import type { Battle } from './battle.js'
 import { viewScale, visibleCellRange, type Camera } from './camera.js'
 import { drawMapPreview, sortedStructures, structureDepth, structureOrigin, type MapPreview } from './map-preview.js'
-import { HOVER_COLOR, SELECTED_COLOR, drawTerrain, strokeCell } from './terrain.js'
+import { HOVER_COLOR, SELECTED_COLOR, drawTerrain, strokeCell, strokeUnitBrackets } from './terrain.js'
 import { blitFogCell, createFogSprites, type FogSprites } from './fog-layer.js'
 import { BLOOM, applyBloom, applyWetNightGrade, drawWetReflection } from './post-process.js'
 import type { GlTileLayer } from './webgl-tile-layer.js'
@@ -52,6 +52,13 @@ export interface Scene {
 }
 
 const VIEW = RA2_ISO_VIEW
+
+/**
+ * 选中角括号往里收多少像素。
+ *
+ * 单位精灵画布比车身略大（四周各留了一点空边），不往里收的话括号会浮在车身外一两个像素。
+ */
+const UNIT_BRACKET_INSET = 3
 
 export function drawScene(scene: Scene): void {
   const context = scene.canvas.getContext('2d')
@@ -111,9 +118,27 @@ export function drawScene(scene: Scene): void {
       })
     } else drawTerrain(context, battle.world.grid, VIEW, range)
     if (scene.hoverCell) strokeCell(context, VIEW, scene.hoverCell, HOVER_COLOR)
-    const selected = battle.selectedIndex === undefined ? undefined : battle.world.units[battle.selectedIndex]
-    if (selected) {
-      strokeCell(context, VIEW, { x: fromFixed(selected.x), y: fromFixed(selected.y) }, SELECTED_COLOR)
+    const selectedIndex = battle.selectedIndex
+    const selected = selectedIndex === undefined ? undefined : battle.world.units[selectedIndex]
+    if (selected !== undefined && selectedIndex !== undefined) {
+      // 位置取精确值（与单位本体同一处），不取整 —— 取整会让框滞后单位最多一格
+      const ground = cellToScreen(VIEW, { x: fromFixedExact(selected.x), y: fromFixedExact(selected.y) })
+      const frame = scene.artByUnit[selectedIndex]?.frames[battle.facingByUnit[selectedIndex] ?? 0]
+      if (frame) {
+        strokeUnitBrackets(
+          context,
+          {
+            left: ground.x - frame.anchorX,
+            top: ground.y - frame.anchorY,
+            right: ground.x - frame.anchorX + frame.canvas.width,
+            bottom: ground.y - frame.anchorY + frame.canvas.height,
+          },
+          UNIT_BRACKET_INSET,
+          SELECTED_COLOR,
+        )
+      } else {
+        strokeCell(context, VIEW, { x: fromFixed(selected.x), y: fromFixed(selected.y) }, SELECTED_COLOR)
+      }
       drawPath(context, selected.path.slice(selected.pathIndex))
     }
     // 单位交给 GPU 时 2D 这层只画迷雾/选中框；否则照旧在 2D 上画

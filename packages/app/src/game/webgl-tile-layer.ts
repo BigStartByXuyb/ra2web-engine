@@ -132,7 +132,13 @@ void main() {
   gl_FragColor = vec4(0.0, 0.0, 0.0, mask * u_alpha);
 }`
 
-/** 阴影设置：光从左上打下来，影子因此往右下偏、并按 `squash` 压扁。 */
+/**
+ * 阴影设置：光从左上打下来，影子因此往右下偏、并按 `squash` 压扁。
+ *
+ * 偏移要小：原来的 `(14, 9)` 对一辆 75×47 像素的坦克来说太远，影子离开车底，
+ * 看上去像**悬空**。这里收成贴着车底的接触阴影 —— 原版红警没有投影，
+ * 这一档是增强，所以宁可弱、不可假。
+ */
 export interface ShadowStyle {
   readonly offsetX: number
   readonly offsetY: number
@@ -140,7 +146,7 @@ export interface ShadowStyle {
   readonly alpha: number
 }
 
-export const DEFAULT_SHADOW: ShadowStyle = { offsetX: 14, offsetY: 9, squash: 0.42, alpha: 0.5 }
+export const DEFAULT_SHADOW: ShadowStyle = { offsetX: 5, offsetY: 3, squash: 0.5, alpha: 0.45 }
 
 /**
  * 大气雾：等距视角里**屏幕上越靠上 = 离镜头越远**，所以用屏幕纵向梯度当雾的浓度，

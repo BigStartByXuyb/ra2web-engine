@@ -47,6 +47,47 @@ export function strokeCell(
 export const HOVER_COLOR = HOVER_STROKE
 export const SELECTED_COLOR = SELECT_STROKE
 
+/**
+ * 选中指示：围着单位画**四个角括号**，不是整格菱形。
+ *
+ * 两条理由：
+ *
+ * - 单位比格子大（一格 60×30 像素，犀牛 75×47、基地车 93×64），画整格菱形会让单位看着"跑出框外"；
+ * - 框原先画在 `fromFixed` 取整后的格上，而单位画在 `fromFixedExact` 的精确位置 —— 单位走到半格时
+ *   框还留在格心，看着就是"单位偏离自己的格子"。围着单位画就没有这个滞后。
+ *
+ * `rect` 给的是单位在屏幕上的包围盒；`inset` 往里收一点，括号才贴着车身而不是外框。
+ */
+export function strokeUnitBrackets(
+  context: CanvasRenderingContext2D,
+  rect: { readonly left: number; readonly top: number; readonly right: number; readonly bottom: number },
+  inset: number,
+  color: string,
+): void {
+  const left = rect.left + inset
+  const top = rect.top + inset
+  const right = rect.right - inset
+  const bottom = rect.bottom - inset
+  // 括号臂长取短边的三分之一：原版的角括号不长于单位本身的一半
+  const arm = Math.max(3, Math.min(right - left, bottom - top) / 3)
+  context.save()
+  context.lineWidth = 2
+  context.strokeStyle = color
+  context.beginPath()
+  for (const [x, y, dx, dy] of [
+    [left, top, 1, 1],
+    [right, top, -1, 1],
+    [right, bottom, -1, -1],
+    [left, bottom, 1, -1],
+  ] as const) {
+    context.moveTo(x + dx * arm, y)
+    context.lineTo(x, y)
+    context.lineTo(x, y + dy * arm)
+  }
+  context.stroke()
+  context.restore()
+}
+
 function traceDiamond(context: CanvasRenderingContext2D, center: { x: number; y: number }, view: IsoView): void {
   const halfWidth = view.cellWidth / 2
   const halfHeight = view.cellHeight / 2
