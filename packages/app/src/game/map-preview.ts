@@ -85,10 +85,25 @@ export function drawMapPreview(
       const cell = preview.cellByIndex.get(y * preview.width + x)
       if (!cell) continue
       const center = cellToScreen(view, { x, y })
-      if (ground) context.drawImage(ground, center.x - view.cellWidth / 2, center.y - view.cellHeight / 2)
+      // 世界尺寸一律按格子走：地块画布可能来自高清素材包，分辨率与原版一格不同
+      if (ground) {
+        context.drawImage(
+          ground,
+          center.x - view.cellWidth / 2,
+          center.y - view.cellHeight / 2,
+          view.cellWidth,
+          view.cellHeight,
+        )
+      }
       const painted = preview.tileLayer?.canvasAt(cell.tileIndex, cell.subTile)
       if (painted) {
-        context.drawImage(painted, center.x - view.cellWidth / 2, center.y - view.cellHeight / 2)
+        context.drawImage(
+          painted,
+          center.x - view.cellWidth / 2,
+          center.y - view.cellHeight / 2,
+          view.cellWidth,
+          view.cellHeight,
+        )
       } else {
         traceDiamond(context, center, view)
         context.fillStyle = colorForHeight(preview, cell.z)

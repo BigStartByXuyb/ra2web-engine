@@ -2,6 +2,7 @@ import { loadTheaterPalette, openTheater, type AssetOverride, type TheaterAssets
 import type { Palette } from '@ra2web/formats'
 import { paintTmpSubTile } from '@ra2web/render'
 import { toCanvas } from './canvas-image.js'
+import type { HdTiles } from './hd-tiles.js'
 
 /**
  * 地块层：把"地块编号 + 子块序号"上色成画布并缓存，绘制时只做 drawImage。
@@ -19,15 +20,16 @@ export function openTileLayer(
   archiveBytes: Uint8Array,
   theaterName: string | undefined,
   overrides?: readonly AssetOverride[],
+  hdTiles?: HdTiles,
 ): TileLayer | undefined {
   if (!theaterName) return undefined
   const theater = openTheater(archiveBytes, theaterName, overrides)
   const palette = loadTheaterPalette(archiveBytes, theaterName, 'iso')
   if (!theater || !palette) return undefined
-  return createTileLayer(theater, palette)
+  return createTileLayer(theater, palette, hdTiles)
 }
 
-export function createTileLayer(theater: TheaterAssets, palette: Palette): TileLayer {
+export function createTileLayer(theater: TheaterAssets, palette: Palette, hdTiles?: HdTiles): TileLayer {
   const cache = new Map<string, HTMLCanvasElement | undefined>()
   let ground: HTMLCanvasElement | undefined | null = null
   return {
@@ -48,6 +50,9 @@ export function createTileLayer(theater: TheaterAssets, palette: Palette): TileL
   }
 
   function paint(tileIndex: number, subTileIndex: number): HTMLCanvasElement | undefined {
+    // 高清素材包优先：包里有这张地块就用真彩位图，摆位与地形数据仍由原版 TMP 决定
+    const hd = hdTiles?.subTile(tileIndex, subTileIndex)
+    if (hd) return hd
     const tile = theater.loadTile(tileIndex)
     const sub = tile?.subTiles[subTileIndex]
     if (!tile || !sub || sub.isEmpty) return undefined

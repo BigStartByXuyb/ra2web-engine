@@ -625,8 +625,9 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
               texture: groundTexture,
               originX: centerX - view.cellWidth / 2,
               originY: centerY - view.cellHeight / 2,
-              sizeX: context.groundCanvas!.width,
-              sizeY: context.groundCanvas!.height,
+              // 世界尺寸按格子走：高清素材包的地块位图分辨率更大，铺到屏幕上的大小不变
+              sizeX: view.cellWidth,
+              sizeY: view.cellHeight,
             })
           }
           const paintedTexture = painted ? textureFor(painted) : undefined
@@ -635,8 +636,8 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
               texture: paintedTexture,
               originX: centerX - view.cellWidth / 2,
               originY: centerY - view.cellHeight / 2,
-              sizeX: painted.width,
-              sizeY: painted.height,
+              sizeX: view.cellWidth,
+              sizeY: view.cellHeight,
             })
           }
           const overlay = preview.overlayLayer?.canvasAt(cell.overlay)

@@ -116,6 +116,11 @@ export interface TheaterAssets {
   /** 全局地块编号 → 地块图形；找不到返回 undefined */
   loadTile(tileIndex: number): TmpFile | undefined
   /**
+   * 该地块在档案里命中的**文件名**（`clear01.sno` 一类）；越界或没有图形时 undefined。
+   * 覆盖素材包按文件名定位文件，所以取高清地块图要用它。
+   */
+  tileFileName(tileIndex: number): string | undefined
+  /**
    * 按 art.ini 的图形名取 SHP。两种名字规则合起来决定文件名：
    *
    *  - `theaterExtension`（art.ini 的 `Theater=yes`）：用剧场后缀 `.tem` / `.sno` / `.urb`，否则用 `.shp`；
@@ -159,6 +164,7 @@ export function openTheater(
   })
 
   const cache = new Map<number, TmpFile | undefined>()
+  const nameCache = new Map<number, string | undefined>()
   const imageCache = new Map<string, ShpFile | undefined>()
   // 地面块：三个剧场都叫 `Clear`。缺美术时退回"没有地面块"，绘制方按原样只画地块
   const clearSet = ini.sets.find((set) => set.fileName.toLowerCase() === 'clear')
@@ -175,6 +181,10 @@ export function openTheater(
       const parsed = readTile(tileIndex)
       cache.set(tileIndex, parsed)
       return parsed
+    },
+    tileFileName(tileIndex) {
+      if (!nameCache.has(tileIndex)) nameCache.set(tileIndex, resolveTileName(tileIndex))
+      return nameCache.get(tileIndex)
     },
     loadImage(imageName, options) {
       const key = `${imageName}\u0000${options.theaterExtension}`
@@ -208,25 +218,38 @@ export function openTheater(
   }
 
   function readTile(tileIndex: number): TmpFile | undefined {
+    const bytes = resolveTileBytes(tileIndex)
+    if (!bytes) return undefined
+    try {
+      return readTmp(bytes)
+    } catch {
+      return undefined
+    }
+  }
+
+  /** 该地块命中的文件名；找不到图形时 undefined。 */
+  function resolveTileName(tileIndex: number): string | undefined {
     const tile = ini.tiles[tileIndex]
     if (!tile) return undefined
+    return findTileFile(tile)?.name
+  }
+
+  /** 该地块的字节；覆盖包优先。 */
+  function resolveTileBytes(tileIndex: number): Uint8Array | undefined {
+    const tile = ini.tiles[tileIndex]
+    if (!tile) return undefined
+    return findTileFile(tile)?.bytes
+  }
+
+  /** 候选名按次序试：覆盖包优先，其次各图形包；命中即返回名字与字节。 */
+  function findTileFile(tile: TheaterTile): { name: string; bytes: Uint8Array } | undefined {
     for (const candidate of tileFileCandidates(tile, files!.suffix)) {
       const overridden = findOverride(overrides, candidate)
-      if (overridden) {
-        try {
-          return readTmp(overridden)
-        } catch {
-          return undefined
-        }
-      }
+      if (overridden) return { name: candidate, bytes: overridden }
       for (const mix of imageMixes) {
         const entry = findMixEntry(mix.index, candidate, crc32)
         if (!entry) continue
-        try {
-          return readTmp(readMixEntry(mix.bytes, mix.index, entry))
-        } catch {
-          return undefined
-        }
+        return { name: candidate, bytes: readMixEntry(mix.bytes, mix.index, entry) }
       }
     }
     return undefined

@@ -1,5 +1,5 @@
 import { RA2_ISO_VIEW, cellToScreen } from '@ra2web/render'
-import type { AssetOverride } from '@ra2web/assets'
+import { openTheater, type AssetOverride } from '@ra2web/assets'
 import { readMap, readMixEntry, readMixIndex, type MapFile } from '@ra2web/formats'
 import { TICKS_PER_SECOND, enqueueCommand, fromFixed, step, type Cell } from '@ra2web/sim'
 import { createBattle, createDemoBattle, type Battle } from './battle.js'
@@ -12,6 +12,7 @@ import { openOverlayLayer } from './overlay-layer.js'
 import { drawOfficialPreview } from './official-preview.js'
 import { openStructureLayer } from './structure-layer.js'
 import { openTileLayer } from './tile-layer.js'
+import { loadHdTiles } from './hd-tiles.js'
 import { pickUnit } from './picking.js'
 import { createGlTileLayer, type GlTileLayer } from './webgl-tile-layer.js'
 import { facingFromDelta, buildDemoUnitArt, loadUnitArt, type QualityPreset, type UnitArt } from './unit-art.js'
@@ -224,7 +225,11 @@ async function showMap(bytes: Uint8Array, fileName: string, entryIndex: number):
   try {
     const map = /\.map$/i.test(fileName) ? readMap(bytes) : readFirstMap(bytes, entryIndex)
     loadedMap = map
-    const tileLayer = gameArchive && map.theater ? openTileLayer(gameArchive, map.theater, overrides) : undefined
+    // 高清地块也是真彩位图，同样要先解码
+    const theater = gameArchive && map.theater ? openTheater(gameArchive, map.theater, overrides) : undefined
+    const hdTiles = await loadHdTiles(theater, overrides)
+    const tileLayer =
+      gameArchive && map.theater ? openTileLayer(gameArchive, map.theater, overrides, hdTiles) : undefined
     const overlayLayer = gameArchive && map.theater ? openOverlayLayer(gameArchive, map.theater, overrides) : undefined
     // 素材包里的真彩贴图要先解码，所以建筑层这一步是异步的
     const structureLayer =
