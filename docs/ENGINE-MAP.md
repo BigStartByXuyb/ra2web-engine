@@ -789,7 +789,16 @@ SNOW 798 / 其余雪地图用到 797），**只有第 3 张用到 1060**，超�
 ConditionRed/ConditionYellow）。真实档案实测 `ConditionYellow=50%`、`ConditionRed=25%`。
 即：**掉到黄血线（≤50%）的车辆移速 ×0.75**。`0.75` 写死在代码里，不是 INI 键。
 
-未核对：`+0x690/+0x698/+0x6a0/+0x6a8`（上下坡）、`+0x1380`（接近阈值）对应的 rules.ini 键名。
+**上下坡键名已核（2026-10-12）**：`+0x690 = [General] TrackedUphill`、`+0x698 = TrackedDownhill`、
+`+0x6a0 = WheeledUphill`、`+0x6a8 = WheeledDownhill`。INI 读值点 0x648a84–0x648ad2
+（推键名字符串 → `fstp qword` 写入，与 ConditionYellow 同款模式；字符串 VA：
+TrackedUphill=0x7f1158、TrackedDownhill=0x7f1148、WheeledUphill=0x7f1138、WheeledDownhill=0x7f1128）。
+真实档案实测：`TrackedUphill=1.0`、`TrackedDownhill=1.2`、`WheeledUphill=1.0`、`WheeledDownhill=1.2`
+—— **下坡加速 20%**。推进核心里 `技术对象+0x5a4 == 1`（Track）选 Tracked 组、否则 Wheeled 组
+（Hover/Float 等落 Wheeled 组是读法推断，归 Z 轴链复核）。乘进速度的实现随 Z 轴链落地
+（sim 目前无 z，坡度判定依赖高度）。
+
+未核对：`+0x1380`（接近阈值）对应的 rules.ini 键名。
 
 ### 每 tick 推进流程（`0x4a2670`）
 
