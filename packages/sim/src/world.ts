@@ -28,6 +28,8 @@ export interface UnitSpec {
   readonly health: number
   /** 满血值（单位类型的 Strength）；伤车判定用它算血量百分比。缺省按 health。 */
   readonly maxHealth?: number
+  /** 坡度乘数选组（原版按 SpeedType：履带=track）；缺省 other 组 */
+  readonly slopeClass?: 'track' | 'other'
   /** 视野半径（格）；不给按客户端缺省值 1 */
   readonly sight?: number
 }
@@ -49,10 +51,24 @@ export interface WorldOptions {
   /** 每格地表速度系数（长度 width×height，0..1；原版 0x850ea0 表 × 移动类型的乘积，已封顶 1）。
    *  静态数据，不进世界状态哈希。不给就全 1。 */
   readonly terrainSpeed?: Float32Array
+  /** 每格高度级（长度 width×height，一级 = 90 lepton，见 ENGINE-MAP「一级高度 = 90」）。
+   *  静态数据，不进世界状态哈希。不给就全 0。 */
+  readonly heights?: Int8Array
   /** 伤车慢速（ConditionYellow ×0.75）；不给就不做伤车判定 */
   readonly crippled?: CrippledRule
+  /** 坡度乘数（rules.ini [General] Tracked/Wheeled Uphill/Downhill，实测 1.0/1.2/1.0/1.2）；
+   *  爬坡乘 Up、下坡乘 Down，按 `Unit.slopeClass` 选组。静态数据，不进哈希；不给就不乘。 */
+  readonly slopeFactors?: SlopeFactors
   readonly units: readonly UnitSpec[]
   readonly seed: number
+}
+
+/** 上下坡速度系数组（原版 rules+0x690/0x698/0x6a0/0x6a8 四槽位）。 */
+export interface SlopeFactors {
+  readonly upTrack: number
+  readonly downTrack: number
+  readonly upOther: number
+  readonly downOther: number
 }
 
 export interface World {
@@ -64,6 +80,10 @@ export interface World {
   readonly rng: RngState
   /** 每格地表速度系数（静态数据，与 grid.blockedSteps 同类，不进哈希） */
   readonly terrainSpeed: Float32Array | undefined
+  /** 每格高度级（静态数据，不进哈希） */
+  readonly heights: Int8Array | undefined
+  /** 坡度乘数（静态数据，不进哈希）。可变是给测试直接换系数用的。 */
+  slopeFactors: SlopeFactors | undefined
   /** 伤车慢速规则（静态数据，不进哈希）；undefined = 不做伤车判定 */
   readonly crippled: CrippledRule | undefined
   pending: Command[]
@@ -73,6 +93,9 @@ export interface World {
 
 export function createWorld(options: WorldOptions): World {
   const grid = createGrid(options.width, options.height, options.blocked ?? [], options.blockedSteps)
+  const zOf = options.heights
+    ? (cell: Cell): number => (options.heights![cell.y * options.width + cell.x] ?? 0) * 90
+    : undefined
   const units = options.units.map((spec, index) =>
     createUnit(
       index + 1,
@@ -84,8 +107,12 @@ export function createWorld(options: WorldOptions): World {
       0,
       undefined,
       spec.maxHealth,
+      zOf !== undefined ? zOf(spec.cell) : 0,
     ),
   )
+  for (let index = 0; index < units.length; index++) {
+    units[index]!.slopeClass = options.units[index]!.slopeClass
+  }
   const ownerCount = units.reduce((max, unit) => Math.max(max, unit.owner + 1), 1)
   const shroud = createShroud(ownerCount, options.width, options.height)
   updateShroud(shroud, units)
@@ -96,6 +123,8 @@ export function createWorld(options: WorldOptions): World {
     shroud,
     rng: createRng(options.seed),
     terrainSpeed: options.terrainSpeed,
+    heights: options.heights,
+    slopeFactors: options.slopeFactors,
     crippled: options.crippled,
     pending: [],
     sequence: 0,
@@ -155,6 +184,10 @@ export function step(world: World): void {
   for (const unit of world.units) {
     if (unit.health > 0) occupancy.set(occupiedIndex(world.grid, unit), unit.id)
   }
+  // 格 → 高度（lepton），供推进时朝目标格心的 z 插值
+  const zOf = world.heights
+    ? (cell: Cell): number => (world.heights![cell.y * world.grid.width + cell.x] ?? 0) * 90
+    : undefined
 
   for (const unit of world.units) {
     if (unit.health <= 0 || unit.path.length === 0) continue
@@ -193,7 +226,21 @@ export function step(world: World): void {
         effective = Math.floor(effective * world.crippled.factor)
       }
     }
-    advanceAlongPath(unit, effective)
+    // 坡度乘数（fn-4a2670：爬坡 × Tracked/Wheeled Uphill，下坡 × Downhill；
+    // TrackedDownhill 实测 1.2 = 下坡提速）。按单位 slopeClass 选组，缺省 other。
+    if (world.slopeFactors && world.heights) {
+      const cell = unitCell(unit)
+      const currentLevel = world.heights[cell.y * world.grid.width + cell.x] ?? 0
+      const waypointLevel = world.heights[waypointIndex] ?? 0
+      const factors = world.slopeFactors
+      const track = unit.slopeClass === 'track'
+      if (waypointLevel > currentLevel) {
+        effective = Math.floor(effective * (track ? factors.upTrack : factors.upOther))
+      } else if (waypointLevel < currentLevel) {
+        effective = Math.floor(effective * (track ? factors.downTrack : factors.downOther))
+      }
+    }
+    advanceAlongPath(unit, effective, zOf)
     occupancy.delete(occupiedIndex(world.grid, unit))
     if (unit.path.length > 0) {
       occupancy.set(occupiedIndex(world.grid, unit), unit.id)
