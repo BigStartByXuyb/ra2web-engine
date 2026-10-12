@@ -622,23 +622,25 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
           const centerX = (x - y) * (view.cellWidth / 2)
           const centerY = (x + y) * (view.cellHeight / 2)
           if (groundTexture) {
+            // 与 2D 路径同一判据：倍率只由宽度定，高度照同一倍率（见 map-preview 的同名注释）
+            const groundScale = view.cellWidth / context.groundCanvas!.width
             grounds.push({
               texture: groundTexture,
               originX: centerX - view.cellWidth / 2,
               originY: centerY - view.cellHeight / 2,
-              // 世界尺寸按格子走：高清素材包的地块位图分辨率更大，铺到屏幕上的大小不变
-              sizeX: view.cellWidth,
-              sizeY: view.cellHeight,
+              sizeX: context.groundCanvas!.width * groundScale,
+              sizeY: context.groundCanvas!.height * groundScale,
             })
           }
           const paintedTexture = painted ? textureFor(painted) : undefined
           if (painted && paintedTexture) {
+            const scale = view.cellWidth / painted.width
             grouped.push({
               texture: paintedTexture,
               originX: centerX - view.cellWidth / 2,
               originY: centerY - view.cellHeight / 2,
-              sizeX: view.cellWidth,
-              sizeY: view.cellHeight,
+              sizeX: painted.width * scale,
+              sizeY: painted.height * scale,
             })
           }
           const overlay = preview.overlayLayer?.canvasAt(cell.overlay)

@@ -88,22 +88,27 @@ export function drawMapPreview(
       const center = cellToScreen(view, { x, y })
       // 世界尺寸一律按格子走：地块画布可能来自高清素材包，分辨率与原版一格不同
       if (ground) {
+        // 倍率只由宽度定（标准格宽 → 一格宽），高度照同一倍率：原版 60×30 是 1:1、高清包 2× 是 0.5。
+        // 不能把画布直接压到 60×30 —— 比一格更高的崖壁会被压扁，而且两条路径的采样方式（双线性 vs NEAREST）
+        // 会在接缝上错开一像素（UI 用例实测 222 像素差异就是这么来的）。
+        const scale = view.cellWidth / ground.width
         context.drawImage(
           ground,
           center.x - view.cellWidth / 2,
           center.y - view.cellHeight / 2,
-          view.cellWidth,
-          view.cellHeight,
+          ground.width * scale,
+          ground.height * scale,
         )
       }
       const painted = preview.tileLayer?.canvasAt(cell.tileIndex, cell.subTile)
       if (painted) {
+        const scale = view.cellWidth / painted.width
         context.drawImage(
           painted,
           center.x - view.cellWidth / 2,
           center.y - view.cellHeight / 2,
-          view.cellWidth,
-          view.cellHeight,
+          painted.width * scale,
+          painted.height * scale,
         )
       } else if (preview.tileLayer === undefined) {
         // 只有"完全没装剧场档案"才退化成高度着色；单格没有地块（`0xFFFF`）就只留地面垫底，
