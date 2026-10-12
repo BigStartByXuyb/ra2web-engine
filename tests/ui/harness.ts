@@ -187,6 +187,10 @@ export async function openUiSession(options: UiSessionOptions = {}): Promise<UiS
 export interface DiffResult {
   /** 差异像素数（忽略界面面板、单通道阈值 24） */
   readonly changed: number
+  /** 差异里"变亮"的像素数：原先有东西、现在没了（或被更亮的东西替换） */
+  readonly brighter: number
+  /** 差异里"变暗"的像素数：原先没有、现在画上了（或被更暗的东西替换） */
+  readonly darker: number
   readonly sample: { readonly x: number; readonly y: number } | undefined
   /** 差异像素的包围盒（没差异时宽高为 0），用来判"只改了画面里的哪一块" */
   readonly box: { readonly x: number; readonly y: number; readonly width: number; readonly height: number }
@@ -200,6 +204,8 @@ export function diffImages(before: PngImage, after: PngImage): DiffResult {
   const inPanel = (x: number, y: number): boolean =>
     UI_PANELS.some((panel) => x >= panel.x && x < panel.x + panel.w && y >= panel.y && y < panel.y + panel.h)
   let changed = 0
+  let brighter = 0
+  let darker = 0
   let sample: { x: number; y: number } | undefined
   let minX = before.width
   let minY = before.height
@@ -215,6 +221,10 @@ export function diffImages(before: PngImage, after: PngImage): DiffResult {
         Math.abs(before.pixels[at + 2]! - after.pixels[at + 2]!)
       if (delta <= 24) continue
       changed++
+      const beforeSum = before.pixels[at]! + before.pixels[at + 1]! + before.pixels[at + 2]!
+      const afterSum = after.pixels[at]! + after.pixels[at + 1]! + after.pixels[at + 2]!
+      if (afterSum > beforeSum) brighter++
+      else if (afterSum < beforeSum) darker++
       sample ??= { x, y }
       minX = Math.min(minX, x)
       maxX = Math.max(maxX, x)
@@ -224,6 +234,8 @@ export function diffImages(before: PngImage, after: PngImage): DiffResult {
   }
   return {
     changed,
+    brighter,
+    darker,
     sample,
     box:
       maxX < 0
@@ -251,6 +263,8 @@ export function diffImagesWithin(
   const x1 = Math.min(before.width, rect.x + rect.w)
   const y1 = Math.min(before.height, rect.y + rect.h)
   let changed = 0
+  let brighter = 0
+  let darker = 0
   let sample: { x: number; y: number } | undefined
   let minX = before.width
   let minY = before.height
@@ -265,6 +279,10 @@ export function diffImagesWithin(
         Math.abs(before.pixels[at + 2]! - after.pixels[at + 2]!)
       if (delta <= 24) continue
       changed++
+      const beforeSum = before.pixels[at]! + before.pixels[at + 1]! + before.pixels[at + 2]!
+      const afterSum = after.pixels[at]! + after.pixels[at + 1]! + after.pixels[at + 2]!
+      if (afterSum > beforeSum) brighter++
+      else if (afterSum < beforeSum) darker++
       sample ??= { x, y }
       minX = Math.min(minX, x)
       maxX = Math.max(maxX, x)
@@ -274,6 +292,8 @@ export function diffImagesWithin(
   }
   return {
     changed,
+    brighter,
+    darker,
     sample,
     box:
       maxX < 0

@@ -212,7 +212,15 @@ export const cases: readonly UiCase[] = [
         diff.changed <= diff.box.width * diff.box.height * 0.7,
         `差异 ${diff.changed} 像素散在 ${diff.box.width}×${diff.box.height} 范围里：不只是单位被换了`,
       )
-      return `差异 ${diff.changed} 像素，范围 ${diff.box.width}×${diff.box.height}`
+      // 换的是"画法"，不是把单位抹掉：差异必须两头都有量 —— 一头是把精灵擦掉（画面变亮成地皮），
+      // 一头是把模型画上去（变暗）。模型没出来（单位整辆消失在地皮下面）时只会剩"变亮"那一头。
+      assert.ok(
+        diff.brighter >= 300 && diff.darker >= 300,
+        `差异只有单边（变亮 ${diff.brighter} / 变暗 ${diff.darker}）：有东西被擦掉却没有对应的东西画上去`,
+      )
+      const ratio = diff.brighter / Math.max(1, diff.darker)
+      assert.ok(ratio <= 4 && ratio >= 0.25, `两边差得太多（变亮 ${diff.brighter} / 变暗 ${diff.darker}）`)
+      return `差异 ${diff.changed} 像素（变亮 ${diff.brighter} / 变暗 ${diff.darker}），范围 ${diff.box.width}×${diff.box.height}`
     },
   },
   {
