@@ -1,5 +1,5 @@
 import type { MapFile } from '@ra2web/formats'
-import { landTypeOfTerrainType, type LandTypeName } from './land.js'
+import { LAND_TYPE_NAMES, landTypeOfTerrainType, type LandTypeName } from './land.js'
 import type { TheaterAssets } from './theater.js'
 
 /**
@@ -31,6 +31,12 @@ export interface Passability {
   /** 各地块类型占了多少格，便于核对判定结果 */
   readonly landTypeCounts: ReadonlyMap<LandTypeName, number>
   /**
+   * 每格地块类型（下标 = y × cellBounds.right + x；值 = `LAND_TYPE_NAMES` 的序号，
+   * 没有地块记录 / terrainType 认识不了 / 格子在地图范围外为 -1）。
+   * 供速度系数这类"逐格数值"使用：按序号查 rules 的地表速度表即可。
+   */
+  readonly landTypeByCell: Int16Array
+  /**
    * 取不到地块图形的格子：本机资产里没有这些地块集的图形。
    * 与"不可通行"无关 —— 原版客户端在同样的格上会抛 `TileNum not found` / `SubTile not found`，
    * 所以这里既不算可通行也不算不可通行，只如实报数，由调用方决定是否开这局。
@@ -53,10 +59,13 @@ export function buildPassability(
   const unknown = new Set<number>()
   const missingBySet = new Map<string, number>()
   const landTypeCounts = new Map<LandTypeName, number>()
+  const landTypeByCell = new Int16Array(map.cellBounds.right * map.cellBounds.bottom).fill(-1)
   let missingCells = 0
   for (const cell of map.cells) {
     if (cell.cellX < 0 || cell.cellY < 0 || cell.cellX >= map.cellBounds.right || cell.cellY >= map.cellBounds.bottom)
       continue
+    const cellIndex = cell.cellY * map.cellBounds.right + cell.cellX
+    landTypeByCell[cellIndex] = -1
     // 原版把"这一格没有地块"记成 `tile = -1`（按 u16 读就是 0xFFFF）：它不是缺美术，
     // 是这张图没有这一格（菱形以外）。按不可通行处理，但不计入地形统计、也不算缺图。
     if (cell.tileIndex === EMPTY_TILE) {
@@ -77,6 +86,7 @@ export function buildPassability(
       blocked.push({ x: cell.cellX, y: cell.cellY })
       continue
     }
+    landTypeByCell[cellIndex] = LAND_TYPE_NAMES.indexOf(landType)
     landTypeCounts.set(landType, (landTypeCounts.get(landType) ?? 0) + 1)
     if (request.speedFactor(landType) === 0) blocked.push({ x: cell.cellX, y: cell.cellY })
   }
@@ -84,6 +94,7 @@ export function buildPassability(
     blocked,
     unknownTerrainTypes: [...unknown].sort((left, right) => left - right),
     landTypeCounts,
+    landTypeByCell,
     missingArt: { cells: missingCells, bySet: missingBySet },
   }
 }

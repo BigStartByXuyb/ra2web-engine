@@ -43,6 +43,8 @@ export function buildDataDrivenScene(
     readonly height: number
     readonly blocked?: readonly Cell[]
     readonly blockedSteps?: Uint8Array
+    /** 每格地表速度系数（0..1），见 `WorldOptions.terrainSpeed` */
+    readonly terrainSpeed?: Float32Array
     readonly seed: number
   },
 ): DataSceneResult {

@@ -34,6 +34,8 @@ export interface BattleOptions {
   readonly height: number
   readonly blocked: readonly Cell[]
   readonly blockedSteps?: Uint8Array
+  /** 每格地表速度系数（0..1），见 `WorldOptions.terrainSpeed` */
+  readonly terrainSpeed?: Float32Array
   readonly spawns: readonly UnitSpawn[]
   readonly seed: number
 }
@@ -55,6 +57,7 @@ export function createBattle(archiveBytes: Uint8Array, options: BattleOptions): 
     height: options.height,
     blocked: options.blocked,
     ...(options.blockedSteps ? { blockedSteps: options.blockedSteps } : {}),
+    ...(options.terrainSpeed ? { terrainSpeed: options.terrainSpeed } : {}),
     seed: options.seed,
   })
   return {

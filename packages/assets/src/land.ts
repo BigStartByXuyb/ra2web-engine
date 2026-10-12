@@ -17,6 +17,21 @@
 export type LandTypeName =
   'Clear' | 'Road' | 'Rock' | 'Beach' | 'Rough' | 'Railroad' | 'Weeds' | 'Water' | 'Wall' | 'Tiberium' | 'Cliff'
 
+/** 全部地块类型名的稳定顺序（`landTypeByCell` 用它的下标做编码）。 */
+export const LAND_TYPE_NAMES: readonly LandTypeName[] = [
+  'Clear',
+  'Road',
+  'Rock',
+  'Beach',
+  'Rough',
+  'Railroad',
+  'Weeds',
+  'Water',
+  'Wall',
+  'Tiberium',
+  'Cliff',
+]
+
 const TERRAIN_TYPES: ReadonlyMap<number, LandTypeName> = new Map([
   [0, 'Clear'],
   [5, 'Cliff'],

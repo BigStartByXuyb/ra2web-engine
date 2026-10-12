@@ -1,4 +1,5 @@
 import {
+  LAND_TYPE_NAMES,
   buildPassability,
   heightBlocksStep,
   openTheater,
@@ -37,6 +38,8 @@ export interface MapBattleSetup {
   readonly blocked: readonly Cell[]
   /** 相邻格阻挡（长度 width×height×4），交给模拟内核做边判定 */
   readonly blockedSteps: Uint8Array
+  /** 每格地表速度系数（0..1，Track 口径），见 `WorldOptions.terrainSpeed` */
+  readonly terrainSpeed: Float32Array
   readonly landTypeSummary: string
   readonly unknownTerrainTypes: readonly number[]
   /** 取不到地块图形的格数与地块集名；非 0 说明这局在这份资产上开不了 */
@@ -86,11 +89,23 @@ export function planMapBattle(archiveBytes: Uint8Array, map: MapFile): MapBattle
   }))
   const spawns = pickSpawns(passable)
 
+  // 每格地表速度系数：地块类型 → rules 系数（原版 0x850ea0 表 × 移动类型的口径，见 sim/terrain-speed）
+  const factorByIndex = new Float32Array(LAND_TYPE_NAMES.length).fill(1)
+  LAND_TYPE_NAMES.forEach((name, index) => {
+    factorByIndex[index] = speedFactor(land, name, SPEED_TYPE)
+  })
+  const terrainSpeed = new Float32Array(gridWidth * gridHeight).fill(1)
+  for (let index = 0; index < terrainSpeed.length; index++) {
+    const landIndex = passability.landTypeByCell[index] ?? -1
+    if (landIndex >= 0) terrainSpeed[index] = factorByIndex[landIndex] ?? 1
+  }
+
   return {
     width: gridWidth,
     height: gridHeight,
     blocked,
     blockedSteps: buildBlockedSteps(map),
+    terrainSpeed,
     landTypeSummary: summarizeLandTypes(passability.landTypeCounts, land, SPEED_TYPE),
     unknownTerrainTypes: passability.unknownTerrainTypes,
     missingArt: passability.missingArt,

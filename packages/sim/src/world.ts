@@ -36,6 +36,9 @@ export interface WorldOptions {
   readonly blocked?: readonly Cell[]
   /** 相邻格之间的阻挡（长度 width×height×4，见 `createGrid`）；不给就不做边判定 */
   readonly blockedSteps?: Uint8Array
+  /** 每格地表速度系数（长度 width×height，0..1；原版 0x850ea0 表 × 移动类型的乘积，已封顶 1）。
+   *  静态数据，不进世界状态哈希。不给就全 1。 */
+  readonly terrainSpeed?: Float32Array
   readonly units: readonly UnitSpec[]
   readonly seed: number
 }
@@ -47,6 +50,8 @@ export interface World {
   /** 迷雾：每个玩家各一份"探索过 / 当前可见" */
   readonly shroud: Shroud
   readonly rng: RngState
+  /** 每格地表速度系数（静态数据，与 grid.blockedSteps 同类，不进哈希） */
+  readonly terrainSpeed: Float32Array | undefined
   pending: Command[]
   /** 入队序号，用于同 tick 指令的稳定排序 */
   sequence: number
@@ -60,7 +65,16 @@ export function createWorld(options: WorldOptions): World {
   const ownerCount = units.reduce((max, unit) => Math.max(max, unit.owner + 1), 1)
   const shroud = createShroud(ownerCount, options.width, options.height)
   updateShroud(shroud, units)
-  return { tick: 0, grid, units, shroud, rng: createRng(options.seed), pending: [], sequence: 0 }
+  return {
+    tick: 0,
+    grid,
+    units,
+    shroud,
+    rng: createRng(options.seed),
+    terrainSpeed: options.terrainSpeed,
+    pending: [],
+    sequence: 0,
+  }
 }
 
 export function enqueueCommand(world: World, tick: number, input: CommandInput): void {
@@ -139,7 +153,16 @@ export function step(world: World): void {
       continue
     }
     unit.blockedTicks = 0
-    advanceAlongPath(unit)
+    // 地表速度系数（原版 min(1.0, 表[移动类型 + 地表×9])，0 兜底 0.5）；
+    // "当前格 vs 进入格"口径未核，本项目按当前格（自定，待核）
+    let effective = unit.speed
+    if (world.terrainSpeed) {
+      const cell = unitCell(unit)
+      const raw = world.terrainSpeed[cell.y * world.grid.width + cell.x] ?? 1
+      const factor = raw <= 0 ? 0.5 : Math.min(raw, 1)
+      effective = Math.floor(unit.speed * factor)
+    }
+    advanceAlongPath(unit, effective)
     occupancy.delete(occupiedIndex(world.grid, unit))
     if (unit.path.length > 0) {
       occupancy.set(occupiedIndex(world.grid, unit), unit.id)

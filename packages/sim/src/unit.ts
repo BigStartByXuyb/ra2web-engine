@@ -83,9 +83,10 @@ function rotateToward(facing: number, target: number, rate: number): number {
  *
  * 全程整数运算：段向量为 (dx,dy)，长度用整数平方根，按比例截断前进 ——
  * 不产生浮点、跨平台结果一致。剩余速度不跨段结转（本项目自定，原版结转口径未核）。
+ * `effectiveSpeed` 由 world 给（地表系数折算后的本 tick 速度），缺省用 unit.speed。
  */
-export function advanceAlongPath(unit: Unit): void {
-  let budget = unit.speed
+export function advanceAlongPath(unit: Unit, effectiveSpeed: number = unit.speed): void {
+  let budget = effectiveSpeed
   while (budget > 0 && unit.pathIndex < unit.path.length) {
     const waypoint = unit.path[unit.pathIndex]!
     const targetX = waypoint.x * ONE + (ONE >> 1)
