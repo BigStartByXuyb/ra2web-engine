@@ -80,7 +80,10 @@ function pickFrame(shp: ShpFile, data: number): ShpFrame | undefined {
 }
 
 /** `[OverlayTypes]` 的编号 → 图形名。 */
-function readOverlayNames(archiveBytes: Uint8Array, overrides?: readonly AssetOverride[]): ReadonlyMap<number, string> {
+export function readOverlayNames(
+  archiveBytes: Uint8Array,
+  overrides?: readonly AssetOverride[],
+): ReadonlyMap<number, string> {
   const names = new Map<number, string>()
   const text = readLocalText(archiveBytes, 'rules.ini', overrides)
   const section = text ? parseIni(text).sections.get('overlaytypes') : undefined

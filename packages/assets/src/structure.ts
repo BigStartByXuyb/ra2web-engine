@@ -1,5 +1,5 @@
 import type { ShpFile } from '@ra2web/formats'
-import { imageNameOf, readArtEntries, readRulesImageNames, type ArtEntry } from './art.js'
+import { artEntryOf, readArtEntries, readRulesImageNames, type ArtEntry } from './art.js'
 import { findOverride, type AssetOverride } from './overrides.js'
 import { openTheater, type TheaterAssets } from './theater.js'
 
@@ -54,8 +54,7 @@ export function openStructures(
       if (cache.has(key)) return cache.get(key)
       art ??= readArtEntries(archiveBytes, overrides)
       rulesImages ??= readRulesImageNames(archiveBytes, overrides)
-      const entry = art.get(key)
-      const image = imageNameOf(typeName, art, rulesImages)
+      const { image, entry } = artEntryOf(typeName, art, rulesImages)
       const pngBytes = findOverride(overrides, `${image.toLowerCase()}.png`)
       const shp = pngBytes
         ? undefined
