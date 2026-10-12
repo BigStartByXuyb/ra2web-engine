@@ -1,7 +1,7 @@
 import { RA2_ISO_VIEW, cellToScreen } from '@ra2web/render'
 import { openTheater, type AssetOverride } from '@ra2web/assets'
 import { readMap, readMixEntry, readMixIndex, type MapFile } from '@ra2web/formats'
-import { TICKS_PER_SECOND, enqueueCommand, fromFixed, step, type Cell } from '@ra2web/sim'
+import { TICKS_PER_SECOND, enqueueCommand, fromFixed, fromFixedExact, step, type Cell } from '@ra2web/sim'
 import { createBattle, createDemoBattle, type Battle } from './battle.js'
 import { planMapBattle } from './map-battle.js'
 import { MIN_ZOOM, canvasToCell, canvasToWorld, createCamera, viewScale, zoomAt, type Camera } from './camera.js'
@@ -467,8 +467,9 @@ function frame(now: number): void {
 /** 朝向取自两帧之间的位移：模拟只推进位置，朝向属于表现层。 */
 function updateFacings(active: Battle): void {
   active.world.units.forEach((unit, index) => {
-    const x = fromFixed(unit.x)
-    const y = fromFixed(unit.y)
+    // 用定点坐标的精确值：截断成整格的话，朝向要等跨过格线才转一次
+    const x = fromFixedExact(unit.x)
+    const y = fromFixedExact(unit.y)
     const previous = lastPosition[index]
     if (previous && (previous.x !== x || previous.y !== y)) {
       active.facingByUnit[index] = facingFromDelta(x - previous.x, y - previous.y)

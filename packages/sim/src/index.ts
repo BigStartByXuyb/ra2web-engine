@@ -1,4 +1,15 @@
-export { ONE, FIXED_SHIFT, absFixed, fixedDiv, fixedLength, fixedMul, fromFixed, isqrt, toFixed } from './fixed.js'
+export {
+  ONE,
+  FIXED_SHIFT,
+  absFixed,
+  fixedDiv,
+  fixedLength,
+  fixedMul,
+  fromFixed,
+  fromFixedExact,
+  isqrt,
+  toFixed,
+} from './fixed.js'
 export { createRng, nextBelow, nextUint32 } from './rng.js'
 export type { RngState } from './rng.js'
 export {

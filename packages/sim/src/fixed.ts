@@ -19,6 +19,17 @@ export function fromFixed(value: number): number {
   return Math.trunc(value / ONE)
 }
 
+/**
+ * 定点坐标 → 格坐标的精确值（保留小数）。
+ *
+ * 只给绘制用：模拟层的坐标一律是定点整数，绘制时再折成格坐标。判断"在哪一格"用
+ * `fromFixed`（截断），取贴图落位用这一个 —— 截断会让单位只在跨越格线的那个 tick 才动一下，
+ * 看上去就是一格一格跳。
+ */
+export function fromFixedExact(value: number): number {
+  return value / ONE
+}
+
 /** 定点乘法：先乘后右移，结果截断（不做四舍五入，保证可复现）。 */
 export function fixedMul(a: number, b: number): number {
   return Math.trunc((a * b) / ONE)

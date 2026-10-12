@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { chromium, type Browser, type Page } from 'playwright'
 import { DEFAULT_OVERRIDES_DIR, DEFAULT_PACK_DIR, startGameServer, type GameServer } from '../../tools/serve-game.js'
-import { decodePng, type PngImage } from './png.js'
+import { decodePng, decodePngBytes, type PngImage } from './png.js'
 
 /**
  * 战场页的 UI 测试脚手架：起静态服务 → 开浏览器 → 按 URL 参数装载档案与开战 → 截图，
@@ -14,9 +14,14 @@ import { decodePng, type PngImage } from './png.js'
 
 /** 截图固定 1600×900：界面面板的位置随之固定，比对时可以按下面这三块忽略掉文字变化。 */
 export const VIEWPORT = { width: 1600, height: 900 }
-/** 左上 HUD、右侧操作面板、底部提示条：它们的文字会变，但不是画面差异。 */
+/**
+ * 左上 HUD、右侧操作面板、底部提示条：它们的文字会变，但不是画面差异。
+ *
+ * 左上这一块的宽高按 `#hud` 的实测外框取（427×151，落在 (12,12)）—— 只按 250 宽排除的话，
+ * 面板右侧的数值（tick、帧率）会一直被算成画面差异。
+ */
 export const UI_PANELS = [
-  { x: 0, y: 0, w: 250, h: 160 },
+  { x: 0, y: 0, w: 445, h: 170 },
   { x: 1288, y: 0, w: 312, h: 420 },
   { x: 0, y: 828, w: VIEWPORT.width, h: VIEWPORT.height - 828 },
 ]
@@ -47,6 +52,13 @@ export interface UiSession {
   statusText(name: string): string | undefined
   /** 给当前页面状态照一张（不重新装载），供交互用例比对 */
   snapshot(name: string): Promise<PngImage>
+  /**
+   * 不落盘地取一块画面：直接从战场画布上抠出来。
+   *
+   * 连拍要靠它 —— `page.screenshot` 一次要 380~650 毫秒，比逻辑帧（66.7 毫秒）长得多，
+   * 那样根本抓不到"每个 tick 都在动"；这一条只花几十毫秒。
+   */
+  sampleRegion(rect: { x: number; y: number; w: number; h: number }): Promise<PngImage>
   close(): Promise<void>
 }
 
@@ -125,12 +137,46 @@ export async function openUiSession(options: UiSessionOptions = {}): Promise<UiS
     return decodePng(file)
   }
 
+  const sampleRegion = async (rect: { x: number; y: number; w: number; h: number }): Promise<PngImage> => {
+    const dataUrl = await page.evaluate(({ x, y, w, h }) => {
+      const scratch = document.createElement('canvas')
+      scratch.width = w
+      scratch.height = h
+      const scratchContext = scratch.getContext('2d')
+      if (!scratchContext) throw new Error('取不到 2D 上下文')
+      // 战场是多块画布叠出来的（WebGL 层 + 2D 层），按 DOM 顺序叠着画一遍才是眼睛看到的那张
+      const canvases = Array.from(document.querySelectorAll('canvas')).filter((element) => {
+        if (!(element instanceof HTMLCanvasElement)) return false
+        const bounds = element.getBoundingClientRect()
+        return bounds.width > 0 && bounds.height > 0
+      })
+      if (canvases.length === 0) throw new Error('页面上没有可见画布')
+      for (const canvas of canvases) {
+        const bounds = canvas.getBoundingClientRect()
+        scratchContext.drawImage(
+          canvas,
+          0,
+          0,
+          canvas.width,
+          canvas.height,
+          bounds.left - x,
+          bounds.top - y,
+          bounds.width,
+          bounds.height,
+        )
+      }
+      return scratch.toDataURL('image/png')
+    }, rect)
+    return decodePngBytes(new Uint8Array(Buffer.from(dataUrl.slice('data:image/png;base64,'.length), 'base64')))
+  }
+
   return {
     origin: server.origin,
     page,
     capture,
     statusText: (name) => statuses.get(name),
     snapshot,
+    sampleRegion,
     close: async () => {
       await browser.close()
       await server.close()
@@ -162,6 +208,56 @@ export function diffImages(before: PngImage, after: PngImage): DiffResult {
   for (let y = 0; y < before.height; y++) {
     for (let x = 0; x < before.width; x++) {
       if (inPanel(x, y)) continue
+      const at = (y * before.width + x) * 4
+      const delta =
+        Math.abs(before.pixels[at]! - after.pixels[at]!) +
+        Math.abs(before.pixels[at + 1]! - after.pixels[at + 1]!) +
+        Math.abs(before.pixels[at + 2]! - after.pixels[at + 2]!)
+      if (delta <= 24) continue
+      changed++
+      sample ??= { x, y }
+      minX = Math.min(minX, x)
+      maxX = Math.max(maxX, x)
+      minY = Math.min(minY, y)
+      maxY = Math.max(maxY, y)
+    }
+  }
+  return {
+    changed,
+    sample,
+    box:
+      maxX < 0
+        ? { x: 0, y: 0, width: 0, height: 0 }
+        : { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 },
+  }
+}
+
+/**
+ * 只比一块矩形里的差异：用于"只关心某个物体附近发生了什么"的用例。
+ *
+ * 矩形用整帧坐标给出，`UI_PANELS` 不参与判断 —— 排除面板是为了整帧比对时不把界面文字算进画面，
+ * 而这里的矩形是调用方自己选的（比如单位所在的一小块，本来就不含面板）。
+ */
+export function diffImagesWithin(
+  before: PngImage,
+  after: PngImage,
+  rect: { readonly x: number; readonly y: number; readonly w: number; readonly h: number },
+): DiffResult {
+  if (before.width !== after.width || before.height !== after.height) {
+    throw new Error(`尺寸不同：${before.width}x${before.height} vs ${after.width}x${after.height}`)
+  }
+  const x0 = Math.max(0, rect.x)
+  const y0 = Math.max(0, rect.y)
+  const x1 = Math.min(before.width, rect.x + rect.w)
+  const y1 = Math.min(before.height, rect.y + rect.h)
+  let changed = 0
+  let sample: { x: number; y: number } | undefined
+  let minX = before.width
+  let minY = before.height
+  let maxX = -1
+  let maxY = -1
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
       const at = (y * before.width + x) * 4
       const delta =
         Math.abs(before.pixels[at]! - after.pixels[at]!) +
