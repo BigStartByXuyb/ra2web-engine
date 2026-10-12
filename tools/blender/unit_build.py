@@ -19,8 +19,14 @@ FALLBACK_REFERENCE = Vector((46.0, 34.0, 17.15))
 
 """横向看穿缝的自检阈值：>0.8 体素说明车体与行走部分之间断了。"""
 MAX_SEE_THROUGH = 0.8
-"""车长与参考的允许偏差（体素）。"""
-SIZE_TOLERANCE = 0.6
+"""
+车长与参考的允许偏差（体素），比另外两轴宽。
+
+参考模型的炮管是按"独立 VXL 的原始坐标"拼进去的，**没有按 `<单位>barl.hva` 校正位置**，
+所以参考的炮管比精灵里短一截；而精灵才是玩家看到的东西。手作模型按精灵的长度做，
+车长因此比参考长 5~9 体素，这是已知且有意为之的差。
+"""
+LENGTH_TOLERANCE = 9.0
 """屏幕轮廓与参考的允许偏差（像素）。"""
 SILHOUETTE_TOLERANCE = 1.5
 """参考模型的屏幕轮廓宽高；`reference_size` 导入参考时记下，`finish_and_export` 用。"""
@@ -179,8 +185,13 @@ def add_frustum(
     bevel=0.0,
     rotation_z=0.0,
     axis="Z",
+    scale=None,
 ):
-    """锥台：上下半径不同的多棱体。炮塔做成"下大上小"才像铸造件，等径棱柱看着就是一块板。"""
+    """锥台：上下半径不同的多棱体。炮塔做成"下大上小"才像铸造件，等径棱柱看着就是一块板。
+
+    `scale` 用来把圆形锥台拉成椭圆（炮塔在原版里是 28 长 × 19 宽的**长条**塔，
+    用正圆做出来俯视就是一个圆盘）。
+    """
     import math
 
     rotation = {"Z": (0, 0, 0), "X": (0, math.pi / 2, 0), "Y": (math.pi / 2, 0, 0)}[axis]
@@ -194,6 +205,8 @@ def add_frustum(
     )
     obj = bpy.context.active_object
     obj.name = name
+    if scale is not None:
+        obj.scale = scale
     if rotation_z:
         obj.rotation_euler.rotate_axis("Z", rotation_z)
     return _finish(obj, material, bevel)
@@ -274,8 +287,8 @@ def finish_and_export(out_glb: str, reference_low: Vector, reference_high: Vecto
 
     problems: list[str] = []
     reference_size = reference_high - reference_low
-    if abs(size.x - reference_size.x) > SIZE_TOLERANCE:
-        problems.append(f"车长 {size.x:.2f} 偏离参考 {reference_size.x:.2f}")
+    if abs(size.x - reference_size.x) > LENGTH_TOLERANCE:
+        problems.append(f"车长 {size.x:.2f} 偏离参考 {reference_size.x:.2f}（上限 {LENGTH_TOLERANCE}）")
     width, height = silhouette()
     if REFERENCE_SILHOUETTE is not None:
         for label, got, want in (

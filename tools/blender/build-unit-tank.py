@@ -203,7 +203,8 @@ for side in (-1, 1):
 """—— 炮塔 ——"""
 turret_mid = (turret_bottom + turret_top) / 2
 add_cylinder("TurretRing", (-1.2, 0.0, turret_bottom - 0.3), 9.0, 1.0, armor_light, vertices=24, bevel=0.15)
-# 炮塔做成"下大上小"的锥台（12 棱）：等径八角柱看着就是一块板，铸造感要收分 + 大倒角
+# 炮塔做成"下大上小"的锥台（12 棱）：等径八角柱看着就是一块板，铸造感要收分 + 大倒角。
+# 再沿车长拉 1.45 倍：原版炮塔是 28 长 × 19 宽的**长条**塔，正圆塔俯视读出来就是一个圆盘。
 add_frustum(
     "Turret",
     (-1.8, 0.0, turret_mid),
@@ -214,13 +215,15 @@ add_frustum(
     sides=12,
     bevel=1.2,
     rotation_z=math.pi / 12,
+    scale=(1.45, 1.0, 1.0),
 )
 add_box("TurretFront", (7.0, 0.0, turret_mid + 0.4), (7.4, 16.2, 4.6), armor, bevel=1.3, rotation=(0, -0.40, 0), taper=0.86)
 add_box("TurretBustle", (-11.0, 0.0, turret_mid - 0.9), (5.2, 15.0, 3.0), armor, bevel=0.9, taper=0.86, taper_bottom=0.95)
 add_box("Basket", (-13.8, 0.0, turret_mid - 0.5), (1.4, 13.2, 2.4), bare_metal, bevel=0.12)
 add_cylinder("Mantlet", (10.2, 0.0, turret_mid + 0.2), 3.2, 2.6, armor, axis="X", bevel=0.5)
 
-barrel_length, barrel_radius = 15.9, 0.95
+# 炮管要"读得出来"：屏幕上它只有几像素宽，细到 1 体素就是一条黑线，看不出是门炮
+barrel_length, barrel_radius = 21.0, 1.7
 add_cylinder(
     "Barrel", (11.2 + barrel_length / 2, 0.0, turret_mid + 0.2), barrel_radius, barrel_length, bare_metal, axis="X", vertices=20
 )
@@ -228,11 +231,11 @@ add_cylinder(
 # 等距摆四个环会读成一串珠子，不是炮管。
 # 长度按参考（参考里含原版炮管）：炮口落在 x≈25.6。埋在车体轮廓里（车体前端 x≈21.9）的话，
 # 屏幕上只看得到"一块平板 + 一个圆盘"，用户报的就是这个。
-add_cylinder("RecoilSleeve", (13.4, 0.0, turret_mid + 0.2), 1.7, 3.4, bare_metal, axis="X", vertices=20)
-add_cylinder("ThermalSleeve", (18.4, 0.0, turret_mid + 0.2), 1.15, 6.4, bare_metal, axis="X", vertices=20)
-add_cylinder("Muzzle", (23.9, 0.0, turret_mid + 0.2), 1.6, 3.0, bare_metal, axis="X", vertices=20)
+add_cylinder("RecoilSleeve", (14.6, 0.0, turret_mid + 0.2), 2.3, 3.6, bare_metal, axis="X", vertices=20)
+add_cylinder("ThermalSleeve", (21.6, 0.0, turret_mid + 0.2), 1.9, 9.4, bare_metal, axis="X", vertices=20)
+add_cylinder("Muzzle", (30.4, 0.0, turret_mid + 0.2), 2.4, 3.0, bare_metal, axis="X", vertices=20)
 for index in (-1, 1):
-    add_box(f"MuzzleSlot{index}", (23.9, index * 1.6, turret_mid + 0.2), (1.8, 0.5, 0.8), rubber, bevel=0.05)
+    add_box(f"MuzzleSlot{index}", (30.4, index * 1.6, turret_mid + 0.2), (1.8, 0.5, 0.8), rubber, bevel=0.05)
 
 add_frustum("Cupola", (-4.6, 0.0, turret_top + 0.7), 2.7, 2.2, 1.4, armor, sides=12, bevel=0.4)
 add_cylinder("Hatch", (-4.6, 0.0, turret_top + 1.5), 2.2, 0.4, armor_light, bevel=0.1)

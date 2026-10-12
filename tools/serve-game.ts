@@ -15,6 +15,9 @@ import { extname, join, resolve } from 'node:path'
  */
 export const DEFAULT_PACK_DIR = 'D:\\AI_GAME\\work\\assets\\pack'
 export const DEFAULT_OVERRIDES_DIR = 'D:\\AI_GAME\\work\\hd-packs'
+
+/** 禁缓存的路径：覆盖素材包、页面与打包产物。原版档案（`/pack/`）不禁。 */
+const NO_CACHE = /(?:[/\\]packs[/\\]|[/\\]assets[/\\]|\.html$)/i
 /** 默认 3120：3100 留给 `npm run app:dev`（vite 开发服务器） */
 export const DEFAULT_PORT = 3120
 
@@ -63,9 +66,9 @@ export async function startGameServer(options: GameServerOptions = {}): Promise<
     response.writeHead(200, {
       'content-type': TYPES[extname(path)] ?? 'application/octet-stream',
       'content-length': stats.size,
-      // 素材（`/pack/`、`/packs/`）与页面都在本地被反复替换：一律不缓存，
-      // 否则改完模型/地块后浏览器还在用旧那份 —— 实测"炮管又没了"就是缓存了旧 GLB。
-      'cache-control': 'no-store',
+      // 会被反复替换的就别缓存：覆盖素材包（`/packs/`，模型与地块都在这里）、页面与打包产物。
+      // 原版档案（`/pack/`）有几百 MB，禁缓存会让每次装载都重拉一遍 —— 实测那会把整套 UI 用例拖死。
+      ...(NO_CACHE.test(path) ? { 'cache-control': 'no-store' } : {}),
     })
     if (response.req?.method === 'HEAD') {
       response.end()
