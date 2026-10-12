@@ -123,6 +123,7 @@ canvas.addEventListener('pointermove', (event) => {
   if (!pan || pan.pointerId !== event.pointerId) return
   camera.x = pan.cameraX - (event.clientX - pan.clientX) / camera.zoom
   camera.y = pan.cameraY - (event.clientY - pan.clientY) / camera.zoom
+  clampCameraToMap()
 })
 
 canvas.addEventListener('pointerup', (event) => {
@@ -481,6 +482,32 @@ function centerOn(cellX: number, cellY: number): void {
   const scale = viewScale(camera)
   camera.x = point.x - canvas.width / scale / 2
   camera.y = point.y - canvas.height / scale / 2
+  clampCameraToMap()
+}
+
+/**
+ * 相机夹取：可见视口不许拖出地图的世界包围盒。
+ *
+ * 地图在投影里是块菱形、格空间是 `MapPreview` 的 `width`×`height`（= `map.cellBounds`），
+ * 所以包围盒由菱形四角决定：`worldX = (x − y)·30`、`worldY = (x + y)·15`。
+ * 视口比地图大时居中，否则贴边 —— 原版同样拖不出地图，否则会看到菱形外那圈空白。
+ */
+function clampCameraToMap(): void {
+  const preview = mapPreview
+  if (!preview || preview.width <= 0 || preview.height <= 0) return
+  const halfWidth = VIEW.cellWidth / 2
+  const halfHeight = VIEW.cellHeight / 2
+  const minX = -(preview.height - 1) * halfWidth - halfWidth
+  const maxX = (preview.width - 1) * halfWidth + halfWidth
+  const minY = -halfHeight
+  const maxY = (preview.width - 1 + preview.height - 1) * halfHeight + halfHeight
+  const scale = viewScale(camera)
+  const viewWidth = canvas.width / scale
+  const viewHeight = canvas.height / scale
+  camera.x =
+    maxX - minX <= viewWidth ? (minX + maxX - viewWidth) / 2 : Math.min(Math.max(camera.x, minX), maxX - viewWidth)
+  camera.y =
+    maxY - minY <= viewHeight ? (minY + maxY - viewHeight) / 2 : Math.min(Math.max(camera.y, minY), maxY - viewHeight)
 }
 
 /** 把整张地图放进画布：按投影后的包围盒算缩放，再让地图中心对准画布中心。 */
