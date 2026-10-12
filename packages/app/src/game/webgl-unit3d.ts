@@ -94,9 +94,13 @@ void main() {
   vec3 halfVector = normalize(light + view);
   float shine = mix(8.0, 96.0, 1.0 - u_roughness);
   float specular = pow(max(0.0, dot(normal, halfVector)), shine) * (0.35 + 0.65 * u_metallic);
-  float sky = max(0.0, normal.z);
   vec3 tint = mix(vec3(1.0), albedo, u_metallic);
-  vec3 color = albedo * (0.34 + 0.72 * lambert) + tint * specular * 0.9 + vec3(0.09, 0.11, 0.15) * sky;
+  // 半球环境光：朝上偏冷、朝下偏暖，法线一动颜色就变 —— 大平面上才有明暗过渡，不然一大片纯色
+  vec3 ambient = mix(vec3(0.16, 0.15, 0.13), vec3(0.30, 0.35, 0.44), normal.z * 0.5 + 0.5);
+  // 菲涅尔：掠射角补一点天光，边缘自己就"起来"了，这是圆润感的来源之一
+  float fresnel = pow(1.0 - max(0.0, dot(normal, view)), 3.0);
+  vec3 color =
+    albedo * (ambient + lambert * 0.72) + tint * specular * 0.9 + vec3(0.34, 0.40, 0.50) * fresnel * 0.28;
   gl_FragColor = vec4(color, 1.0);
 }`
 

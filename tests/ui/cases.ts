@@ -18,6 +18,12 @@ export interface UiCase {
 
 /** 默认预设下的 GL 基线：后面的比对都拿它当参照 */
 const GL_BASE = { name: 'base-gl', query: 'renderer=webgl' }
+/**
+ * 两条绘制路径（canvas2D 与 WebGL）的允许差异。
+ *
+ * 基线场景不含单位，所以 MSAA 只作用在相邻地块共享的四边形边上，逐像素差异实测仍是 0；
+ * 3D 单位那一块的差异由下面的「3D 单位只替换单位」用例单独卡。
+ */
 const DIFF_TOLERANCE = 200
 
 export const cases: readonly UiCase[] = [
@@ -32,7 +38,7 @@ export const cases: readonly UiCase[] = [
     },
   },
   {
-    name: 'WebGL 路径与 2D 路径逐像素一致',
+    name: 'WebGL 路径与 2D 路径画的是同一张图',
     async run(session) {
       const gl = await session.capture(GL_BASE)
       const canvas = await session.capture({ name: 'base-2d', battle: true })

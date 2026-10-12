@@ -23,8 +23,13 @@ MAX_SEE_THROUGH = 0.8
 SIZE_TOLERANCE = 0.6
 """材质贴图目录的兜底位置：名字等于材质名（`Armor.png` 一类），没有就退回纯色。"""
 DEFAULT_TEXTURE_DIR = "D:/AI_GAME/work/hd-packs/unit-textures"
-"""立方投影的密度：一张贴图铺几个体素。"""
-CUBE_SIZE = 3.0
+"""
+立方投影的密度：一张贴图铺几个体素。
+
+按 3 体素铺的时候，贴图在屏幕上（2~3 像素/体素）被 mipmap 糊成一片纯色，等于没贴；
+调到 8 体素，纹理特征才活得到屏幕上。
+"""
+CUBE_SIZE = 8.0
 
 """本次建车用到了贴图的材质；有它才需要给网格展 UV。"""
 TEXTURED: list[str] = []

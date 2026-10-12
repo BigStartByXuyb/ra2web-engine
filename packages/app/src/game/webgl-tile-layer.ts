@@ -298,7 +298,9 @@ function compile(gl: WebGLRenderingContext, type: number, source: string): WebGL
 export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | undefined {
   const gl = canvas.getContext('webgl', {
     alpha: true,
-    antialias: false,
+    // 开 MSAA：3D 单位的边缘与斜面在几十像素的尺度上全靠它才不显锯齿。
+    // 代价是与 2D 路径不再逐像素一致（地块以后也要走 3D，这条约束不再成立）。
+    antialias: true,
     premultipliedAlpha: true,
     // 抓帧/截图时缓冲区必须留到最后一次合成之后，否则截到的可能是被清空的一帧
     preserveDrawingBuffer: true,

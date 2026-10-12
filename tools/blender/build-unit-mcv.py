@@ -53,9 +53,9 @@ conyard_base_top, conyard_top = 17.6, 21.2
 body_half = 14.4
 
 """—— 底盘 ——"""
-add_box("Chassis", (-1.0, 0.0, (chassis_bottom + chassis_top) / 2), (72.0, body_half * 2 - 1.2, chassis_top - chassis_bottom), armor, bevel=0.5)
-add_box("Bumper", (37.0, 0.0, 5.0), (2.0, body_half * 2 - 1.4, 5.6), armor_light, bevel=0.4)
-add_box("RearPlate", (-36.4, 0.0, 5.4), (1.6, body_half * 2 - 1.4, 6.4), armor, bevel=0.4)
+add_box("Chassis", (-1.0, 0.0, (chassis_bottom + chassis_top) / 2), (72.0, body_half * 2 - 1.2, chassis_top - chassis_bottom), armor, bevel=0.9)
+add_box("Bumper", (37.0, 0.0, 5.0), (2.0, body_half * 2 - 1.4, 5.6), armor_light, bevel=0.7)
+add_box("RearPlate", (-36.4, 0.0, 5.4), (1.6, body_half * 2 - 1.4, 6.4), armor, bevel=0.7)
 
 """—— 六对车轮（外缘顶到全宽）——"""
 for side in (-1, 1):
@@ -68,7 +68,7 @@ for side in (-1, 1):
         add_box(f"Bogie{tag}{index}", (wheel_x, side * 13.0, 3.4), (2.2, 2.4, 1.6), armor_light, bevel=0.15)
 
 """—— 车头驾驶舱 ——"""
-add_box("Cab", (25.3, 0.0, 10.2), (23.6, 26.4, 5.6), armor, bevel=0.55)
+add_box("Cab", (25.3, 0.0, 10.2), (23.6, 26.4, 5.6), armor, bevel=1.0)
 add_box("CabRoof", (24.0, 0.0, 13.4), (20.0, 24.4, 0.9), armor_light, bevel=0.2)
 # 挡风板贴在驾驶舱前脸之前 0.1，不做成与舱面共面的薄片（共面会互相遮挡成黑带）
 add_box("Windshield", (37.4, 0.0, 10.6), (0.6, 22.0, 3.4), glass, bevel=0.12, rotation=(0, -0.22, 0))
@@ -82,7 +82,7 @@ add_cylinder("ExhaustStackL", (-30.0, -12.4, 10.6), 1.0, 6.4, bare_metal, axis="
 add_cylinder("ExhaustStackR", (-30.0, 12.4, 10.6), 1.0, 6.4, bare_metal, axis="Z")
 
 """—— 中段机身（只在折叠基地与驾驶舱之间那一截，避免与基地结构侧面共面）——"""
-add_box("BodyFront", (15.0, 0.0, 10.4), (11.0, body_half * 2 - 0.4, 6.0), armor, bevel=0.45)
+add_box("BodyFront", (15.0, 0.0, 10.4), (11.0, body_half * 2 - 0.4, 6.0), armor, bevel=0.8)
 for side in (-1, 1):
     tag = "LR"[side > 0]
     add_box(f"ToolBox{tag}", (-14.0, side * (body_half + 0.5), 12.6), (10.0, 0.9, 1.8), bare_metal)
@@ -90,8 +90,8 @@ for side in (-1, 1):
         add_box(f"Step{tag}{index}", (8.0 - index * 3.2, side * (body_half + 0.4), 5.0), (2.4, 0.8, 0.6), bare_metal)
 
 """—— 折叠的基地结构：下段 + 上段 + 红甲板 + 红侧板 + 加强肋 ——"""
-add_box("ConyardBase", (-10.0, 0.0, (chassis_top + conyard_base_top) / 2), (44.0, body_half * 2, conyard_base_top - chassis_top), armor, bevel=0.5)
-add_box("ConyardUpper", (-10.0, 0.0, (conyard_base_top + conyard_top) / 2), (40.0, body_half * 2 - 2.4, conyard_top - conyard_base_top), armor_light, bevel=0.45)
+add_box("ConyardBase", (-10.0, 0.0, (chassis_top + conyard_base_top) / 2), (44.0, body_half * 2, conyard_base_top - chassis_top), armor, bevel=0.9)
+add_box("ConyardUpper", (-10.0, 0.0, (conyard_base_top + conyard_top) / 2), (40.0, body_half * 2 - 2.4, conyard_top - conyard_base_top), armor_light, bevel=0.8)
 add_box("ConyardDeck", (-11.0, 0.0, conyard_top + 0.35), (26.0, body_half * 2 - 5.6, 0.7), accent, bevel=0.15)
 for side in (-1, 1):
     tag = "LR"[side > 0]

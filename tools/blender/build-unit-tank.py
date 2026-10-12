@@ -162,16 +162,16 @@ for side in (-1, 1):
             (centre_x, skirt_centre, hull_bottom + 0.7 + skirt_height / 2),
             (11.4, sponson_outer - sponson_inner, skirt_height),
             armor_light,
-            bevel=0.3,
+            bevel=0.5,
         )
     add_box(f"Stripe{tag}", (-4.0, side * (sponson_outer - 0.02), 4.0), (14.0, 0.14, 0.9), accent)
     add_box(f"Star{tag}", (-12.4, side * (sponson_outer + 0.04), 5.6), (2.2, 0.16, 2.1), accent)
 
 """—— 车体 ——"""
-add_box("Tub", (0.0, 0.0, (hull_bottom + hull_top) / 2), (39.0, sponson_inner * 2, hull_top - hull_bottom), armor, bevel=0.45)
-add_box("Glacis", (17.8, 0.0, 6.6), (7.6, sponson_inner * 2 - 0.6, 1.5), armor, bevel=0.3, rotation=(0, -0.5, 0))
-add_box("LowerFront", (20.6, 0.0, 5.4), (2.4, sponson_inner * 2 - 0.6, 5.2), armor, bevel=0.35)
-add_box("EngineDeck", (-21.5, 0.0, 7.2), (3.0, sponson_inner * 2 - 0.8, 4.4), armor_light, bevel=0.35)
+add_box("Tub", (0.0, 0.0, (hull_bottom + hull_top) / 2), (39.0, sponson_inner * 2, hull_top - hull_bottom), armor, bevel=0.8)
+add_box("Glacis", (17.8, 0.0, 6.6), (7.6, sponson_inner * 2 - 0.6, 1.5), armor, bevel=0.5, rotation=(0, -0.5, 0))
+add_box("LowerFront", (20.6, 0.0, 5.4), (2.4, sponson_inner * 2 - 0.6, 5.2), armor, bevel=0.6)
+add_box("EngineDeck", (-21.5, 0.0, 7.2), (3.0, sponson_inner * 2 - 0.8, 4.4), armor_light, bevel=0.6)
 for index in range(4):
     add_box(f"Grille{index}", (-22.4 + index * 0.85, 0.0, 9.55), (0.4, 19.0, 0.35), bare_metal)
 add_cylinder("Exhaust", (-22.4, -9.4, 8.0), 0.95, 1.6, bare_metal, axis="X")
@@ -187,12 +187,12 @@ for side in (-1, 1):
 turret_mid = (turret_bottom + turret_top) / 2
 add_cylinder("TurretRing", (-1.2, 0.0, turret_bottom - 0.3), 9.0, 1.0, armor_light, vertices=24, bevel=0.15)
 add_cylinder(
-    "Turret", (-1.8, 0.0, turret_mid), 9.3, turret_top - turret_bottom - 0.8, armor, vertices=8, bevel=0.75, rotation_z=math.pi / 8
+    "Turret", (-1.8, 0.0, turret_mid), 9.3, turret_top - turret_bottom - 0.8, armor, vertices=8, bevel=1.3, rotation_z=math.pi / 8
 )
-add_box("TurretFront", (7.0, 0.0, turret_mid + 0.4), (7.4, 16.2, 4.6), armor, bevel=0.6, rotation=(0, -0.40, 0))
-add_box("TurretBustle", (-11.0, 0.0, turret_mid - 0.9), (5.2, 15.0, 3.0), armor, bevel=0.4)
+add_box("TurretFront", (7.0, 0.0, turret_mid + 0.4), (7.4, 16.2, 4.6), armor, bevel=1.1, rotation=(0, -0.40, 0))
+add_box("TurretBustle", (-11.0, 0.0, turret_mid - 0.9), (5.2, 15.0, 3.0), armor, bevel=0.7)
 add_box("Basket", (-13.8, 0.0, turret_mid - 0.5), (1.4, 13.2, 2.4), bare_metal, bevel=0.12)
-add_cylinder("Mantlet", (10.2, 0.0, turret_mid + 0.2), 3.2, 2.6, armor, axis="X", bevel=0.3)
+add_cylinder("Mantlet", (10.2, 0.0, turret_mid + 0.2), 3.2, 2.6, armor, axis="X", bevel=0.5)
 
 barrel_length, barrel_radius = 11.8, 0.85
 add_cylinder(
@@ -204,7 +204,7 @@ add_cylinder("Muzzle", (21.7, 0.0, turret_mid + 0.2), 1.45, 2.6, bare_metal, axi
 for index in (-1, 1):
     add_box(f"MuzzleSlot{index}", (21.7, index * 1.4, turret_mid + 0.2), (1.6, 0.5, 0.7), rubber, bevel=0.05)
 
-add_cylinder("Cupola", (-4.6, 0.0, turret_top + 0.7), 2.7, 1.4, armor, bevel=0.25)
+add_cylinder("Cupola", (-4.6, 0.0, turret_top + 0.7), 2.7, 1.4, armor, bevel=0.45)
 add_cylinder("Hatch", (-4.6, 0.0, turret_top + 1.5), 2.2, 0.4, armor_light, bevel=0.1)
 for index, offset in enumerate((-1.6, 0.0, 1.6)):
     add_box(f"Periscope{index}", (5.6 + abs(offset) * 0.2, offset, turret_mid + 2.6), (1.0, 1.0, 0.8), optic, bevel=0.1)
