@@ -51,12 +51,12 @@ export const DIRECTIONS = CELL_STEPS
 
 /** 原版式：16 位朝向角 → 方向下标。 */
 export function dirFromFacing(facing: number): number {
-  return ((facing >> 12) + 1) >> 1 & 7
+  return (((facing >> 12) + 1) >> 1) & 7
 }
 
 /** 方向下标 → 该方向中心角的 16 位朝向角。 */
 export function facingFromDir(dir: number): number {
-  return ((dir % DIRECTION_COUNT) + DIRECTION_COUNT) % DIRECTION_COUNT * FACING_PER_STEP
+  return (((dir % DIRECTION_COUNT) + DIRECTION_COUNT) % DIRECTION_COUNT) * FACING_PER_STEP
 }
 
 /** 位移方向（按符号）→ 方向下标；零向量返回 0。 */

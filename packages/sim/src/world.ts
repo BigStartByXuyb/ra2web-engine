@@ -4,14 +4,22 @@ import { createGrid, type Cell, type Grid } from './grid.js'
 import { findPath } from './path.js'
 import { createRng, type RngState } from './rng.js'
 import { DEFAULT_SIGHT, createShroud, updateShroud, type Shroud } from './shroud.js'
-import { advanceAlongPath, createUnit, type Unit } from './unit.js'
+import { advanceAlongPath, createUnit, unitCell, type Unit } from './unit.js'
 
 /**
  * 世界状态与 tick 推进。
  *
  * 状态转移只发生在 `step` 里：先应用到期的指令，再推进单位。指令按 (tick, 入队序号) 排序，
  * 因此同一批指令无论以什么顺序入队，只要最终集合相同，结果就相同。
+ *
+ * 碰撞：单位逐格占格（证据见 docs/ENGINE-MAP.md「单位移动核心」——原版每步推进前查
+ * `Can_Enter_Cell`，目标格被占就进不去并等待）。推进按单位 id 序处理，占用表随移动即时更新，
+ * 后处理的单位能看到先处理单位的让位。被挡等待的时长与重规划时机是本项目自定
+ * （原版用随机等待，分布未核；本实现处理序确定，无需随机也满足确定性）。
  */
+
+/** 被挡后原地等待的 tick 数，超过就按当前占用重规划（本项目自定）。 */
+const BLOCKED_WAIT_TICKS = 15
 
 export interface UnitSpec {
   readonly owner: number
@@ -82,18 +90,64 @@ function applyDueCommands(world: World): void {
     }
     const from = { x: fromFixed(unit.x), y: fromFixed(unit.y) }
     const path = findPath(world.grid, from, command.target)
+    unit.target = { ...command.target }
     unit.path = path ? [...path] : []
     unit.pathIndex = 0
+    unit.blockedTicks = 0
   }
 }
 
-/** 推进一 tick。模拟内唯一的状态推进入口。 */
+/** 单位当前占的格索引。 */
+function occupiedIndex(grid: Grid, unit: Unit): number {
+  const cell = unitCell(unit)
+  return cell.y * grid.width + cell.x
+}
+
+/**
+ * 推进一 tick。模拟内唯一的状态推进入口。
+ *
+ * 占用表在 tick 开始时建立，随每个单位的移动即时更新；单位按 id 序处理。
+ */
 export function step(world: World): void {
   world.tick += 1
   applyDueCommands(world)
+
+  const occupancy = new Map<number, number>()
   for (const unit of world.units) {
-    if (unit.health > 0) advanceAlongPath(unit)
+    if (unit.health > 0) occupancy.set(occupiedIndex(world.grid, unit), unit.id)
   }
+
+  for (const unit of world.units) {
+    if (unit.health <= 0 || unit.path.length === 0) continue
+    const waypoint = unit.path[unit.pathIndex]!
+    const waypointIndex = waypoint.y * world.grid.width + waypoint.x
+    const holder = occupancy.get(waypointIndex)
+    if (holder !== undefined && holder !== unit.id) {
+      // 下一格被别的单位占着：原地等待，超时就按当前占用重规划
+      unit.blockedTicks += 1
+      if (unit.blockedTicks >= BLOCKED_WAIT_TICKS) {
+        unit.blockedTicks = 0
+        if (unit.target) {
+          const from = unitCell(unit)
+          const detour = findPath(world.grid, from, unit.target, occupancy)
+          if (detour) {
+            unit.path = [...detour]
+            unit.pathIndex = 0
+          }
+        }
+      }
+      continue
+    }
+    unit.blockedTicks = 0
+    advanceAlongPath(unit)
+    occupancy.delete(occupiedIndex(world.grid, unit))
+    if (unit.path.length > 0) {
+      occupancy.set(occupiedIndex(world.grid, unit), unit.id)
+    } else {
+      unit.target = undefined
+    }
+  }
+
   updateShroud(world.shroud, world.units)
 }
 

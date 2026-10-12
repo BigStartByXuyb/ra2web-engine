@@ -29,6 +29,10 @@ export interface Unit {
   /** 剩余路径（格子），空表示无移动任务 */
   path: Cell[]
   pathIndex: number
+  /** 移动命令的最终目的地；无移动任务时为 undefined */
+  target: Cell | undefined
+  /** 连续被挡的 tick 数（碰撞等待计数） */
+  blockedTicks: number
 }
 
 /** 默认每 tick 转向量：45°/tick（本项目自定；原版转速与 rules `ROT=` 的换算未核，待对齐）。 */
@@ -56,6 +60,8 @@ export function createUnit(
     turnRate,
     path: [],
     pathIndex: 0,
+    target: undefined,
+    blockedTicks: 0,
   }
 }
 
@@ -66,7 +72,7 @@ export function unitCell(unit: Unit): Cell {
 
 /** 朝向向目标角转一格（最短方向，环形），最多 rate。 */
 function rotateToward(facing: number, target: number, rate: number): number {
-  let diff = ((target - facing + FACING_FULL / 2) % FACING_FULL + FACING_FULL) % FACING_FULL
+  let diff = (((target - facing + FACING_FULL / 2) % FACING_FULL) + FACING_FULL) % FACING_FULL
   diff -= FACING_FULL / 2
   if (Math.abs(diff) <= rate) return ((target % FACING_FULL) + FACING_FULL) % FACING_FULL
   return (((facing + Math.sign(diff) * rate) % FACING_FULL) + FACING_FULL) % FACING_FULL

@@ -3,10 +3,7 @@
     "rea": {
       "type": "stdio",
       "command": "C:\\Program Files\\nodejs\\node.exe",
-      "args": [
-        "C:\\Users\\xuyb\\AppData\\Roaming\\npm\\node_modules\\rea-agents\\scripts\\rea.mjs",
-        "mcp"
-      ],
+      "args": ["C:\\Users\\xuyb\\AppData\\Roaming\\npm\\node_modules\\rea-agents\\scripts\\rea.mjs", "mcp"],
       "env": {
         "GHIDRA_INSTALL_DIR": "D:\\AI_GAME\\work\\tools\\ghidra_12.1.4_PUBLIC",
         "JAVA_HOME": "D:\\AI_GAME\\work\\tools\\jdk-21.0.12.1+1"

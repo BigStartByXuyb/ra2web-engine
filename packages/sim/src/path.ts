@@ -44,9 +44,16 @@ function isBetter(candidate: Node, current: Node): boolean {
   return candidate.x < current.x
 }
 
-/** 返回从起点（不含）到终点（含）的格子序列；不可达时返回 undefined。 */
-export function findPath(grid: Grid, from: Cell, to: Cell): readonly Cell[] | undefined {
+/** 返回从起点（不含）到终点（含）的格子序列；不可达时返回 undefined。
+ *  `extraBlocked` 里的格按不可通行处理（单位占格用，见 `world.ts` 的碰撞）。 */
+export function findPath(
+  grid: Grid,
+  from: Cell,
+  to: Cell,
+  extraBlocked?: { has(key: number): boolean },
+): readonly Cell[] | undefined {
   if (isBlocked(grid, to.x, to.y)) return undefined
+  if (extraBlocked?.has(to.y * grid.width + to.x)) return undefined
   const nodes = new Map<number, Node>()
   const open = new Map<number, Node>()
   const closed = new Set<number>()
@@ -79,6 +86,7 @@ export function findPath(grid: Grid, from: Cell, to: Cell): readonly Cell[] | un
       const nx = current.x + step.x
       const ny = current.y + step.y
       if (isBlocked(grid, nx, ny)) continue
+      if (extraBlocked?.has(ny * grid.width + nx)) continue
       if (!canEnterCell(grid, current.x, current.y, nx, ny)) continue
       const index = ny * grid.width + nx
       if (closed.has(index)) continue
