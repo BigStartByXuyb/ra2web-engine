@@ -28,6 +28,7 @@ from unit_build import (
     make_material,
     parse_args,
     reference_size,
+    texture_dir,
 )
 
 reference_glb, out_glb = parse_args(
@@ -35,11 +36,13 @@ reference_glb, out_glb = parse_args(
 )
 reference_low, reference_high = reference_size(reference_glb)
 
-armor = make_material("Armor", (0.30, 0.33, 0.28), 0.90, 0.42)
-armor_light = make_material("ArmorLight", (0.39, 0.42, 0.36), 0.85, 0.36)
-bare_metal = make_material("BareMetal", (0.56, 0.57, 0.59), 1.00, 0.26)
-rubber = make_material("Rubber", (0.09, 0.09, 0.10), 0.20, 0.85)
-track_link = make_material("TrackLink", (0.33, 0.33, 0.35), 1.00, 0.34)
+textures = texture_dir()
+# 有贴图就用贴图（颜色已烧进图里），没有就退回纯色 —— 两条路都能出模型
+armor = make_material("Armor", (0.30, 0.33, 0.28), 0.90, 0.42, texture_path=f"{textures}/Armor.png")
+armor_light = make_material("ArmorLight", (0.39, 0.42, 0.36), 0.85, 0.36, texture_path=f"{textures}/ArmorLight.png")
+bare_metal = make_material("BareMetal", (0.56, 0.57, 0.59), 1.00, 0.26, texture_path=f"{textures}/BareMetal.png")
+rubber = make_material("Rubber", (0.09, 0.09, 0.10), 0.20, 0.85, texture_path=f"{textures}/Rubber.png")
+track_link = make_material("TrackLink", (0.33, 0.33, 0.35), 1.00, 0.34, texture_path=f"{textures}/TrackLink.png")
 optic = make_material("Optic", (0.85, 0.90, 0.72), 0.10, 0.12, emission=1.2)
 accent = make_material("Accent", (0.62, 0.09, 0.08), 0.30, 0.55)
 

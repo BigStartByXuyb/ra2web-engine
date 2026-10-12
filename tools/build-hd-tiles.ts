@@ -151,7 +151,10 @@ for (let tileIndex = 0; tileIndex < theater.ini.tiles.length; tileIndex++) {
     for (let y = 0; y < tile.cellHeight * SCALE; y++) {
       for (let x = 0; x < tile.cellWidth * SCALE; x++) {
         const pixel = sampleSource(source, (x + 0.5) / SCALE - 0.5, (y + 0.5) / SCALE - 0.5)
-        if (pixel.alpha <= 0.02) continue
+        // **遮罩必须是硬边**：引擎用预乘 alpha 混合（blendFunc(ONE, ONE_MINUS_SRC_ALPHA)），
+        // 半透明边缘像素会把它的整份颜色都加上去，于是每格边界出现一条亮线。
+        // 原版地块本来就是 0/255 硬边，这里保持一致。
+        if (pixel.alpha < 0.5) continue
         const shade = Math.min(1.7, Math.max(0.32, pixel.lum / meanLum))
         let r = pixel.r
         let g = pixel.g
@@ -166,7 +169,7 @@ for (let tileIndex = 0; tileIndex < theater.ini.tiles.length; tileIndex++) {
         rgba[at] = Math.min(255, Math.round(r))
         rgba[at + 1] = Math.min(255, Math.round(g))
         rgba[at + 2] = Math.min(255, Math.round(b))
-        rgba[at + 3] = Math.min(255, Math.round(pixel.alpha * 255))
+        rgba[at + 3] = 255
       }
     }
   })

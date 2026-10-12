@@ -12,7 +12,26 @@
 | 尺寸   | 与参考（`htnk-voxel.glb` 这类原版体素翻模）一致：X 46.0 / Y 34.0 / Z 17.15                          |
 | 贴地   | 最低点 z = 0，X/Y 居中（车体枢轴落在格子中心＋底面）                                                |
 | 朝向   | 车头朝 +X                                                                                           |
-| 材质   | 每种材质给 baseColor / metallic / roughness 即可（引擎当前不读贴图）                                |
+| 材质   | baseColor / metallic / roughness，可带 `baseColorTexture`（引擎读 UV 与贴图）                       |
+
+## 贴图通道
+
+引擎读 GLB 的 `TEXCOORD_0` 与材质的 `pbrMetallicRoughness.baseColorTexture`（Blender 导出的内嵌图片，
+bufferView 或 data URI 都认），着色公式是 **`baseColorFactor × 贴图`**：
+
+- 2 的幂贴图走 `REPEAT` + `LINEAR_MIPMAP_LINEAR`；不是 2 的幂就退 `CLAMP_TO_EDGE` + `LINEAR`
+  （WebGL1 里 REPEAT/mipmap 要求 2 的幂）。单位在屏幕上只有几十像素，mipmap 不能省，否则会闪。
+- `texel.a < 0.35` 直接 `discard`：写实素材里的铁丝网、迷彩边缘靠它裁形。
+- **贴图遮罩必须是硬边（0 或 255）**：引擎用预乘 alpha 混合（`blendFunc(ONE, ONE_MINUS_SRC_ALPHA)`），
+  边缘的半透明像素会把**整份颜色**加进画布，于是每格/每条边出现一条亮线。
+
+材质贴图由 `tsx tools/build-unit-textures.ts <源图目录> <输出目录> [边长]` 生成：
+取 CC0 金属板贴图，按材质颜色**染色并烧进图里**（导出后 `baseColorFactor = 1`，引擎乘一次就是想要的颜色，
+不会两边各乘一遍），文件按**材质名**命名（`Armor.png` 一类）。Blender 侧
+`unit_build.make_material(..., texture_path=...)` 认这个名字：有图就贴图，没有就退回纯色。
+
+建模脚本给网格展 UV 用**立方投影**（`uv.cube_project`，密度 `CUBE_SIZE` 体素/贴图）——
+零件多、位置散，smart 展包会把某些面挤成一条线，立方投影的密度才均匀。
 
 ## 工具
 

@@ -23,6 +23,7 @@ from unit_build import (  # noqa: E402
     make_material,
     parse_args,
     reference_size,
+    texture_dir,
 )
 
 reference_glb, out_glb = parse_args(
@@ -30,10 +31,11 @@ reference_glb, out_glb = parse_args(
 )
 reference_low, reference_high = reference_size(reference_glb)
 
-armor = make_material("Armor", (0.30, 0.33, 0.28), 0.90, 0.44)
-armor_light = make_material("ArmorLight", (0.40, 0.43, 0.37), 0.85, 0.38)
-bare_metal = make_material("BareMetal", (0.56, 0.57, 0.59), 1.00, 0.26)
-rubber = make_material("Rubber", (0.09, 0.09, 0.10), 0.20, 0.85)
+textures = texture_dir()
+armor = make_material("Armor", (0.30, 0.33, 0.28), 0.90, 0.44, texture_path=f"{textures}/Armor.png")
+armor_light = make_material("ArmorLight", (0.40, 0.43, 0.37), 0.85, 0.38, texture_path=f"{textures}/ArmorLight.png")
+bare_metal = make_material("BareMetal", (0.56, 0.57, 0.59), 1.00, 0.26, texture_path=f"{textures}/BareMetal.png")
+rubber = make_material("Rubber", (0.09, 0.09, 0.10), 0.20, 0.85, texture_path=f"{textures}/Rubber.png")
 glass = make_material("Glass", (0.09, 0.12, 0.15), 0.30, 0.10)
 optic = make_material("Optic", (0.85, 0.90, 0.72), 0.10, 0.12, emission=1.2)
 accent = make_material("Accent", (0.62, 0.09, 0.08), 0.30, 0.55)

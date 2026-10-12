@@ -31,7 +31,8 @@ export interface GlTileLayer {
   resize(width: number, height: number): void
   readonly ready: boolean
   /** 载入一个单位的 3D 模型（B 路）；同名类型重复载入以最后一次为准 */
-  loadUnit3d(typeId: string, bytes: ArrayBuffer): void
+  /** 贴图要解码，所以是异步的；await 完模型才算能用 */
+  loadUnit3d(typeId: string, bytes: ArrayBuffer): Promise<void>
   /** 该单位类型有没有 3D 模型（没有就退回贴图／原版） */
   unit3d(typeId: string): Unit3dModel | undefined
 }
@@ -584,9 +585,9 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       canvas.height = height
       gl.viewport(0, 0, width, height)
     },
-    loadUnit3d(typeId, bytes) {
+    async loadUnit3d(typeId, bytes) {
       if (!unitRenderer.ready) return
-      unitModels.set(typeId.toUpperCase(), createUnit3dModel(gl, typeId.toUpperCase(), bytes))
+      unitModels.set(typeId.toUpperCase(), await createUnit3dModel(gl, typeId.toUpperCase(), bytes))
     },
     unit3d(typeId) {
       return unitModels.get(typeId.toUpperCase())

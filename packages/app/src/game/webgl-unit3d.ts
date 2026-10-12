@@ -15,7 +15,10 @@ import { viewScale } from './camera.js'
 interface Unit3dPrimitive {
   readonly position: WebGLBuffer
   readonly normal: WebGLBuffer
+  /** 贴图坐标；模型没有 UV 时 undefined，着色器按"没有贴图"处理 */
+  readonly uv: WebGLBuffer | undefined
   readonly index: WebGLBuffer
+  readonly texture: WebGLTexture | undefined
   readonly count: number
   /** 索引类型：WebGL1 里 32 位索引要 `OES_element_index_uint`，能用就留 32 位、否则退 16 位 */
   readonly indexType: number
@@ -48,17 +51,20 @@ export interface Unit3dRenderer {
 const VERTEX_SHADER = `
 attribute vec3 a_position;
 attribute vec3 a_normal;
+attribute vec2 a_uv;
 uniform vec2 u_origin;
 uniform float u_facing;
 uniform vec2 u_camera;
 uniform float u_scale;
 uniform vec2 u_viewport;
 varying vec3 v_normal;
+varying vec2 v_uv;
 void main() {
   float c = cos(u_facing);
   float s = sin(u_facing);
   vec3 position = vec3(a_position.x * c - a_position.y * s, a_position.x * s + a_position.y * c, a_position.z);
   v_normal = vec3(a_normal.x * c - a_normal.y * s, a_normal.x * s + a_normal.y * c, a_normal.z);
+  v_uv = a_uv;
   // 引擎的精灵投影：screenX = x − y，screenY = (x + y)/2 − z
   vec2 world = u_origin + vec2(position.x - position.y, (position.x + position.y) * 0.5 - position.z);
   vec2 pixel = (world - u_camera) * u_scale;
@@ -72,8 +78,15 @@ precision mediump float;
 uniform vec3 u_baseColor;
 uniform float u_metallic;
 uniform float u_roughness;
+uniform sampler2D u_texture;
+uniform float u_hasTexture;
 varying vec3 v_normal;
+varying vec2 v_uv;
 void main() {
+  vec4 texel = u_hasTexture > 0.5 ? texture2D(u_texture, v_uv) : vec4(1.0);
+  // 贴图带透明通道时按贴图裁形（写实素材里常见的铁丝网、迷彩边缘）
+  if (u_hasTexture > 0.5 && texel.a < 0.35) discard;
+  vec3 albedo = u_baseColor * texel.rgb;
   vec3 light = normalize(vec3(-0.35, 0.55, 0.75));
   vec3 view = normalize(vec3(1.0, 1.0, 1.0));
   vec3 normal = normalize(v_normal);
@@ -82,8 +95,8 @@ void main() {
   float shine = mix(8.0, 96.0, 1.0 - u_roughness);
   float specular = pow(max(0.0, dot(normal, halfVector)), shine) * (0.35 + 0.65 * u_metallic);
   float sky = max(0.0, normal.z);
-  vec3 tint = mix(vec3(1.0), u_baseColor, u_metallic);
-  vec3 color = u_baseColor * (0.34 + 0.72 * lambert) + tint * specular * 0.9 + vec3(0.09, 0.11, 0.15) * sky;
+  vec3 tint = mix(vec3(1.0), albedo, u_metallic);
+  vec3 color = albedo * (0.34 + 0.72 * lambert) + tint * specular * 0.9 + vec3(0.09, 0.11, 0.15) * sky;
   gl_FragColor = vec4(color, 1.0);
 }`
 
@@ -102,22 +115,52 @@ function compile(gl: WebGLRenderingContext, type: number, source: string): WebGL
 interface GltfPrimitive {
   readonly position: Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array
   readonly normal: Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array
+  readonly uv: Float32Array | undefined
   readonly indices: Uint16Array | Uint32Array
   readonly baseColor: readonly [number, number, number]
   readonly metallic: number
   readonly roughness: number
+  /** 该 primitive 的 baseColor 贴图在 `GltfTextures.textures` 里的下标 */
+  readonly textureIndex: number | undefined
 }
 
-/** 只认我们自己导出的 GLB：单 buffer、POSITION/NORMAL/indices、pbrMetallicRoughness。 */
-function readGlb(bytes: ArrayBuffer): readonly GltfPrimitive[] {
+/** GLB 里的一张图（内嵌 bufferView 或 data URI）与它的采样参数。 */
+interface GltfImage {
+  readonly bytes: Uint8Array
+  readonly mimeType: string
+}
+
+interface GltfTexture {
+  readonly image: number
+  readonly wrapS: number
+  readonly wrapT: number
+}
+
+/**
+ * 只认我们自己导出的 GLB：单 buffer、POSITION/NORMAL/[TEXCOORD_0]/indices、pbrMetallicRoughness。
+ * 贴图取 `baseColorTexture`（Blender 导出的内嵌图片），采样器缺省按 REPEAT + LINEAR_MIPMAP_LINEAR。
+ */
+function readGlb(bytes: ArrayBuffer): {
+  readonly primitives: readonly GltfPrimitive[]
+  readonly images: readonly GltfImage[]
+  readonly textures: readonly GltfTexture[]
+} {
   const view = new DataView(bytes)
   if (view.getUint32(0, true) !== 0x46546c67) throw new Error('不是 GLB 文件')
   let offset = 12
   let json: {
     meshes?: { primitives: { attributes: Record<string, number>; indices?: number; material?: number }[] }[]
     materials?: {
-      pbrMetallicRoughness?: { baseColorFactor?: number[]; metallicFactor?: number; roughnessFactor?: number }
+      pbrMetallicRoughness?: {
+        baseColorFactor?: number[]
+        metallicFactor?: number
+        roughnessFactor?: number
+        baseColorTexture?: { index: number }
+      }
     }[]
+    textures?: { source?: number; sampler?: number }[]
+    samplers?: { wrapS?: number; wrapT?: number }[]
+    images?: { bufferView?: number; mimeType?: string; uri?: string }[]
     accessors?: { bufferView: number; componentType: number; count: number; type: string; byteOffset?: number }[]
     bufferViews?: { byteOffset?: number; byteLength: number; byteStride?: number }[]
   } = {}
@@ -156,14 +199,30 @@ function readGlb(bytes: ArrayBuffer): readonly GltfPrimitive[] {
         return Float32Array
     }
   }
-  const accessor = (id: number): Int8Array | Uint8Array | Int16Array | Uint16Array | Uint32Array | Float32Array => {
+  const accessor = (
+    id: number,
+    components: number,
+  ): Int8Array | Uint8Array | Int16Array | Uint16Array | Uint32Array | Float32Array => {
     const entry = json.accessors![id]!
     const bufferView = json.bufferViews![entry.bufferView]!
     const start = (bufferView.byteOffset ?? 0) + (entry.byteOffset ?? 0)
     const ArrayType = componentOf(entry.componentType)
-    const values = entry.count * (entry.type === 'VEC3' ? 3 : 1)
+    const values = entry.count * components
     // 拷一份再建视图：这样拿到的一定是普通 ArrayBuffer（也顺手对齐到元素边界）
     return new ArrayType(binary!.slice(start, start + values * ArrayType.BYTES_PER_ELEMENT).buffer)
+  }
+
+  /** TEXCOORD 允许 normalized ubyte/ushort，统一换算成 0..1 的 float。 */
+  const uvAccessor = (id: number | undefined): Float32Array | undefined => {
+    if (id === undefined) return undefined
+    const entry = json.accessors![id]!
+    const raw = accessor(id, 2)
+    if (entry.componentType === 5126) return raw as Float32Array
+    const scale = entry.componentType === 5121 ? 255 : entry.componentType === 5123 ? 65535 : 0
+    if (scale === 0) return undefined
+    const out = new Float32Array(raw.length)
+    for (let index = 0; index < raw.length; index++) out[index] = (raw[index] as number) / scale
+    return out
   }
 
   const primitives: GltfPrimitive[] = []
@@ -172,16 +231,46 @@ function readGlb(bytes: ArrayBuffer): readonly GltfPrimitive[] {
       const material = json.materials?.[primitive.material ?? 0]?.pbrMetallicRoughness ?? {}
       const color = material.baseColorFactor ?? [1, 1, 1, 1]
       primitives.push({
-        position: accessor(primitive.attributes.POSITION!),
-        normal: accessor(primitive.attributes.NORMAL!),
-        indices: accessor(primitive.indices!) as Uint16Array | Uint32Array,
+        position: accessor(primitive.attributes.POSITION!, 3),
+        normal: accessor(primitive.attributes.NORMAL!, 3),
+        uv: uvAccessor(primitive.attributes.TEXCOORD_0),
+        indices: accessor(primitive.indices!, 1) as Uint16Array | Uint32Array,
         baseColor: [color[0] ?? 1, color[1] ?? 1, color[2] ?? 1],
         metallic: material.metallicFactor ?? 0,
         roughness: material.roughnessFactor ?? 1,
+        textureIndex: material.baseColorTexture?.index,
       })
     }
   }
-  return primitives
+
+  const images: GltfImage[] = (json.images ?? []).flatMap((image) => {
+    const mimeType = image.mimeType ?? 'image/png'
+    if (image.bufferView !== undefined) {
+      const bufferView = json.bufferViews![image.bufferView]!
+      const start = bufferView.byteOffset ?? 0
+      return [{ bytes: binary!.slice(start, start + bufferView.byteLength), mimeType }]
+    }
+    if (image.uri?.startsWith('data:')) {
+      const comma = image.uri.indexOf(',')
+      const head = image.uri.slice(5, comma)
+      const payload = image.uri.slice(comma + 1)
+      const binaryPart = head.endsWith(';base64')
+        ? Uint8Array.from(atob(payload), (character) => character.charCodeAt(0))
+        : new TextEncoder().encode(decodeURIComponent(payload))
+      return [{ bytes: binaryPart, mimeType: mimeType }]
+    }
+    return []
+  })
+
+  const textures: GltfTexture[] = (json.textures ?? []).map((texture) => {
+    const sampler = (texture.sampler === undefined ? undefined : json.samplers?.[texture.sampler]) ?? {}
+    return {
+      image: texture.source ?? 0,
+      wrapS: sampler.wrapS ?? 10497,
+      wrapT: sampler.wrapT ?? 10497,
+    }
+  })
+  return { primitives, images, textures }
 }
 
 /** glTF 是 Y-up，引擎的体素空间是 Z-up：换算一次，后面都按 Z-up 用。 */
@@ -208,6 +297,9 @@ export function createUnit3dRenderer(gl: WebGLRenderingContext): Unit3dRenderer 
 
   const positionLocation = gl.getAttribLocation(program, 'a_position')
   const normalLocation = gl.getAttribLocation(program, 'a_normal')
+  const uvLocation = gl.getAttribLocation(program, 'a_uv')
+  const textureLocation = gl.getUniformLocation(program, 'u_texture')
+  const hasTextureLocation = gl.getUniformLocation(program, 'u_hasTexture')
   const originLocation = gl.getUniformLocation(program, 'u_origin')
   const facingLocation = gl.getUniformLocation(program, 'u_facing')
   const cameraLocation = gl.getUniformLocation(program, 'u_camera')
@@ -241,6 +333,20 @@ export function createUnit3dRenderer(gl: WebGLRenderingContext): Unit3dRenderer 
           gl.vertexAttribPointer(positionLocation, 3, gl.FLOAT, false, 0, 0)
           gl.bindBuffer(gl.ARRAY_BUFFER, primitive.normal)
           gl.vertexAttribPointer(normalLocation, 3, gl.FLOAT, false, 0, 0)
+          if (uvLocation >= 0 && primitive.uv) {
+            gl.enableVertexAttribArray(uvLocation)
+            gl.bindBuffer(gl.ARRAY_BUFFER, primitive.uv)
+            gl.vertexAttribPointer(uvLocation, 2, gl.FLOAT, false, 0, 0)
+          } else if (uvLocation >= 0) {
+            gl.disableVertexAttribArray(uvLocation)
+          }
+          const hasTexture = primitive.texture !== undefined && uvLocation >= 0
+          gl.uniform1f(hasTextureLocation, hasTexture ? 1 : 0)
+          if (hasTexture) {
+            gl.activeTexture(gl.TEXTURE0)
+            gl.bindTexture(gl.TEXTURE_2D, primitive.texture!)
+            gl.uniform1i(textureLocation, 0)
+          }
           gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, primitive.index)
           gl.drawElements(gl.TRIANGLES, primitive.count, primitive.indexType, 0)
         }
@@ -252,12 +358,71 @@ export function createUnit3dRenderer(gl: WebGLRenderingContext): Unit3dRenderer 
   }
 }
 
-export function createUnit3dModel(gl: WebGLRenderingContext, typeId: string, bytes: ArrayBuffer): Unit3dModel {
+/** 把 GLB 内嵌的图片解码成位图（交给浏览器，格式层不碰图片编码）。 */
+async function decodeImage(image: GltfImage): Promise<ImageBitmap | undefined> {
+  try {
+    return await createImageBitmap(new Blob([image.bytes as BlobPart], { type: image.mimeType }))
+  } catch (error) {
+    console.warn(`[3D] 贴图解不开（${image.mimeType}）：${error instanceof Error ? error.message : String(error)}`)
+    return undefined
+  }
+}
+
+/** 2 的幂是 WebGL1 里用 REPEAT + mipmap 的前提；不是就退回 CLAMP，避免出黑边。 */
+function isPowerOfTwo(value: number): boolean {
+  return value > 0 && (value & (value - 1)) === 0
+}
+
+function uploadTexture(
+  gl: WebGLRenderingContext,
+  bitmap: ImageBitmap,
+  wrapS: number,
+  wrapT: number,
+): WebGLTexture | undefined {
+  const texture = gl.createTexture()
+  if (!texture) return undefined
+  const repeatable = isPowerOfTwo(bitmap.width) && isPowerOfTwo(bitmap.height)
+  gl.bindTexture(gl.TEXTURE_2D, texture)
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0)
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bitmap)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, repeatable ? wrapS : gl.CLAMP_TO_EDGE)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, repeatable ? wrapT : gl.CLAMP_TO_EDGE)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+  if (repeatable) {
+    // 单位在屏幕上只有几十像素，没有 mipmap 就会闪：这里必须生成
+    gl.generateMipmap(gl.TEXTURE_2D)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
+  } else {
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+  }
+  gl.bindTexture(gl.TEXTURE_2D, null)
+  return texture
+}
+
+/** 模型创建要解码贴图，所以是异步的：调用方（单位模型装载）本来就在异步流程里。 */
+export async function createUnit3dModel(
+  gl: WebGLRenderingContext,
+  typeId: string,
+  bytes: ArrayBuffer,
+): Promise<Unit3dModel> {
   // WebGL1 的 32 位索引要扩展；没有扩展就把索引收窄到 16 位（顶点数超 65536 才真的需要 32 位）
   const supportsUint32 = gl.getExtension('OES_element_index_uint') !== null
   const primitives: Unit3dPrimitive[] = []
+  const { primitives: parsed, images, textures } = readGlb(bytes)
+  const uploaded = new Map<number, WebGLTexture | undefined>()
+  const loadTexture = async (index: number | undefined): Promise<WebGLTexture | undefined> => {
+    if (index === undefined) return undefined
+    if (uploaded.has(index)) return uploaded.get(index)
+    const texture = textures[index]
+    const image = texture === undefined ? undefined : images[texture.image]
+    const bitmap = image ? await decodeImage(image) : undefined
+    const result = bitmap ? uploadTexture(gl, bitmap, texture!.wrapS, texture!.wrapT) : undefined
+    bitmap?.close()
+    uploaded.set(index, result)
+    return result
+  }
   let height = 0
-  for (const primitive of readGlb(bytes)) {
+  for (const primitive of parsed) {
     const positions = toVoxelSpace(primitive.position as Float32Array)
     for (let index = 2; index < positions.length; index += 3) height = Math.max(height, positions[index]!)
     let indices: Uint16Array | Uint32Array = primitive.indices
@@ -272,18 +437,25 @@ export function createUnit3dModel(gl: WebGLRenderingContext, typeId: string, byt
     }
     const position = gl.createBuffer()
     const normal = gl.createBuffer()
+    const uv = primitive.uv ? gl.createBuffer() : undefined
     const index = gl.createBuffer()
     if (!position || !normal || !index) continue
     gl.bindBuffer(gl.ARRAY_BUFFER, position)
     gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW)
     gl.bindBuffer(gl.ARRAY_BUFFER, normal)
     gl.bufferData(gl.ARRAY_BUFFER, toVoxelSpace(primitive.normal as Float32Array), gl.STATIC_DRAW)
+    if (uv && primitive.uv) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, uv)
+      gl.bufferData(gl.ARRAY_BUFFER, primitive.uv, gl.STATIC_DRAW)
+    }
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, index)
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW)
     primitives.push({
       position,
       normal,
+      uv,
       index,
+      texture: await loadTexture(primitive.textureIndex),
       count: indices.length,
       indexType,
       baseColor: primitive.baseColor,

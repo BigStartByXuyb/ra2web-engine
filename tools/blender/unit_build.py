@@ -20,6 +20,13 @@ FALLBACK_REFERENCE = Vector((46.0, 34.0, 17.15))
 MAX_SEE_THROUGH = 0.8
 """包围盒与参考的允许偏差（体素）。"""
 SIZE_TOLERANCE = 0.6
+"""材质贴图目录的兜底位置：名字等于材质名（`Armor.png` 一类），没有就退回纯色。"""
+DEFAULT_TEXTURE_DIR = "D:/AI_GAME/work/hd-packs/unit-textures"
+"""立方投影的密度：一张贴图铺几个体素。"""
+CUBE_SIZE = 3.0
+
+"""本次建车用到了贴图的材质；有它才需要给网格展 UV。"""
+TEXTURED: list[str] = []
 
 
 def parse_args(usage: str) -> tuple[str, str]:
@@ -28,6 +35,12 @@ def parse_args(usage: str) -> tuple[str, str]:
         print(usage)
         sys.exit(0)
     return argv[0], argv[1]
+
+
+def texture_dir() -> str:
+    """第三个位置参数就是贴图目录，缺省用 `DEFAULT_TEXTURE_DIR`。"""
+    argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
+    return argv[2] if len(argv) > 2 else DEFAULT_TEXTURE_DIR
 
 
 def clear_scene() -> None:
@@ -54,6 +67,7 @@ def make_material(
     metallic: float,
     roughness: float,
     emission: float = 0.0,
+    texture_path: str | None = None,
 ):
     material = bpy.data.materials.new(name)
     material.use_nodes = True
@@ -64,6 +78,19 @@ def make_material(
     if emission > 0:
         principled.inputs["Emission Color"].default_value = (*color, 1.0)
         principled.inputs["Emission Strength"].default_value = emission
+    if texture_path and os.path.exists(texture_path):
+        # 颜色已经烧进贴图（`tools/build-unit-textures.ts`），所以 Base Color 只连贴图、
+        # 不再叠 factor：导出后 baseColorFactor = 1，引擎乘一次就是想要的颜色
+        image = bpy.data.images.load(texture_path)
+        image.colorspace_settings.name = "sRGB"
+        nodes = material.node_tree.nodes
+        texture_node = nodes.new("ShaderNodeTexImage")
+        texture_node.image = image
+        texture_node.location = (-400, 200)
+        material.node_tree.links.new(texture_node.outputs["Color"], principled.inputs["Base Color"])
+        TEXTURED.append(name)
+    elif texture_path:
+        print(f"[建车] 贴图缺失，{name} 用纯色：{texture_path}")
     return material
 
 
@@ -119,6 +146,20 @@ def join_and_smooth(name: str = "UNIT") -> "bpy.types.Object":
     return unit
 
 
+def unwrap(unit: "bpy.types.Object") -> None:
+    """给合体后的网格展 UV：立方投影，按世界轴摊开，密度由 `CUBE_SIZE` 定。
+
+    贴图是可平铺的材质板，用立方投影比 smart 展包的密度均匀（零件多、位置又散，
+    展包会把某些面挤成一条线）。
+    """
+    bpy.context.view_layer.objects.active = unit
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.cube_project(cube_size=CUBE_SIZE)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    print(f"[建车] 已展 UV（立方投影，密度 {CUBE_SIZE} 体素/贴图），贴图材质 {len(TEXTURED)} 种")
+
+
 def finish_and_export(out_glb: str, reference_low: Vector, reference_high: Vector) -> int:
     """合并 → 与参考对齐（贴地、X/Y 居中同参考）→ 自检 → 合规才导出。
 
@@ -126,6 +167,8 @@ def finish_and_export(out_glb: str, reference_low: Vector, reference_high: Vecto
     所以按参考的包围盒中心摆正，而不是硬把中心压到 0。
     """
     unit = join_and_smooth()
+    if TEXTURED:
+        unwrap(unit)
     low, high = measure()
     unit.location.x += (reference_low.x + reference_high.x) / 2 - (low.x + high.x) / 2
     unit.location.y += (reference_low.y + reference_high.y) / 2 - (low.y + high.y) / 2
