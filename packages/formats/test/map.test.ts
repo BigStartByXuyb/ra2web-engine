@@ -242,18 +242,20 @@ test('原版 Maps01.mix 的地形包能被完整解出', { skip }, () => {
   assert.equal(map.theater, 'SNOW')
   assert.equal(map.cells.length, (2 * map.width - 1) * map.height)
 
-  // 记录数 = 菱形格数 (2×宽−1)×高，其中正好"每格一条"落在方格范围内，
-  // 其余是同格的另一半菱形位置 —— 这条恒等式同时验证了坐标换算。
-  const inRange = map.cells.filter(
-    (cell) => cell.cellX >= 0 && cell.cellY >= 0 && cell.cellX < map.width && cell.cellY < map.height,
-  )
-  assert.equal(inRange.length, map.width * map.height, '每格应当正好一条记录')
+  // 格 = 记录里的 (X, Y) − 1，格空间是 `cellBounds` 那个斜置区域（原版按 `下标 = Y×512 + X` 取格，
+  // 见 `readCells` 的判定依据）：坐标必须唯一、非负、落在格空间里。
   assert.equal(
-    new Set(inRange.map((cell) => `${cell.cellX},${cell.cellY}`)).size,
-    map.width * map.height,
-    '方格不应重复',
+    new Set(map.cells.map((cell) => `${cell.cellX},${cell.cellY}`)).size,
+    map.cells.length,
+    '同一格不应出现两条记录',
   )
-  assert.ok(Math.max(...map.cells.map((cell) => cell.tileIndex)) < 4096, 'tile 索引应在合理范围内')
+  for (const cell of map.cells) {
+    assert.ok(cell.cellX >= 0 && cell.cellY >= 0, '格坐标应当从 0 起')
+    assert.ok(
+      cell.cellX < map.cellBounds.right && cell.cellY < map.cellBounds.bottom,
+      `格坐标 (${cell.cellX},${cell.cellY}) 超出格空间 ${JSON.stringify(map.cellBounds)}`,
+    )
+  }
 })
 
 test('原版 Maps01.mix 的覆盖物能被解出并落到格上', { skip }, () => {

@@ -16,7 +16,7 @@ const mixPath = process.env.RA2_MIX
 const multiPath = mixPath ? path.join(path.dirname(mixPath), 'MULTI.MIX') : undefined
 const skip = !multiPath || !fs.existsSync(multiPath!) ? '同目录没有 MULTI.MIX' : false
 
-test('原版预览图是方格视角：一格一像素，水面按坐标吻合', { skip }, () => {
+test('原版预览图按菱形坐标一像素一格：水面按坐标吻合', { skip }, () => {
   const archives = new Uint8Array(fs.readFileSync(mixPath!))
   const maps = new Uint8Array(fs.readFileSync(multiPath!))
   const mapIndex = readMixIndex(maps)
@@ -48,9 +48,13 @@ test('原版预览图是方格视角：一格一像素，水面按坐标吻合',
   let compared = 0
   let waterCells = 0
   for (const cell of map.cells) {
-    if (cell.cellX < 0 || cell.cellY < 0 || cell.cellX >= map.width || cell.cellY >= map.height) continue
+    // 预览图按**菱形坐标**一像素一格：横 = X − Y + 宽 − 1（再 +1，实测偏移），纵 = (X + Y − 宽 − 1) / 2。
+    // 注意这与地形记录自己的格坐标是两套空间：记录里的 (X, Y) 是引擎格坐标，预览图用的是菱形序号。
+    const previewX = cell.diamondX - cell.diamondY + map.width
+    const previewY = (cell.diamondX + cell.diamondY - map.width - 1) / 2
+    if (!Number.isInteger(previewY)) continue
     if (tileIsWater[cell.tileIndex] === 1) waterCells += 1
-    const theirs = isPreviewWater(cell.cellX + 1, cell.cellY)
+    const theirs = isPreviewWater(previewX, previewY)
     if (theirs === undefined) continue
     compared += 1
     if ((tileIsWater[cell.tileIndex] === 1) === theirs) agree += 1
