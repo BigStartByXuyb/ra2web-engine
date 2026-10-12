@@ -1,7 +1,7 @@
-import { snapSpriteOrigin, type IsoView } from '@ra2web/render'
+import { compareDepthOrder, snapSpriteOrigin, type IsoView } from '@ra2web/render'
 import type { Camera, CellRange } from './camera.js'
 import { viewScale } from './camera.js'
-import type { MapPreview } from './map-preview.js'
+import { sortedStructures, structureDepth, structureOrigin, type MapPreview } from './map-preview.js'
 import { WET_REFLECTION } from './post-process.js'
 import { createUnit3dModel, createUnit3dRenderer, type Unit3dModel } from './webgl-unit3d.js'
 
@@ -56,7 +56,7 @@ export interface GlSceneContext {
   readonly tileCanvasAt: (tileIndex: number, subTile: number) => HTMLCanvasElement | undefined
   /** 地面块的图：每个格子先垫一层，再画地块本身（与 2D 路径同一判据） */
   readonly groundCanvas?: HTMLCanvasElement | undefined
-  /** 单位：按 (x+y) 升序画在建筑之后（与 2D 路径同一判据）；坐标是世界坐标里的"贴地锚点" */
+  /** 单位：与建筑按同一个等距深度键混排（`depth` 由 2D 路径同一处算）；坐标是"贴地锚点" */
   readonly units: readonly GlUnitQuad[]
 }
 
@@ -82,6 +82,8 @@ export interface GlUnitQuad {
   /** 贴地锚点的世界坐标 */
   readonly worldX: number
   readonly worldY: number
+  /** 与建筑同一个等距深度键：两者排进同一条序列才分得出谁挡谁 */
+  readonly depth: number
   /** 有 3D 模型时用实时 3D 画，其余情况照旧画精灵 */
   readonly model?: Unit3dModel | undefined
   /** 朝向弧度（3D 用；精灵已经按朝向取好帧了） */
@@ -207,6 +209,7 @@ interface GroundedQuad {
   readonly originY: number
   readonly bottomY: number
   readonly groundY: number
+  readonly depth: number
 }
 
 /** 倒影四边形的世界落位：`top` 是世界坐标里翻转后的上边（`height` 为负表示上下翻转）。 */
@@ -239,10 +242,7 @@ function groundedQuads(context: GlSceneContext): {
   const { view } = context
   const bounds = visibleWorldBounds(context.range, view)
   const structures_: GroundedQuad[] = []
-  const structures = [...context.preview.structures].sort(
-    (left, right) => left.placement.cellX + left.placement.cellY - (right.placement.cellX + right.placement.cellY),
-  )
-  for (const sprite of structures) {
+  for (const sprite of sortedStructures(context.preview)) {
     const { placement, canvas: source, foundationWidth, foundationHeight } = sprite
     const centerX =
       (placement.cellX + (foundationWidth - 1) / 2 - (placement.cellY + (foundationHeight - 1) / 2)) *
@@ -260,13 +260,14 @@ function groundedQuads(context: GlSceneContext): {
       continue
     }
     const bottomY = centerY + source.height / 2
-    const origin = snapSpriteOrigin(centerX - source.width / 2, centerY - source.height / 2)
+    const origin = structureOrigin(view, sprite)
     structures_.push({
       source,
       originX: origin.x,
       originY: origin.y,
       bottomY,
       groundY: bottomY,
+      depth: structureDepth(sprite),
     })
   }
   const units: GroundedQuad[] = []
@@ -278,6 +279,7 @@ function groundedQuads(context: GlSceneContext): {
       originY: origin.y,
       bottomY: unit.worldY + (unit.source.height - unit.anchorY),
       groundY: unit.worldY,
+      depth: unit.depth,
     })
   }
   return { structures: structures_, units }
@@ -469,41 +471,72 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
   }
 
-  /** 物体层：建筑与单位，次序就是 `groundedQuads` 的次序（远到近，近处盖远处）。 */
-  const drawObjects = (quads: readonly GroundedQuad[]): void => {
-    resetBatch()
-    for (const quad of quads) {
+  /**
+   * 物体层：建筑与单位排进**同一条等距序列**（远到近），近处的后画、盖住远处的。
+   *
+   * 逐物体的深度排序就发生在这一处。分成"建筑一批、单位一批"会让单位永远盖在楼上 ——
+   * 站在楼后面的坦克会画到楼前面，与真机不一致。
+   *
+   * 精灵串成一条批；遇到 3D 单位先冲刷精灵批、把连续的 3D 段一次交给实时渲染，
+   * 所以每帧的 draw call 数仍是"每种纹理一次 + 每段 3D 一次"这个量级。
+   */
+  const drawOrderedObjects = (
+    camera: Camera,
+    structures: readonly GroundedQuad[],
+    units: readonly GlUnitQuad[],
+  ): void => {
+    const order = [
+      ...structures.map((quad) => ({
+        depth: quad.depth,
+        isUnit: false,
+        structure: quad,
+        unit: undefined as GlUnitQuad | undefined,
+      })),
+      ...units.map((unit) => ({
+        depth: unit.depth,
+        isUnit: true,
+        structure: undefined as GroundedQuad | undefined,
+        unit,
+      })),
+    ].sort(compareDepthOrder)
+
+    let batchDirty = false
+    let models: { model: Unit3dModel; worldX: number; worldY: number; facing: number }[] = []
+    const flushSprites = (): void => {
+      if (!batchDirty) return
+      flushBatch(cornerLocation, originLocation, sizeLocation)
+      resetBatch()
+      batchDirty = false
+    }
+    const flushModels = (): void => {
+      if (models.length === 0) return
+      unitRenderer.draw(camera, models)
+      models = []
+    }
+
+    for (const item of order) {
+      const model = item.unit?.model
+      if (model) {
+        flushSprites()
+        models.push({
+          model,
+          worldX: item.unit!.worldX,
+          worldY: item.unit!.worldY,
+          facing: item.unit!.facing ?? 0,
+        })
+        continue
+      }
+      flushModels()
+      const quad = item.structure ?? item.unit!
       const texture = textureFor(quad.source)
       if (!texture) continue
-      pushQuad(texture, quad.originX, quad.originY, quad.source.width, quad.source.height)
+      const originX = item.structure ? item.structure.originX : item.unit!.worldX - item.unit!.anchorX
+      const originY = item.structure ? item.structure.originY : item.unit!.worldY - item.unit!.anchorY
+      pushQuad(texture, originX, originY, quad.source.width, quad.source.height)
+      batchDirty = true
     }
-    flushBatch(cornerLocation, originLocation, sizeLocation)
-  }
-
-  /**
-   * 单位层：有 3D 模型的单位交给实时渲染（B 路），其余仍是精灵。
-   * 两者混排时先画精灵那批、再按 (x+y) 画 3D —— 同屏单位不多，
-   * 逐单位深度排序留到环境层那一档一起做。
-   */
-  const drawUnits = (camera: Camera, units: readonly GlUnitQuad[]): void => {
-    const sprites = units.filter((unit) => unit.model === undefined)
-    const models = units.filter((unit) => unit.model !== undefined)
-    resetBatch()
-    for (const unit of sprites) {
-      const texture = textureFor(unit.source)
-      if (!texture) continue
-      pushQuad(texture, unit.worldX - unit.anchorX, unit.worldY - unit.anchorY, unit.source.width, unit.source.height)
-    }
-    flushBatch(cornerLocation, originLocation, sizeLocation)
-    unitRenderer.draw(
-      camera,
-      models.map((unit) => ({
-        model: unit.model!,
-        worldX: unit.worldX,
-        worldY: unit.worldY,
-        facing: unit.facing ?? 0,
-      })),
-    )
+    flushSprites()
+    flushModels()
   }
 
   /**
@@ -674,8 +707,7 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       flushBatch(cornerLocation, originLocation, sizeLocation)
       if (effects.reflections) drawReflections(camera, grounded, view)
       if (effects.shadows) drawShadows(camera, grounded)
-      drawObjects(structures)
-      drawUnits(camera, context.units)
+      drawOrderedObjects(camera, structures, context.units)
       if (effects.fog) drawFog()
     },
   }

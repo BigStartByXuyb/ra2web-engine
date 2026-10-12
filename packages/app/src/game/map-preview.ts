@@ -1,4 +1,4 @@
-import { cellToScreen, snapSpriteOrigin, type IsoView } from '@ra2web/render'
+import { cellToScreen, footprintDepth, snapSpriteOrigin, type IsoView, type ScreenPoint } from '@ra2web/render'
 import type { MapCell, MapFile } from '@ra2web/formats'
 import type { CellRange } from './camera.js'
 import type { OverlayLayer } from './overlay-layer.js'
@@ -89,7 +89,7 @@ export function drawMapPreview(
   preview: MapPreview,
   view: IsoView,
   range: CellRange,
-  options: { readonly drawTiles?: boolean } = {},
+  options: { readonly drawTiles?: boolean; readonly drawStructures?: boolean } = {},
 ): void {
   // 静态地图层（地块 + 覆盖物 + 建筑）交给 WebGL 时整层都不画，避免两层叠着对不齐
   if (options.drawTiles === false) return
@@ -149,18 +149,38 @@ export function drawMapPreview(
       }
     }
   }
-  // 建筑单独一遍，按 (x+y) 升序：近处的房子盖住远处的
-  for (const sprite of [...preview.structures].sort(
-    (left, right) => left.placement.cellX + left.placement.cellY - (right.placement.cellX + right.placement.cellY),
-  )) {
-    const { placement, canvas, foundationWidth, foundationHeight } = sprite
-    const anchor = cellToScreen(view, {
-      x: placement.cellX + (foundationWidth - 1) / 2,
-      y: placement.cellY + (foundationHeight - 1) / 2,
-    })
-    const origin = snapSpriteOrigin(anchor.x - canvas.width / 2, anchor.y - canvas.height / 2)
-    context.drawImage(canvas, origin.x, origin.y)
+  // 建筑与单位要按同一个等距深度混排（见 `structureDepth`），所以调用方要混排时把这一遍关掉，
+  // 由它自己按序画 —— 关掉时这一层仍旧只画地块与覆盖物。
+  if (options.drawStructures === false) return
+  for (const sprite of sortedStructures(preview)) {
+    const origin = structureOrigin(view, sprite)
+    context.drawImage(sprite.canvas, origin.x, origin.y)
   }
+}
+
+/**
+ * 建筑在等距绘制顺序里的位置：按**地基最前行**排，再加 art.ini 的 `YSortAdjust`。
+ *
+ * 建筑与单位混在同一条序列里，所以这个键与落位只有这一处算，2D 与 WebGL 两条路都取它。
+ */
+export function structureDepth(sprite: StructureSprite): number {
+  const { placement, foundationWidth, foundationHeight, ySortAdjust } = sprite
+  return footprintDepth(placement.cellX, placement.cellY, foundationWidth, foundationHeight, ySortAdjust)
+}
+
+/** 地图预置建筑按等距深度升序：远的先画，近的盖住远的。 */
+export function sortedStructures(preview: MapPreview): readonly StructureSprite[] {
+  return [...preview.structures].sort((left, right) => structureDepth(left) - structureDepth(right))
+}
+
+/** 建筑贴图左上角的整数像素落位：按**地基中心**对齐格中心。 */
+export function structureOrigin(view: IsoView, sprite: StructureSprite): ScreenPoint {
+  const { placement, canvas, foundationWidth, foundationHeight } = sprite
+  const anchor = cellToScreen(view, {
+    x: placement.cellX + (foundationWidth - 1) / 2,
+    y: placement.cellY + (foundationHeight - 1) / 2,
+  })
+  return snapSpriteOrigin(anchor.x - canvas.width / 2, anchor.y - canvas.height / 2)
 }
 
 export function previewCellAt(preview: MapPreview, cell: { x: number; y: number }): MapCell | undefined {

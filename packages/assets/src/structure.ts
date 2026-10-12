@@ -20,6 +20,8 @@ export interface StructureArt {
   readonly name: string
   readonly foundationWidth: number
   readonly foundationHeight: number
+  /** art.ini `YSortAdjust=`：这栋楼在等距绘制顺序里的修正值，缺省 0 */
+  readonly ySortAdjust: number
   /** art.ini 标了 `TerrainPalette` / `ShouldUseCellDrawer`：用地形色板画，而不是单位色板 */
   readonly useTerrainPalette: boolean
   /** 原版索引色 SHP；素材包给了真彩 PNG 时为 undefined */
@@ -67,6 +69,7 @@ export function openStructures(
               name: typeName,
               foundationWidth: entry?.foundationWidth ?? 1,
               foundationHeight: entry?.foundationHeight ?? 1,
+              ySortAdjust: entry?.ySortAdjust ?? 0,
               useTerrainPalette: entry?.useTerrainPalette ?? false,
               shp,
               pngBytes,

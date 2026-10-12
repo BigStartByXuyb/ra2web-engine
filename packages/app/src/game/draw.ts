@@ -1,8 +1,8 @@
-import { RA2_ISO_VIEW, cellToScreen, snapSpriteOrigin } from '@ra2web/render'
-import { fromFixed, isExplored, isVisible, unitCell } from '@ra2web/sim'
+import { RA2_ISO_VIEW, cellToScreen, compareDepthOrder, footprintDepth, snapSpriteOrigin } from '@ra2web/render'
+import { fromFixed, fromFixedExact, isExplored, isVisible, unitCell, type Unit } from '@ra2web/sim'
 import type { Battle } from './battle.js'
 import { viewScale, visibleCellRange, type Camera } from './camera.js'
-import { drawMapPreview, type MapPreview } from './map-preview.js'
+import { drawMapPreview, sortedStructures, structureDepth, structureOrigin, type MapPreview } from './map-preview.js'
 import { HOVER_COLOR, SELECTED_COLOR, drawTerrain, strokeCell } from './terrain.js'
 import { blitFogCell, createFogSprites, type FogSprites } from './fog-layer.js'
 import { BLOOM, applyBloom, applyWetNightGrade, drawWetReflection } from './post-process.js'
@@ -104,7 +104,11 @@ export function drawScene(scene: Scene): void {
   if (battle) {
     // 有官方地图时就画真实地块，否则退回占位网格
     if (scene.mapPreview) {
-      drawMapPreview(context, scene.mapPreview, VIEW, range, { drawTiles: scene.glTiles === undefined })
+      // 建筑不在这里画：它要和单位按同一个等距深度混排，交给下面的 drawObjects
+      drawMapPreview(context, scene.mapPreview, VIEW, range, {
+        drawTiles: scene.glTiles === undefined,
+        drawStructures: false,
+      })
     } else drawTerrain(context, battle.world.grid, VIEW, range)
     if (scene.hoverCell) strokeCell(context, VIEW, scene.hoverCell, HOVER_COLOR)
     const selected = battle.selectedIndex === undefined ? undefined : battle.world.units[battle.selectedIndex]
@@ -113,7 +117,7 @@ export function drawScene(scene: Scene): void {
       drawPath(context, selected.path.slice(selected.pathIndex))
     }
     // 单位交给 GPU 时 2D 这层只画迷雾/选中框；否则照旧在 2D 上画
-    if (!scene.glTiles) drawUnits(context, battle, scene.artByUnit, wet)
+    if (!scene.glTiles) drawObjects(context, scene.mapPreview, battle, scene.artByUnit, wet)
     drawShroud(context, battle, VIEW, range)
   }
   if (wet) {
@@ -183,17 +187,12 @@ function drawPath(context: CanvasRenderingContext2D, path: readonly { x: number;
   context.restore()
 }
 
-/** 按 (x+y) 升序画，保证近处单位盖住远处的。 */
 /**
- * 收集要交给 GPU 的单位：只挑活着的、且对本地玩家可见的，按 (x+y) 升序
- * （与 2D 路径同一套判据），坐标换算成世界坐标里的贴地锚点。
+ * 活着的、对本地玩家可见的单位（敌方要落在自己或盟友的当前视野里），按贴地坐标升序。
+ * 2D 路径与 GPU 路径共用这一处判据，两条路才不会挑出不同的单位来。
  */
-function collectUnits(
-  battle: Battle,
-  artByUnit: readonly (UnitArt | undefined)[],
-  unit3d: ((typeId: string) => Unit3dModel | undefined) | undefined,
-): readonly GlUnitQuad[] {
-  const order = battle.world.units
+function visibleUnits(battle: Battle): readonly { readonly unit: Unit; readonly index: number }[] {
+  return battle.world.units
     .map((unit, index) => ({ unit, index }))
     .filter(({ unit }) => unit.health > 0)
     .filter(({ unit }) => {
@@ -201,20 +200,39 @@ function collectUnits(
       const cell = unitCell(unit)
       return isVisible(battle.world.shroud, LOCAL_OWNER, cell.x, cell.y)
     })
-    .sort((left, right) => left.unit.x + left.unit.y - (right.unit.x + right.unit.y))
+    .sort(
+      (left, right) =>
+        fromFixedExact(left.unit.x) +
+        fromFixedExact(left.unit.y) -
+        (fromFixedExact(right.unit.x) + fromFixedExact(right.unit.y)),
+    )
+}
 
+/**
+ * 收集要交给 GPU 的单位：坐标换算成世界坐标里的贴地锚点，并带上与建筑同一个等距深度键，
+ * 上层就能把建筑与单位排进同一条序列。
+ */
+function collectUnits(
+  battle: Battle,
+  artByUnit: readonly (UnitArt | undefined)[],
+  unit3d: ((typeId: string) => Unit3dModel | undefined) | undefined,
+): readonly GlUnitQuad[] {
   const quads: GlUnitQuad[] = []
-  for (const { unit, index } of order) {
+  for (const { unit, index } of visibleUnits(battle)) {
     const art = artByUnit[index]
     if (!art) continue
     const frame = art.frames[battle.facingByUnit[index] ?? 0]!
-    const ground = cellToScreen(VIEW, { x: fromFixed(unit.x), y: fromFixed(unit.y) })
+    // 贴地锚点取定点坐标的精确值：截断成整格会让单位只在跨格线那一个 tick 动一下
+    const x = fromFixedExact(unit.x)
+    const y = fromFixedExact(unit.y)
+    const ground = cellToScreen(VIEW, { x, y })
     quads.push({
       source: frame.canvas,
       anchorX: frame.anchorX,
       anchorY: frame.anchorY,
       worldX: ground.x,
       worldY: ground.y,
+      depth: footprintDepth(x, y),
       model: unit3d?.(battle.typeByUnit[index] ?? ''),
       facing: (battle.facingByUnit[index] ?? 0) * (Math.PI / 4),
     })
@@ -222,33 +240,66 @@ function collectUnits(
   return quads
 }
 
-function drawUnits(
+/** 一个要画的物体：等距深度 + 画法。建筑与单位混在同一条序列里，所以统一成这个形状。 */
+interface Drawable {
+  readonly depth: number
+  readonly isUnit: boolean
+  readonly draw: () => void
+}
+
+/**
+ * 建筑与单位按**同一个等距深度**混排后逐个画。
+ *
+ * 原版是物体按 Y 排序、依次画，站在楼后面的单位因此被楼挡住；分成"建筑一批、单位一批"
+ * 就没有这个效果 —— 单位永远盖在楼上。2D 与 WebGL 两条路都走这一条序列，逐像素比对才继续成立。
+ */
+function drawObjects(
   context: CanvasRenderingContext2D,
+  preview: MapPreview | undefined,
   battle: Battle,
   artByUnit: readonly (UnitArt | undefined)[],
   wet: boolean,
 ): void {
-  const order = battle.world.units
-    .map((unit, index) => ({ unit, index }))
-    .sort((left, right) => left.unit.x + left.unit.y - (right.unit.x + right.unit.y))
-
-  for (const { unit, index } of order) {
-    if (unit.health <= 0) continue
-    // 敌方单位只有在自己或盟友的当前视野内才可见
-    if (unit.owner !== LOCAL_OWNER) {
-      const cell = unitCell(unit)
-      if (!isVisible(battle.world.shroud, LOCAL_OWNER, cell.x, cell.y)) continue
+  const drawables: Drawable[] = []
+  if (preview) {
+    for (const sprite of sortedStructures(preview)) {
+      const { canvas } = sprite
+      const origin = structureOrigin(VIEW, sprite)
+      drawables.push({
+        depth: structureDepth(sprite),
+        isUnit: false,
+        draw: () => context.drawImage(canvas, origin.x, origin.y),
+      })
     }
-    const ground = cellToScreen(VIEW, { x: fromFixed(unit.x), y: fromFixed(unit.y) })
+  }
+  for (const { unit, index } of visibleUnits(battle)) {
+    const x = fromFixedExact(unit.x)
+    const y = fromFixedExact(unit.y)
+    const ground = cellToScreen(VIEW, { x, y })
+    const depth = footprintDepth(x, y)
     const art = artByUnit[index]
     if (!art) {
-      context.fillStyle = unit.owner === 0 ? '#60a5fa' : '#f87171'
-      context.fillRect(ground.x - 4, ground.y - 12, 8, 8)
+      drawables.push({
+        depth,
+        isUnit: true,
+        draw: () => {
+          context.fillStyle = unit.owner === LOCAL_OWNER ? '#60a5fa' : '#f87171'
+          context.fillRect(ground.x - 4, ground.y - 12, 8, 8)
+        },
+      })
       continue
     }
     const frame = art.frames[battle.facingByUnit[index] ?? 0]!
     const origin = snapSpriteOrigin(ground.x - frame.anchorX, ground.y - frame.anchorY)
-    if (wet) drawWetReflection(context, frame.canvas, origin.x, origin.y, frame.anchorY, VIEW)
-    context.drawImage(frame.canvas, origin.x, origin.y)
+    drawables.push({
+      depth,
+      isUnit: true,
+      draw: () => {
+        if (wet) drawWetReflection(context, frame.canvas, origin.x, origin.y, frame.anchorY, VIEW)
+        context.drawImage(frame.canvas, origin.x, origin.y)
+      },
+    })
   }
+  drawables.sort(compareDepthOrder)
+  for (const drawable of drawables) drawable.draw()
 }

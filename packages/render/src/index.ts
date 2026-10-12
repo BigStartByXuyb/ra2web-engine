@@ -3,8 +3,8 @@ export { blitImage, fillImage } from './image.js'
 export type { Rgba, RgbaImage } from './image.js'
 export { TILE_TRANSPARENT_INDEX, paintTmpSubTile } from './tile-image.js'
 export { paintShpFrame } from './shp-image.js'
-export { RA2_ISO_VIEW, cellToScreen, screenToCell, snapSpriteOrigin } from './iso.js'
-export type { CellPoint, IsoView, ScreenPoint } from './iso.js'
+export { RA2_ISO_VIEW, cellToScreen, compareDepthOrder, footprintDepth, screenToCell, snapSpriteOrigin } from './iso.js'
+export type { CellPoint, DepthOrdered, IsoView, ScreenPoint } from './iso.js'
 export {
   APPROXIMATE_NORMALS,
   DEFAULT_LIGHT,

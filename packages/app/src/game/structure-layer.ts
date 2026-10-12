@@ -19,6 +19,8 @@ export interface StructureSprite {
   readonly canvas: HTMLCanvasElement
   readonly foundationWidth: number
   readonly foundationHeight: number
+  /** art.ini `YSortAdjust=`：参与统一等距深度键，缺省 0 */
+  readonly ySortAdjust: number
 }
 
 export interface StructureLayer {
@@ -62,6 +64,7 @@ export function createStructureLayer(
     readonly canvas: HTMLCanvasElement
     readonly foundationWidth: number
     readonly foundationHeight: number
+    readonly ySortAdjust: number
   }
   const cache = new Map<string, Painted | undefined>()
 
@@ -71,7 +74,12 @@ export function createStructureLayer(
     if (!art) return undefined
     const png = pngCanvases.get(key)
     if (png) {
-      return { canvas: png, foundationWidth: art.foundationWidth, foundationHeight: art.foundationHeight }
+      return {
+        canvas: png,
+        foundationWidth: art.foundationWidth,
+        foundationHeight: art.foundationHeight,
+        ySortAdjust: art.ySortAdjust,
+      }
     }
     const frame = art.shp?.frames.find((candidate) => !candidate.isEmpty)
     if (!art.shp || !frame) return undefined
@@ -82,6 +90,7 @@ export function createStructureLayer(
       canvas,
       foundationWidth: art.foundationWidth,
       foundationHeight: art.foundationHeight,
+      ySortAdjust: art.ySortAdjust,
     }
   }
 
