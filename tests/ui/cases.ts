@@ -146,10 +146,13 @@ export const cases: readonly UiCase[] = [
       const models = await session.capture({ name: 'units3d', query: 'renderer=webgl&units3d=1' })
       const diff = diffImages(sprites, models)
       assert.ok(diff.changed >= 500, `开 3D 单位只改了 ${diff.changed} 像素：3D 层没画出来`)
-      // 只换了单位：差异必须集中在单位那一小块，地块与建筑逐像素不动
+      // 只换了单位：差异必须集中在单位那一带（高度就是单位自身高度），地块与建筑逐像素不动。
+      // 单位在地图上排成一行，横向跨度本来就大（实测 449 像素），所以卡高度更有意义；
+      // 再要求差异是"实心"的 —— 整张图被改的话差异会散在整个范围内。
+      assert.ok(diff.box.height <= 120, `差异高度 ${diff.box.height} 太大：3D 路径动了单位以外的东西`)
       assert.ok(
-        diff.box.width <= 400 && diff.box.height <= 300,
-        `差异范围 ${diff.box.width}×${diff.box.height} 太大：3D 路径动了单位以外的东西`,
+        diff.changed <= diff.box.width * diff.box.height * 0.7,
+        `差异 ${diff.changed} 像素散在 ${diff.box.width}×${diff.box.height} 范围里：不只是单位被换了`,
       )
       return `差异 ${diff.changed} 像素，范围 ${diff.box.width}×${diff.box.height}`
     },

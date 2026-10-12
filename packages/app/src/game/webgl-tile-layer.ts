@@ -262,8 +262,10 @@ function groundedQuads(context: GlSceneContext): {
     const bottomY = centerY + source.height / 2
     structures_.push({
       source,
-      originX: centerX - source.width / 2,
-      originY: centerY - source.height / 2,
+      // 精灵落位取整：原版精灵本来就画在整数像素上；不取整时 2D 路径会做次像素插值、
+      // WebGL 走 NEAREST 采样，两条路径就会在精灵边缘错开一像素。
+      originX: Math.round(centerX - source.width / 2),
+      originY: Math.round(centerY - source.height / 2),
       bottomY,
       groundY: bottomY,
     })
@@ -272,8 +274,8 @@ function groundedQuads(context: GlSceneContext): {
   for (const unit of context.units) {
     units.push({
       source: unit.source,
-      originX: unit.worldX - unit.anchorX,
-      originY: unit.worldY - unit.anchorY,
+      originX: Math.round(unit.worldX - unit.anchorX),
+      originY: Math.round(unit.worldY - unit.anchorY),
       bottomY: unit.worldY + (unit.source.height - unit.anchorY),
       groundY: unit.worldY,
     })

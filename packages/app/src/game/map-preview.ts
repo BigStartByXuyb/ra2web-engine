@@ -77,29 +77,35 @@ export function drawMapPreview(
 ): void {
   // 静态地图层（地块 + 覆盖物 + 建筑）交给 WebGL 时整层都不画，避免两层叠着对不齐
   if (options.drawTiles === false) return
-  // 地面块先垫一层：坡道一类的地块美术只画了半个菱形，下面是地面（与 WebGL 路径同一判据）
+  // 地面块先整层垫一遍，再画地块与覆盖物 —— **与 WebGL 路径的批次顺序一致**（那边是"所有地面 → 所有地块"）。
+  // 逐格"地面 → 地块"会让后一格的垫底盖住前一格伸出来的美术边，两条路径因此在接缝上错开一像素。
+  // 地面块补的是坡道一类"只画了半个菱形"的地块美术；倍率只由宽度定（标准格宽 → 一格宽），
+  // 高度照同一倍率：原版 60×30 是 1:1、高清包 2× 是 0.5，比一格更高的崖壁因此不会被压扁。
   const ground = preview.tileLayer?.groundCanvas()
+  const groundScale = ground === undefined ? 1 : view.cellWidth / ground.width
   context.lineWidth = 1
-  for (let y = range.minY; y <= range.maxY; y++) {
-    for (let x = range.minX; x <= range.maxX; x++) {
-      if (x < 0 || y < 0 || x >= preview.width || y >= preview.height) continue
-      const cell = preview.cellByIndex.get(y * preview.width + x)
-      if (!cell) continue
-      const center = cellToScreen(view, { x, y })
-      // 世界尺寸一律按格子走：地块画布可能来自高清素材包，分辨率与原版一格不同
-      if (ground) {
-        // 倍率只由宽度定（标准格宽 → 一格宽），高度照同一倍率：原版 60×30 是 1:1、高清包 2× 是 0.5。
-        // 不能把画布直接压到 60×30 —— 比一格更高的崖壁会被压扁，而且两条路径的采样方式（双线性 vs NEAREST）
-        // 会在接缝上错开一像素（UI 用例实测 222 像素差异就是这么来的）。
-        const scale = view.cellWidth / ground.width
+  const hasCell = (x: number, y: number): boolean =>
+    x >= 0 && y >= 0 && x < preview.width && y < preview.height && preview.cellByIndex.has(y * preview.width + x)
+  if (ground) {
+    for (let y = range.minY; y <= range.maxY; y++) {
+      for (let x = range.minX; x <= range.maxX; x++) {
+        if (!hasCell(x, y)) continue
+        const center = cellToScreen(view, { x, y })
         context.drawImage(
           ground,
           center.x - view.cellWidth / 2,
           center.y - view.cellHeight / 2,
-          ground.width * scale,
-          ground.height * scale,
+          ground.width * groundScale,
+          ground.height * groundScale,
         )
       }
+    }
+  }
+  for (let y = range.minY; y <= range.maxY; y++) {
+    for (let x = range.minX; x <= range.maxX; x++) {
+      if (!hasCell(x, y)) continue
+      const cell = preview.cellByIndex.get(y * preview.width + x)!
+      const center = cellToScreen(view, { x, y })
       const painted = preview.tileLayer?.canvasAt(cell.tileIndex, cell.subTile)
       if (painted) {
         const scale = view.cellWidth / painted.width
@@ -133,7 +139,8 @@ export function drawMapPreview(
       x: placement.cellX + (foundationWidth - 1) / 2,
       y: placement.cellY + (foundationHeight - 1) / 2,
     })
-    context.drawImage(canvas, anchor.x - canvas.width / 2, anchor.y - canvas.height / 2)
+    // 与 WebGL 路径同一判据：精灵落位取整，避免次像素插值造成两条路径在边缘错开一像素
+    context.drawImage(canvas, Math.round(anchor.x - canvas.width / 2), Math.round(anchor.y - canvas.height / 2))
   }
 }
 

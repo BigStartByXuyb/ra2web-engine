@@ -6,6 +6,7 @@
 
 import os
 import sys
+import json
 
 import bpy
 from mathutils import Vector
@@ -41,6 +42,25 @@ def texture_dir() -> str:
     """第三个位置参数就是贴图目录，缺省用 `DEFAULT_TEXTURE_DIR`。"""
     argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     return argv[2] if len(argv) > 2 else DEFAULT_TEXTURE_DIR
+
+
+def unit_colors(directory: str) -> dict[str, list[float]]:
+    """读 `colors.json`：颜色表由 `tools/build-unit-textures.ts` 从原版体素统计出来。
+
+    没有这份表就返回空字典，各材质退回脚本里的兜底色 —— 两条路都能出模型。
+    """
+    path = os.path.join(directory, "colors.json")
+    if not os.path.exists(path):
+        print(f"[建车] 没有颜色表（{path}），用脚本里的兜底色")
+        return {}
+    with open(path, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def color_of(colors: dict[str, list[float]], material: str, fallback: tuple[float, float, float]):
+    """取该材质的原版配色；表里没有就用兜底值。"""
+    value = colors.get(material)
+    return (value[0], value[1], value[2]) if value else fallback
 
 
 def clear_scene() -> None:
