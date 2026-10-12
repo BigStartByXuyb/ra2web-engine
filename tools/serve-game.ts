@@ -63,6 +63,9 @@ export async function startGameServer(options: GameServerOptions = {}): Promise<
     response.writeHead(200, {
       'content-type': TYPES[extname(path)] ?? 'application/octet-stream',
       'content-length': stats.size,
+      // 素材（`/pack/`、`/packs/`）与页面都在本地被反复替换：一律不缓存，
+      // 否则改完模型/地块后浏览器还在用旧那份 —— 实测"炮管又没了"就是缓存了旧 GLB。
+      'cache-control': 'no-store',
     })
     if (response.req?.method === 'HEAD') {
       response.end()
