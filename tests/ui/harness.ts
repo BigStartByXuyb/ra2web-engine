@@ -190,3 +190,37 @@ export function meanColor(image: PngImage, rect: { x: number; y: number; w: numb
   }
   return total / count
 }
+
+/**
+ * 一条水平线上的"暗→亮"过渡宽度（像素）：迷雾边界是渐隐还是硬边，看这个数。
+ * 硬边只有 1~2 像素，摊开几格的渐隐会有几十像素。
+ */
+export function transitionWidth(
+  image: PngImage,
+  line: { readonly y: number; readonly xFrom: number; readonly xTo: number },
+): number {
+  const luminance = (x: number): number => {
+    const at = (line.y * image.width + x) * 4
+    return image.pixels[at]! + image.pixels[at + 1]! + image.pixels[at + 2]!
+  }
+  let darkest = Number.POSITIVE_INFINITY
+  let brightest = 0
+  for (let x = line.xFrom; x <= line.xTo; x++) {
+    const value = luminance(x)
+    darkest = Math.min(darkest, value)
+    brightest = Math.max(brightest, value)
+  }
+  const low = darkest + (brightest - darkest) * 0.15
+  const high = darkest + (brightest - darkest) * 0.85
+  let start = -1
+  let end = -1
+  for (let x = line.xFrom; x <= line.xTo; x++) {
+    const value = luminance(x)
+    if (value >= low && start < 0) start = x
+    if (value >= high) {
+      end = x
+      break
+    }
+  }
+  return start < 0 || end < 0 ? 0 : end - start + 1
+}

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { diffImages, meanColor, UI_PANELS, VIEWPORT, type UiSession } from './harness.js'
+import { diffImages, meanColor, transitionWidth, UI_PANELS, VIEWPORT, type UiSession } from './harness.js'
 
 /**
  * 战场页的 UI 验收点。每条都对着一个**画面事实**，不是"能跑起来"：
@@ -152,6 +152,16 @@ export const cases: readonly UiCase[] = [
         `差异范围 ${diff.box.width}×${diff.box.height} 太大：3D 路径动了单位以外的东西`,
       )
       return `差异 ${diff.changed} 像素，范围 ${diff.box.width}×${diff.box.height}`
+    },
+  },
+  {
+    name: '迷雾边界必须是渐隐，不是格子台阶',
+    async run(session) {
+      const base = await session.capture(GL_BASE)
+      // 这条线从黑（未探索）横穿到亮（地形）：实测硬边 26 像素、渐隐 113 像素
+      const width = transitionWidth(base, { y: 600, xFrom: 300, xTo: 1000 })
+      assert.ok(width >= 40, `暗→亮只用了 ${width} 像素：迷雾边界还是格子台阶（"锯齿"就是这么来的）`)
+      return `过渡宽度 ${width} 像素`
     },
   },
 ]

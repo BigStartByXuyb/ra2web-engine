@@ -24,6 +24,18 @@ export interface FogSprites {
 }
 
 /**
+ * 边界渐隐跨几格。原版用 `shroud.shp` 的 96 帧做同一件事（24 种覆盖块 × 4 档浓度），
+ * 逐格硬边会让人一眼看出"格子量化"的锯齿，所以这里把浓度摊到几格宽。
+ */
+export const FOG_FALLOFF_CELLS = 2.5
+
+/** 一格迷雾的浓度倍率：离最近的已探索格越远越实，`falloff` 格外满浓度。 */
+export function fogFadeFor(distance: number, falloff = FOG_FALLOFF_CELLS): number {
+  if (distance <= 1) return Math.max(0, distance) / falloff
+  return Math.min(1, distance / falloff)
+}
+
+/**
  * 八邻域次序：正邻格（东西南北）与斜邻格交替排列，
  * 这样第 i 个正邻格的两侧斜邻格正好是 `i*2-1` 与 `i*2+1`。
  * 屏幕方向与格坐标的对应：+x 落在右下、+y 落在左下。
@@ -129,7 +141,36 @@ export function blitFogCell(
     const neighbour = NEIGHBOURS[index]!
     if (isExplored(cell.x + neighbour.x, cell.y + neighbour.y)) mask |= 1 << index
   }
+  // 边界不能只有"一格宽"：按到最近已探索格的距离再摊几格，并加一点逐格扰动，
+  // 否则可见区就是一个每格 60×30 的硬台阶（"锯齿"就是这么来的）
+  const fade = fogFadeFor(exploredDistance(cell, isExplored))
+  context.globalAlpha = fade * (0.92 + 0.08 * hashCell(cell.x, cell.y))
   context.drawImage(sprites.spriteFor(mask), screenX, screenY)
+  context.globalAlpha = 1
+}
+
+/** 到最近已探索格的距离（切比雪夫，格为单位；找不到就返回扫描半径 +1）。 */
+export function exploredDistance(
+  cell: { readonly x: number; readonly y: number },
+  isExplored: (x: number, y: number) => boolean,
+  radius = 4,
+): number {
+  for (let distance = 1; distance <= radius; distance++) {
+    for (let dy = -distance; dy <= distance; dy++) {
+      for (let dx = -distance; dx <= distance; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== distance) continue
+        if (isExplored(cell.x + dx, cell.y + dy)) return distance
+      }
+    }
+  }
+  return radius + 1
+}
+
+/** 逐格扰动（确定性）：边界有一点点不规则，不再像网格线。 */
+function hashCell(x: number, y: number): number {
+  let value = Math.imul(x ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(y, 0xc2b2ae35)
+  value = Math.imul(value ^ (value >>> 13), 0x27d4eb2f)
+  return ((value ^ (value >>> 16)) >>> 0) / 0xffffffff
 }
 
 function parseColor(color: string): [number, number, number] {
