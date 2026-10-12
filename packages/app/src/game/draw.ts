@@ -259,10 +259,10 @@ function collectUnits(
       worldY: ground.y,
       depth: footprintDepth(x, y),
       model: unit3d?.(battle.typeByUnit[index] ?? ''),
-      // 模型空间与精灵帧的 0 朝向差 180°：体素模型的"车头"在 +X，而精灵帧 0 画出来的炮管指向 −X
-      // （等距投影 `x − y` 把 X 轴翻了一次）。差这半圈时，3D 的炮管会指向相邻单位那一侧被挡住，
-      // 屏幕上就读成"没有炮管"。这里补 π 与精灵帧对齐。
-      facing: (battle.facingByUnit[index] ?? 0) * (Math.PI / 4) + Math.PI,
+      // 朝向直接照 `facingByUnit`：它是从"两帧之间的位移"算出来的，精灵帧与 3D 模型共用同一份。
+      // 曾经在这里补过 π 想对齐精灵帧，结果移动时车头全反了 —— 静帧上看"炮管朝哪边"受机位遮挡影响，
+      // 不能拿它当一个帧的判据。
+      facing: (battle.facingByUnit[index] ?? 0) * (Math.PI / 4),
     })
   }
   return quads
