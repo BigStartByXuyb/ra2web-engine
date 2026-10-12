@@ -108,7 +108,7 @@ function buildFormat80OverlayPack(targetIndex: number, value: number, gridBytes:
   return Buffer.from(block).toString('base64')
 }
 
-test('合成地图：覆盖物按菱形坐标落格', () => {
+test('合成地图：覆盖物按方格坐标落格', () => {
   const gridBytes = 2051
   const base = Buffer.from(buildSyntheticMap()).toString('latin1')
   const text = new Uint8Array(
@@ -116,17 +116,17 @@ test('合成地图：覆盖物按菱形坐标落格', () => {
       [
         base,
         '[OverlayPack]',
-        `1=${buildFormat80OverlayPack(1537, 42, gridBytes)}`,
+        `1=${buildFormat80OverlayPack(0, 42, gridBytes)}`,
         '',
         '[OverlayDataPack]',
-        `1=${buildFormat80OverlayPack(1537, 7, gridBytes)}`,
+        `1=${buildFormat80OverlayPack(0, 7, gridBytes)}`,
         '',
       ].join('\r\n'),
       'latin1',
     ),
   )
   const map = readMap(text)
-  // 下标 1537 = 菱形坐标 (1,3) = 方格 (0,0)
+  // 下标 = x + 512 × y，方格 (0,0) 就是 0（原版 GAME.EXE 的 FUN_005db670 按这个下标读）
   assert.deepEqual(map.cells[0]!.overlay, { id: 42, data: 7 })
   assert.equal(map.cells[0]!.cellX, 0)
   assert.equal(map.cells[0]!.cellY, 0)
@@ -268,7 +268,7 @@ test('原版 Maps01.mix 的覆盖物能被解出并落到格上', { skip }, () =
       cell.cellX < map.width &&
       cell.cellY < map.height,
   )
-  assert.equal(inRange.length, 122)
+  assert.equal(inRange.length, 101)
   const ids = new Set(inRange.map((cell) => cell.overlay!.id))
   for (const id of [102, 240, 241, 171]) assert.ok(ids.has(id), `应当有覆盖物编号 ${id}`)
 })

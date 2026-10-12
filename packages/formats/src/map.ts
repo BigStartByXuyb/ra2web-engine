@@ -197,15 +197,17 @@ function readCells(document: IniDocument, width: number, height: number): readon
     const diamondX = view.getUint16(at, true)
     const diamondY = view.getUint16(at + 2, true)
     const diamondSum = diamondX + diamondY
+    const cellX = diamondX - diamondY + width - 1
+    const cellY = Math.floor((diamondSum - width - 1) / 2)
     cells.push({
       diamondX,
       diamondY,
-      cellX: diamondX - diamondY + width - 1,
-      cellY: Math.floor((diamondSum - width - 1) / 2),
+      cellX,
+      cellY,
       tileIndex: Math.max(0, view.getInt16(at + 4, true)),
       subTile: raw[at + 8]!,
       z: raw[at + 9]!,
-      overlay: overlays?.(diamondX + OVERLAY_GRID_STRIDE * diamondY, index),
+      overlay: overlays?.(cellX + OVERLAY_GRID_STRIDE * cellY),
     })
   }
   return cells
@@ -214,10 +216,16 @@ function readCells(document: IniDocument, width: number, height: number): readon
 /**
  * 覆盖物：`[OverlayPack]` 给编号、`[OverlayDataPack]` 给附加字节，两份都是 Format80 分块包。
  *
- * 两份流按**菱形坐标**索引（`rx + 512 × ry`），与地形记录一一对应；255 表示该格没有覆盖物。
+ * 两份流按**方格坐标**索引：`下标 = x + 512 × y`，x/y 就是 waypoint、建筑用的那套地图格坐标
+ * （不是地形记录里的菱形坐标），整个网格固定 512×512、每格一字节，255 表示该格没有覆盖物。
+ *
+ * 判定依据：原版客户端 `GAME.EXE` 的 `FUN_005db670`（VA 0x5db670）——外层按 y、内层按 x
+ * 各循环 0x200 次，顺序读一个字节，命中就把覆盖物放到 `(x, y)` 这一格上；`OverlayDataPack`
+ * 的读法与之同构。按菱形坐标索引会把矿石一类的东西散到别的格子（例如水上）。
+ *
  * 索引超出流长时按"没有覆盖物"处理（原版的地图包只覆盖用到的范围）。
  */
-function readOverlayGrid(document: IniDocument): ((at: number, index: number) => MapOverlay | undefined) | undefined {
+function readOverlayGrid(document: IniDocument): ((at: number) => MapOverlay | undefined) | undefined {
   if (!document.sections.has('overlaypack') || !document.sections.has('overlaydatapack')) return undefined
   const ids = readPackedSection(document, 'OverlayPack', 'format80')
   const data = readPackedSection(document, 'OverlayDataPack', 'format80')
