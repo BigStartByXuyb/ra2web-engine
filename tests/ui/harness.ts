@@ -133,6 +133,8 @@ export interface DiffResult {
   /** 差异像素数（忽略界面面板、单通道阈值 24） */
   readonly changed: number
   readonly sample: { readonly x: number; readonly y: number } | undefined
+  /** 差异像素的包围盒（没差异时宽高为 0），用来判"只改了画面里的哪一块" */
+  readonly box: { readonly x: number; readonly y: number; readonly width: number; readonly height: number }
 }
 
 /** 两张同尺寸截图比差异；只统计画面区域，界面面板不算。 */
@@ -144,6 +146,10 @@ export function diffImages(before: PngImage, after: PngImage): DiffResult {
     UI_PANELS.some((panel) => x >= panel.x && x < panel.x + panel.w && y >= panel.y && y < panel.y + panel.h)
   let changed = 0
   let sample: { x: number; y: number } | undefined
+  let minX = before.width
+  let minY = before.height
+  let maxX = -1
+  let maxY = -1
   for (let y = 0; y < before.height; y++) {
     for (let x = 0; x < before.width; x++) {
       if (inPanel(x, y)) continue
@@ -155,9 +161,20 @@ export function diffImages(before: PngImage, after: PngImage): DiffResult {
       if (delta <= 24) continue
       changed++
       sample ??= { x, y }
+      minX = Math.min(minX, x)
+      maxX = Math.max(maxX, x)
+      minY = Math.min(minY, y)
+      maxY = Math.max(maxY, y)
     }
   }
-  return { changed, sample }
+  return {
+    changed,
+    sample,
+    box:
+      maxX < 0
+        ? { x: 0, y: 0, width: 0, height: 0 }
+        : { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 },
+  }
 }
 
 /** 一块区域的平均色，用来判断"画面是不是被整层盖住了"。 */

@@ -8,6 +8,7 @@ import { blitFogCell, createFogSprites, type FogSprites } from './fog-layer.js'
 import { BLOOM, applyBloom, applyWetNightGrade, drawWetReflection } from './post-process.js'
 import type { GlTileLayer } from './webgl-tile-layer.js'
 import type { GlUnitQuad } from './webgl-tile-layer.js'
+import type { Unit3dModel } from './webgl-unit3d.js'
 import { isWetNight, type QualityPreset, type UnitArt } from './unit-art.js'
 
 /**
@@ -46,6 +47,8 @@ export interface Scene {
   readonly reflections?: boolean
   /** 泛光：亮部溢出（重制版增强，默认关闭） */
   readonly bloom?: boolean
+  /** 单位有 3D 模型时用实时 3D 画（B 路）；没有的类型照旧走精灵 */
+  readonly unit3d?: ((typeId: string) => Unit3dModel | undefined) | undefined
 }
 
 const VIEW = RA2_ISO_VIEW
@@ -75,7 +78,7 @@ export function drawScene(scene: Scene): void {
       range,
       view: VIEW,
       tileCanvasAt: (tileIndex: number, subTile: number) => preview.tileLayer?.canvasAt(tileIndex, subTile),
-      units: scene.battle ? collectUnits(scene.battle, scene.artByUnit) : [],
+      units: scene.battle ? collectUnits(scene.battle, scene.artByUnit, scene.unit3d) : [],
     }
     // 图层次序由 GL 层排定：清屏 → 地面 → 倒影 → 阴影 → 物体 → 雾
     scene.glTiles.render(glContext, {
@@ -184,7 +187,11 @@ function drawPath(context: CanvasRenderingContext2D, path: readonly { x: number;
  * 收集要交给 GPU 的单位：只挑活着的、且对本地玩家可见的，按 (x+y) 升序
  * （与 2D 路径同一套判据），坐标换算成世界坐标里的贴地锚点。
  */
-function collectUnits(battle: Battle, artByUnit: readonly (UnitArt | undefined)[]): readonly GlUnitQuad[] {
+function collectUnits(
+  battle: Battle,
+  artByUnit: readonly (UnitArt | undefined)[],
+  unit3d: ((typeId: string) => Unit3dModel | undefined) | undefined,
+): readonly GlUnitQuad[] {
   const order = battle.world.units
     .map((unit, index) => ({ unit, index }))
     .filter(({ unit }) => unit.health > 0)
@@ -207,6 +214,8 @@ function collectUnits(battle: Battle, artByUnit: readonly (UnitArt | undefined)[
       anchorY: frame.anchorY,
       worldX: ground.x,
       worldY: ground.y,
+      model: unit3d?.(battle.typeByUnit[index] ?? ''),
+      facing: (battle.facingByUnit[index] ?? 0) * (Math.PI / 4),
     })
   }
   return quads

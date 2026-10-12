@@ -3,6 +3,7 @@ import type { Camera, CellRange } from './camera.js'
 import { viewScale } from './camera.js'
 import type { MapPreview } from './map-preview.js'
 import { WET_REFLECTION } from './post-process.js'
+import { createUnit3dModel, createUnit3dRenderer, type Unit3dModel } from './webgl-unit3d.js'
 
 /**
  * WebGL 地块层 —— 换渲染后端的第一步 spike。
@@ -29,6 +30,10 @@ export interface GlTileLayer {
   /** 画布尺寸/比例变化时同步后备缓冲 */
   resize(width: number, height: number): void
   readonly ready: boolean
+  /** 载入一个单位的 3D 模型（B 路）；同名类型重复载入以最后一次为准 */
+  loadUnit3d(typeId: string, bytes: ArrayBuffer): void
+  /** 该单位类型有没有 3D 模型（没有就退回贴图／原版） */
+  unit3d(typeId: string): Unit3dModel | undefined
 }
 
 /** 一帧要叠的增强：都不开就是纯原版画面（与 2D 路径逐像素一致）。 */
@@ -60,6 +65,10 @@ export interface GlUnitQuad {
   /** 贴地锚点的世界坐标 */
   readonly worldX: number
   readonly worldY: number
+  /** 有 3D 模型时用实时 3D 画，其余情况照旧画精灵 */
+  readonly model?: Unit3dModel | undefined
+  /** 朝向弧度（3D 用；精灵已经按朝向取好帧了） */
+  readonly facing?: number | undefined
 }
 
 const VERTEX_SHADER = `
@@ -206,10 +215,13 @@ export function reflectionQuad(
   }
 }
 
-function groundedQuads(context: GlSceneContext): readonly GroundedQuad[] {
+function groundedQuads(context: GlSceneContext): {
+  structures: readonly GroundedQuad[]
+  units: readonly GroundedQuad[]
+} {
   const { view } = context
   const bounds = visibleWorldBounds(context.range, view)
-  const quads: GroundedQuad[] = []
+  const structures_: GroundedQuad[] = []
   const structures = [...context.preview.structures].sort(
     (left, right) => left.placement.cellX + left.placement.cellY - (right.placement.cellX + right.placement.cellY),
   )
@@ -231,7 +243,7 @@ function groundedQuads(context: GlSceneContext): readonly GroundedQuad[] {
       continue
     }
     const bottomY = centerY + source.height / 2
-    quads.push({
+    structures_.push({
       source,
       originX: centerX - source.width / 2,
       originY: centerY - source.height / 2,
@@ -239,8 +251,9 @@ function groundedQuads(context: GlSceneContext): readonly GroundedQuad[] {
       groundY: bottomY,
     })
   }
+  const units: GroundedQuad[] = []
   for (const unit of context.units) {
-    quads.push({
+    units.push({
       source: unit.source,
       originX: unit.worldX - unit.anchorX,
       originY: unit.worldY - unit.anchorY,
@@ -248,7 +261,7 @@ function groundedQuads(context: GlSceneContext): readonly GroundedQuad[] {
       groundY: unit.worldY,
     })
   }
-  return quads
+  return { structures: structures_, units }
 }
 
 function compile(gl: WebGLRenderingContext, type: number, source: string): WebGLShader | undefined {
@@ -327,6 +340,9 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
   const fogBuffer = fogProgram ? gl.createBuffer() : undefined
   const buffer = gl.createBuffer()
   const textures = new WeakMap<HTMLCanvasElement, WebGLTexture>()
+  /** B 路：单位的实时 3D 模型（按单位类型注册），没有就退回精灵 */
+  const unitModels = new Map<string, Unit3dModel>()
+  const unitRenderer = createUnit3dRenderer(gl)
 
   /**
    * 顶点批处理：一帧里所有四边形先拼进同一个数组、**一次上传**，再逐个 `drawArrays`。
@@ -444,6 +460,32 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
   }
 
   /**
+   * 单位层：有 3D 模型的单位交给实时渲染（B 路），其余仍是精灵。
+   * 两者混排时先画精灵那批、再按 (x+y) 画 3D —— 同屏单位不多，
+   * 逐单位深度排序留到环境层那一档一起做。
+   */
+  const drawUnits = (camera: Camera, units: readonly GlUnitQuad[]): void => {
+    const sprites = units.filter((unit) => unit.model === undefined)
+    const models = units.filter((unit) => unit.model !== undefined)
+    resetBatch()
+    for (const unit of sprites) {
+      const texture = textureFor(unit.source)
+      if (!texture) continue
+      pushQuad(texture, unit.worldX - unit.anchorX, unit.worldY - unit.anchorY, unit.source.width, unit.source.height)
+    }
+    flushBatch(cornerLocation, originLocation, sizeLocation)
+    unitRenderer.draw(
+      camera,
+      models.map((unit) => ({
+        model: unit.model!,
+        worldX: unit.worldX,
+        worldY: unit.worldY,
+        facing: unit.facing ?? 0,
+      })),
+    )
+  }
+
+  /**
    * 实时阴影：不单独做阴影贴图，直接把物体的贴图当**遮蔽掩模**，按光方向偏移、
    * 垂直压扁后贴回地面 —— 每个物体一次 draw call，RTS 同屏物体数完全够用。
    */
@@ -526,6 +568,13 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       canvas.height = height
       gl.viewport(0, 0, width, height)
     },
+    loadUnit3d(typeId, bytes) {
+      if (!unitRenderer.ready) return
+      unitModels.set(typeId.toUpperCase(), createUnit3dModel(gl, typeId.toUpperCase(), bytes))
+    },
+    unit3d(typeId) {
+      return unitModels.get(typeId.toUpperCase())
+    },
     /**
      * 一帧的图层次序固定在这里：清屏 → 地块/覆盖物 → 倒影 → 阴影 → 建筑/单位 → 雾。
      * 倒影与阴影压在地面之上、物体之下，所以地面那一批必须先画掉，否则会被地块盖住。
@@ -536,7 +585,8 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       gl.clear(gl.COLOR_BUFFER_BIT)
       useMainProgram(camera)
       // 物体在这一帧的位置只算一次，倒影/阴影/本体三个 pass 共用（锚点与视野裁剪只有这一处）
-      const quads = groundedQuads(context)
+      const { structures, units } = groundedQuads(context)
+      const grounded = [...structures, ...units]
 
       resetBatch()
 
@@ -582,9 +632,10 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       }
       // 地面先落地：倒影与阴影压在地面之上、物体之下，所以地面这一批必须先画掉
       flushBatch(cornerLocation, originLocation, sizeLocation)
-      if (effects.reflections) drawReflections(camera, quads, view)
-      if (effects.shadows) drawShadows(camera, quads)
-      drawObjects(quads)
+      if (effects.reflections) drawReflections(camera, grounded, view)
+      if (effects.shadows) drawShadows(camera, grounded)
+      drawObjects(structures)
+      drawUnits(camera, context.units)
       if (effects.fog) drawFog()
     },
   }

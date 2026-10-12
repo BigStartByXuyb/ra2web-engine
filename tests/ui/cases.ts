@@ -139,6 +139,21 @@ export const cases: readonly UiCase[] = [
       return `选中 ${selected.trim()}，tick ${tickBefore} → ${tickAfter}，画面变化 ${diff.changed} 像素`
     },
   },
+  {
+    name: '3D 单位只替换单位，且与精灵位置重合',
+    async run(session) {
+      const sprites = await session.capture(GL_BASE)
+      const models = await session.capture({ name: 'units3d', query: 'renderer=webgl&units3d=1' })
+      const diff = diffImages(sprites, models)
+      assert.ok(diff.changed >= 500, `开 3D 单位只改了 ${diff.changed} 像素：3D 层没画出来`)
+      // 只换了单位：差异必须集中在单位那一小块，地块与建筑逐像素不动
+      assert.ok(
+        diff.box.width <= 400 && diff.box.height <= 300,
+        `差异范围 ${diff.box.width}×${diff.box.height} 太大：3D 路径动了单位以外的东西`,
+      )
+      return `差异 ${diff.changed} 像素，范围 ${diff.box.width}×${diff.box.height}`
+    },
+  },
 ]
 
 export { UI_PANELS }

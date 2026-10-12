@@ -90,6 +90,8 @@ let fogEffect = false
 let reflections = false
 /** 泛光开关（重制版增强，默认关闭）：`?bloom=1` */
 let bloom = false
+/** 真 3D 单位（B 路，默认关闭）：`?units3d=1`，模型从 `/packs/units3d/<单位>.glb` 取 */
+let units3d = false
 /** 覆盖素材包（写实/超清包）：按次序优先命中，空数组就是纯原版 */
 let overrides: readonly AssetOverride[] = []
 let accumulator = 0
@@ -354,6 +356,7 @@ function activate(created: Battle, message: string, terrain: MapPreview | undefi
   mapPreview = terrain
   lastPosition.length = 0
   status.textContent = message
+  void loadUnit3dModels(created)
   const first = created.world.units[0]
   centerOn(first ? fromFixed(first.x) : 3, first ? fromFixed(first.y) : 3)
   startLoop()
@@ -439,6 +442,7 @@ function frame(now: number): void {
     fog: fogEffect,
     reflections,
     bloom,
+    unit3d: (typeId) => glTiles?.unit3d(typeId),
   })
   hud.update(now, { battle, mapPreview, camera, hoverCell })
   requestAnimationFrame(frame)
@@ -516,7 +520,30 @@ shadows = new URLSearchParams(location.search).get('shadows') === '1'
 fogEffect = new URLSearchParams(location.search).get('fog') === '1'
 reflections = new URLSearchParams(location.search).get('reflect') === '1'
 bloom = new URLSearchParams(location.search).get('bloom') === '1'
+units3d = new URLSearchParams(location.search).get('units3d') === '1'
 void autoLoadFromQuery()
+
+/**
+ * B 路：按单位类型找 `/packs/units3d/<单位>.glb`，找到就交给实时 3D 画。
+ * 找不到的类型什么都不做 —— 它继续走 8 朝向贴图或原版体素，三种来源因此可以逐单位混用。
+ */
+async function loadUnit3dModels(created: Battle): Promise<void> {
+  if (!units3d || !glTiles) return
+  for (const typeId of new Set(created.typeByUnit)) {
+    if (glTiles.unit3d(typeId)) continue
+    const url = `/packs/units3d/${typeId.toLowerCase()}.glb`
+    try {
+      const response = await fetch(url)
+      if (!response.ok) continue
+      glTiles.loadUnit3d(typeId, await response.arrayBuffer())
+      console.info(`[3D] ${typeId} ← ${url}`)
+    } catch (error) {
+      console.info(
+        `[3D] ${typeId} 没有模型（${error instanceof Error ? error.message : String(error)}），退回贴图／原版`,
+      )
+    }
+  }
+}
 
 /**
  * 从 URL 参数自动装载，省掉每次手选档案：
