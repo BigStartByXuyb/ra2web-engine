@@ -41,6 +41,57 @@ export interface TerrainMeshInput {
   readonly levelAt: (cellX: number, cellY: number) => number | undefined
 }
 
+/**
+ * 坡道的四角高度表：`rampType` → 四角级数。第 0 行是全 0（不是坡道）。
+ *
+ * 取自参考实现 `ra2web` 0.87.1 的 `rampHeights`，逐项照抄，不做归并。
+ * 四角顺序由插值式反解得到：`(0,0) = r[1]`、`(1,0) = r[2]`、`(0,1) = r[0]`、`(1,1) = r[3]`。
+ * 这是**参考实现**的口径，不是权威；等 GAME.EXE 里那处读出来再校。
+ */
+export const RAMP_HEIGHTS: readonly (readonly number[])[] = [
+  [0, 0, 0, 0],
+  [0, 0, 1, 1],
+  [1, 0, 0, 1],
+  [1, 1, 0, 0],
+  [0, 1, 1, 0],
+  [0, 0, 0, 1],
+  [1, 0, 0, 0],
+  [0, 1, 0, 0],
+  [0, 0, 1, 0],
+  [1, 0, 1, 1],
+  [1, 1, 0, 1],
+  [1, 1, 1, 0],
+  [0, 1, 1, 1],
+  [1, 0, 1, 2],
+  [2, 1, 0, 1],
+  [1, 2, 1, 0],
+  [0, 1, 2, 1],
+  [1, 0, 1, 0],
+  [0, 1, 0, 1],
+  [1, 0, 1, 0],
+  [0, 1, 0, 1],
+]
+
+/**
+ * 坡道在格内的双线性插值高度（单位：级）。`xFrac` / `yFrac` 是格内归一化坐标（0..1）。
+ *
+ * 越界的 `rampType`（含 0）一律返回 0：不是坡道就没有额外高度，不做别的猜测。
+ */
+export function interpolateRampHeight(xFrac: number, yFrac: number, rampType: number): number {
+  const corners = RAMP_HEIGHTS[rampType]
+  if (!corners || corners.length < 4) return 0
+  const bottomRight = corners[3]!
+  const topLeft = corners[1]!
+  const bottomLeft = corners[0]!
+  const topRight = corners[2]!
+  return (
+    topLeft * (1 - xFrac) * (1 - yFrac) +
+    topRight * xFrac * (1 - yFrac) +
+    bottomLeft * (1 - xFrac) * yFrac +
+    bottomRight * xFrac * yFrac
+  )
+}
+
 /** 贴图上菱形四个角的位置：上、右、下、左。 */
 const DIAMOND_UV: readonly [UvPoint, UvPoint, UvPoint, UvPoint] = [
   { u: 0.5, v: 0 },

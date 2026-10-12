@@ -5,7 +5,7 @@ export { TILE_TRANSPARENT_INDEX, paintTmpSubTile } from './tile-image.js'
 export { paintShpFrame } from './shp-image.js'
 export { RA2_ISO_VIEW, cellToScreen, compareDepthOrder, footprintDepth, screenToCell, snapSpriteOrigin } from './iso.js'
 export type { CellPoint, DepthOrdered, IsoView, ScreenPoint } from './iso.js'
-export { buildTerrainMesh } from './terrain-mesh.js'
+export { RAMP_HEIGHTS, buildTerrainMesh, interpolateRampHeight } from './terrain-mesh.js'
 export type { TerrainCell, TerrainFace, TerrainMeshInput, UvPoint } from './terrain-mesh.js'
 export {
   APPROXIMATE_NORMALS,

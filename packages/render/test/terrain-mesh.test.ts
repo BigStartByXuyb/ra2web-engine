@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { RA2_ISO_VIEW, type ScreenPoint } from '../src/iso.js'
-import { buildTerrainMesh, type TerrainFace } from '../src/terrain-mesh.js'
+import { RAMP_HEIGHTS, buildTerrainMesh, interpolateRampHeight, type TerrainFace } from '../src/terrain-mesh.js'
 
 /**
  * 3D 地形网格：抬高必须与崖壁同时生成。
@@ -126,5 +126,30 @@ describe('3D 地形网格', () => {
       assert.equal(face.corners.length, 4)
       assert.equal(face.uvs.length, 4)
     }
+  })
+})
+
+describe('坡道插值', () => {
+  it('四角取到表里对应的那一项（顺序按参考实现反解）', () => {
+    for (const [rampType, corners] of RAMP_HEIGHTS.entries()) {
+      assert.equal(interpolateRampHeight(0, 0, rampType), corners[1], `rampType ${rampType} 左上角`)
+      assert.equal(interpolateRampHeight(1, 0, rampType), corners[2], `rampType ${rampType} 右上角`)
+      assert.equal(interpolateRampHeight(0, 1, rampType), corners[0], `rampType ${rampType} 左下角`)
+      assert.equal(interpolateRampHeight(1, 1, rampType), corners[3], `rampType ${rampType} 右下角`)
+    }
+  })
+
+  it('不是坡道（rampType 0 与越界）一律返回 0', () => {
+    assert.equal(interpolateRampHeight(0.5, 0.5, 0), 0)
+    assert.equal(interpolateRampHeight(0.5, 0.5, -1), 0)
+    assert.equal(interpolateRampHeight(0.5, 0.5, RAMP_HEIGHTS.length), 0)
+  })
+
+  it('线性坡道中点取四角平均', () => {
+    // rampType 1 的四角是 [0,0,1,1]：左下 0、左上 0、右上 1、右下 1 → 中点 0.5
+    assert.equal(interpolateRampHeight(0.5, 0.5, 1), 0.5)
+    // 沿 x 线性：左半边 0、右半边 1
+    assert.equal(interpolateRampHeight(0.25, 0.5, 1), 0.25)
+    assert.equal(interpolateRampHeight(0.75, 0.5, 1), 0.75)
   })
 })
