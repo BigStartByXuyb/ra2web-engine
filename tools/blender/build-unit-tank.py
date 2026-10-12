@@ -12,6 +12,9 @@
 - **履带是链**：沿"上直线 → 前导向轮圆弧 → 下直线 → 后主动轮圆弧"等弧长摆 44 节链节，
   每节按切线转；6 对负重轮夹在上下链之间，从侧面看得见。
 - **纵向分带照原版体素**：履带 0..3.5、车体 2.8..9.4、炮塔 9.4..15.2、舱盖 15.2..17.2。
+- **挂件照官方原画**（`work/soviet-hd/ref/official-art/a20.jpg` 苏联坦克三视图）：
+  右侧后上方一根通到尾部的排气管、首上驾驶员舱盖与车首机枪、指挥塔一圈观察窗、
+  前后拖钩、发动机舱顶盖板栅格。
 """
 
 import math
@@ -221,8 +224,10 @@ barrel_length, barrel_radius = 11.8, 0.85
 add_cylinder(
     "Barrel", (11.2 + barrel_length / 2, 0.0, turret_mid + 0.2), barrel_radius, barrel_length, bare_metal, axis="X", vertices=20
 )
-for index in range(4):
-    add_cylinder(f"Thermal{index}", (13.8 + index * 1.85, 0.0, turret_mid + 0.2), 1.2, 0.8, bare_metal, axis="X", vertices=20)
+# 炮管分三段照官方原画：炮尾套管 → 热护套 → 裸管加炮口制退器。
+# 等距摆四个环会读成一串珠子，不是炮管。
+add_cylinder("RecoilSleeve", (13.5, 0.0, turret_mid + 0.2), 1.5, 3.2, bare_metal, axis="X", vertices=20)
+add_cylinder("ThermalSleeve", (18.0, 0.0, turret_mid + 0.2), 1.06, 5.0, bare_metal, axis="X", vertices=20)
 add_cylinder("Muzzle", (21.7, 0.0, turret_mid + 0.2), 1.45, 2.6, bare_metal, axis="X", vertices=20)
 for index in (-1, 1):
     add_box(f"MuzzleSlot{index}", (21.7, index * 1.4, turret_mid + 0.2), (1.6, 0.5, 0.7), rubber, bevel=0.05)
@@ -255,8 +260,8 @@ for side in (-1, 1):
     # 挡泥板储物箱
     add_box(f"StowBox{tag}", (12.0, side * 15.3, 6.6), (4.4, 2.0, 1.8), armor_light, bevel=0.3)
     add_box(f"StowBoxB{tag}", (-15.6, side * 15.3, 6.6), (3.6, 2.0, 1.6), armor_light, bevel=0.3)
-    # 拖车缆绳：细而长，屏幕上就是一条线
-    add_box(f"Cable{tag}", (-5.0, side * (sponson_outer - 0.05), 9.7), (20.0, 0.4, 0.4), bare_metal)
+    # 拖车缆绳：贴在挡泥板顶面上，不悬空
+    add_box(f"Cable{tag}", (-8.0, side * (sponson_outer - 0.55), 9.62), (16.0, 0.35, 0.35), bare_metal)
     # 抓握把手（三个一组，等距）
     for index in range(3):
         add_box(f"Handle{tag}{index}", (-13.0 + index * 9.0, side * (sponson_outer - 0.05), 7.7), (2.4, 0.4, 0.4), bare_metal)
@@ -268,5 +273,34 @@ add_cylinder("SpotlightLens", (6.6, -5.0, turret_mid + 3.15), 1.0, 0.3, optic)
 add_cylinder("SpareWheel", (-19.4, 7.0, 10.0), 1.8, 1.4, armor)
 for index, offset in enumerate((-9.8, -5.4)):
     add_cylinder(f"FuelDrum{index}", (-20.2, offset, 9.8), 1.5, 3.8, bare_metal, axis="X", vertices=16)
+
+"""—— 官方原画上的四处特征（`work/soviet-hd/ref/official-art/a20.jpg`）——"""
+snorkel_y = -(sponson_outer - 1.5)
+# 排气管：从炮塔后侧沿车体侧上方通到尾部，原画上最显眼的一根
+add_cylinder("SnorkelRun", (-15.0, snorkel_y, 10.4), 0.62, 11.0, bare_metal, axis="X", vertices=14)
+add_cylinder("SnorkelRise", (-9.5, snorkel_y, 12.3), 0.62, 4.2, bare_metal, axis="Z", vertices=14)
+add_cylinder("SnorkelMuffler", (-20.9, snorkel_y, 10.4), 0.86, 1.6, bare_metal, axis="X", vertices=14)
+add_box("SnorkelMount", (-15.0, snorkel_y, 9.75), (1.4, 1.0, 0.9), bare_metal, bevel=0.1)
+# 首上驾驶员舱盖 + 车首机枪
+add_box("DriverHatch", (13.2, -5.2, 9.65), (3.0, 4.4, 0.55), armor_light, bevel=0.25)
+add_cylinder("BowMgMount", (20.0, 5.6, 6.6), 1.1, 1.4, armor_light, axis="X", vertices=14, bevel=0.15)
+add_cylinder("BowMgBarrel", (21.4, 5.6, 6.6), 0.32, 2.4, bare_metal, axis="X", vertices=10)
+# 指挥塔一圈观察窗
+for index in range(6):
+    angle = index * math.pi / 3
+    add_box(
+        f"CupolaBlock{index}",
+        (-4.6 + math.cos(angle) * 2.45, math.sin(angle) * 2.45, 16.15),
+        (0.72, 0.72, 0.5),
+        armor_light,
+        bevel=0.05,
+    )
+# 前后拖钩
+for index, offset in enumerate((-7.6, 7.6)):
+    add_box(f"TowHookF{index}", (21.8, offset, 4.2), (1.2, 1.0, 1.0), bare_metal, bevel=0.15)
+    add_box(f"TowHookR{index}", (-22.3, offset, 4.2), (1.2, 1.0, 1.0), bare_metal, bevel=0.15)
+# 发动机舱顶盖板栅格
+for index in range(3):
+    add_box(f"DeckGrille{index}", (-12.4 - index * 2.6, 0.0, 9.55), (2.0, 13.0, 0.35), bare_metal)
 
 sys.exit(finish_and_export(out_glb, reference_low, reference_high))
