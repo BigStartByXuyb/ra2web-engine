@@ -12,6 +12,8 @@ import {
   type ShpFile,
   type TmpFile,
   type TheaterIni,
+  type TheaterTile,
+  type TheaterTileSet,
 } from '@ra2web/formats'
 import { findOverride, type AssetOverride } from './overrides.js'
 
@@ -199,12 +201,7 @@ export function openTheater(
   function readTile(tileIndex: number): TmpFile | undefined {
     const tile = ini.tiles[tileIndex]
     if (!tile) return undefined
-    const base = tileFileName(tile, files!.suffix)
-    const candidates = [base]
-    for (const letter of 'abcdefghijklmnopqrstuvwxyz') {
-      candidates.push(`${base.slice(0, -files!.suffix.length)}${letter}${files!.suffix}`)
-    }
-    for (const candidate of candidates) {
+    for (const candidate of tileFileCandidates(tile, files!.suffix)) {
       const overridden = findOverride(overrides, candidate)
       if (overridden) {
         try {
@@ -223,6 +220,16 @@ export function openTheater(
     }
     return undefined
   }
+}
+
+/** 该地块的候选文件名：原名 + 逐字母变体（RA2 的 `w-a-`/`w-b-` 这类多块图形）。 */
+function tileFileCandidates(tile: TheaterTile, suffix: string): readonly string[] {
+  const base = tileFileName(tile, suffix)
+  const candidates = [base]
+  for (const letter of 'abcdefghijklmnopqrstuvwxyz') {
+    candidates.push(`${base.slice(0, -suffix.length)}${letter}${suffix}`)
+  }
+  return candidates
 }
 
 /**

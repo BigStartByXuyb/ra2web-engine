@@ -86,3 +86,20 @@ if (tilesOption) {
     )
   }
 }
+
+// --cells=69,36;70,35：把指定 (rx,ry) 格的原版记录打出来，用于和客户端逐格对答案
+const cellsOption = rest.find((value) => value.startsWith('--cells='))
+if (cellsOption) {
+  const wanted = cellsOption
+    .slice('--cells='.length)
+    .split(';')
+    .map((pair) => pair.split(',').map(Number))
+  for (const [rx, ry] of wanted) {
+    const cell = map.cells.find((item) => item.diamondX === rx && item.diamondY === ry)
+    console.log(
+      cell === undefined
+        ? `(${rx},${ry}) → 地图里没有这条记录`
+        : `(${rx},${ry}) → tile ${cell.tileIndex} sub ${cell.subTile} z ${cell.z}（格子 ${cell.cellX},${cell.cellY}）`,
+    )
+  }
+}
