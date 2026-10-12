@@ -12,15 +12,19 @@ import bpy
 from mathutils import Vector
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from unit_audit import measure, see_through_bands  # noqa: E402
+from unit_audit import measure, see_through_bands, silhouette  # noqa: E402
 
 """取不到参考模型时的兜底尺寸（HTNK 量出来的那套，仅用于明显不合理的输入）。"""
 FALLBACK_REFERENCE = Vector((46.0, 34.0, 17.15))
 
 """横向看穿缝的自检阈值：>0.8 体素说明车体与行走部分之间断了。"""
 MAX_SEE_THROUGH = 0.8
-"""包围盒与参考的允许偏差（体素）。"""
+"""车长与参考的允许偏差（体素）。"""
 SIZE_TOLERANCE = 0.6
+"""屏幕轮廓与参考的允许偏差（像素）。"""
+SILHOUETTE_TOLERANCE = 1.5
+"""参考模型的屏幕轮廓宽高；`reference_size` 导入参考时记下，`finish_and_export` 用。"""
+REFERENCE_SILHOUETTE: tuple[float, float] | None = None
 """材质贴图目录的兜底位置：名字等于材质名（`Armor.png` 一类），没有就退回纯色。"""
 DEFAULT_TEXTURE_DIR = "D:/AI_GAME/work/hd-packs/unit-textures"
 """
@@ -73,15 +77,19 @@ def clear_scene() -> None:
 
 
 def reference_size(reference_glb: str) -> tuple[Vector, Vector]:
-    """参考模型给尺寸与贴地枢轴：导入量一遍，再清空场景准备造车。"""
+    """参考模型给车长、屏幕轮廓与贴地枢轴：导入量一遍，再清空场景准备造车。"""
+    global REFERENCE_SILHOUETTE
     clear_scene()
     bpy.ops.import_scene.gltf(filepath=reference_glb)
+    REFERENCE_SILHOUETTE = silhouette()
     low, high = measure()
     size = high - low
-    if abs(size.x - FALLBACK_REFERENCE.x) > 40 or abs(size.y - FALLBACK_REFERENCE.y) > 40:
+    if size.x <= 1.0:
         print(f"[建车] 参考模型尺寸可疑，改用兜底值：实测 {tuple(round(v, 2) for v in size)}")
         low, high = Vector((0, 0, 0)), FALLBACK_REFERENCE.copy()
-    print(f"[建车] 参考尺寸 {tuple(round(v, 2) for v in (high - low))}，min={tuple(round(v, 2) for v in low)}")
+        REFERENCE_SILHOUETTE = None
+    shape = "无" if REFERENCE_SILHOUETTE is None else tuple(round(v, 2) for v in REFERENCE_SILHOUETTE)
+    print(f"[建车] 参考尺寸 {tuple(round(v, 2) for v in (high - low))}，min={tuple(round(v, 2) for v in low)}，屏幕轮廓 {shape}")
     clear_scene()
     return low, high
 
@@ -254,9 +262,16 @@ def finish_and_export(out_glb: str, reference_low: Vector, reference_high: Vecto
 
     problems: list[str] = []
     reference_size = reference_high - reference_low
-    for axis, index in (("x", 0), ("y", 1), ("z", 2)):
-        if abs(size[index] - reference_size[index]) > SIZE_TOLERANCE:
-            problems.append(f"{axis} 尺寸 {size[index]:.2f} 偏离参考 {reference_size[index]:.2f}")
+    if abs(size.x - reference_size.x) > SIZE_TOLERANCE:
+        problems.append(f"车长 {size.x:.2f} 偏离参考 {reference_size.x:.2f}")
+    width, height = silhouette()
+    if REFERENCE_SILHOUETTE is not None:
+        for label, got, want in (
+            ("屏幕轮廓宽", width, REFERENCE_SILHOUETTE[0]),
+            ("屏幕轮廓高", height, REFERENCE_SILHOUETTE[1]),
+        ):
+            if abs(got - want) > SILHOUETTE_TOLERANCE:
+                problems.append(f"{label} {got:.2f} 偏离参考 {want:.2f}")
     bands = see_through_bands(low, high)
     band = max((end - start for start, end in bands), default=0.0)
     if band > MAX_SEE_THROUGH:
@@ -264,7 +279,7 @@ def finish_and_export(out_glb: str, reference_low: Vector, reference_high: Vecto
 
     unit.data.calc_loop_triangles()
     print(
-        f"[建车] 尺寸 {size.x:.2f}×{size.y:.2f}×{size.z:.2f}，最低点 {low.z:.2f}，"
+        f"[建车] 尺寸 {size.x:.2f}×{size.y:.2f}×{size.z:.2f}，屏幕轮廓 {width:.2f}×{height:.2f}，最低点 {low.z:.2f}，"
         f"横向看穿缝 {band:.2f}，三角面 {len(unit.data.loop_triangles)}，材质 {len(unit.data.materials)}，"
         f"包围盒 x {low.x:+.2f}..{high.x:+.2f} y {low.y:+.2f}..{high.y:+.2f}"
     )
