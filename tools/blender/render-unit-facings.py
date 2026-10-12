@@ -32,10 +32,14 @@ obj_path, out_dir, pixels_per_voxel, frame_px, samples = (
     int(argv[4]),
 )
 # 可选：--bevel=0.12 控制倒角宽度（0 = 不倒角，保留方块硬边）
+# 可选：--glb=<path> 顺便导出 glTF（B 路：真 3D 材质，交给浏览器实时渲染）
 bevel_width = 0.12
+glb_path = ""
 for argument in argv[5:]:
     if argument.startswith("--bevel="):
         bevel_width = float(argument[len("--bevel=") :])
+    elif argument.startswith("--glb="):
+        glb_path = argument[len("--glb=") :]
 os.makedirs(out_dir, exist_ok=True)
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -138,3 +142,16 @@ for facing in range(8):
     scene.render.filepath = os.path.join(out_dir, f"facing-{facing}.png")
     bpy.ops.render.render(write_still=True)
     print(f"facing-{facing}.png")
+
+if glb_path:
+    # 出图用的是"第 0 朝向"的姿态；导出前转回 0，模型贴地枢轴仍在原点
+    model.rotation_euler = (0.0, 0.0, 0.0)
+    os.makedirs(os.path.dirname(os.path.abspath(glb_path)), exist_ok=True)
+    bpy.ops.export_scene.gltf(
+        filepath=glb_path,
+        export_format="GLB",
+        export_apply=True,
+        export_materials="EXPORT",
+        export_yup=True,
+    )
+    print(f"glb → {glb_path}")
