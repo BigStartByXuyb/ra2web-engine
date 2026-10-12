@@ -57,6 +57,12 @@ export function buildPassability(
   for (const cell of map.cells) {
     if (cell.cellX < 0 || cell.cellY < 0 || cell.cellX >= map.cellBounds.right || cell.cellY >= map.cellBounds.bottom)
       continue
+    // 原版把"这一格没有地块"记成 `tile = -1`（按 u16 读就是 0xFFFF）：它不是缺美术，
+    // 是这张图没有这一格（菱形以外）。按不可通行处理，但不计入地形统计、也不算缺图。
+    if (cell.tileIndex === EMPTY_TILE) {
+      blocked.push({ x: cell.cellX, y: cell.cellY })
+      continue
+    }
     const subTile = theater?.loadTile(cell.tileIndex)?.subTiles[cell.subTile]
     if (!subTile) {
       missingCells++
@@ -84,6 +90,9 @@ export function buildPassability(
 
 /** 地块号超出剧场地块表时的记号，用于把"越界"和"这一集没图形"分开报。 */
 export const OUT_OF_RANGE_TILE_SET = '地块号超出剧场地块表'
+
+/** "这一格没有地块记录"的记号：原版存的是 `i16 -1`，按 u16 读出来是 0xFFFF。 */
+export const EMPTY_TILE = 0xffff
 
 /** 这个地块号属于哪个地块集；越界或装不上剧场时给出记号，不猜。 */
 function setNameOf(theater: TheaterAssets | undefined, tileIndex: number): string {

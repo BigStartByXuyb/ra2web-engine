@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { test } from 'node:test'
-import { readMap, readMixEntry, readMixIndex, type MapCell } from '@ra2web/formats'
+import { readMap, readMixEntry, readMixIndex, type MapCell, type MapFile } from '@ra2web/formats'
 import { loadRules, readLandRules, speedFactor } from '@ra2web/rules'
-import { buildPassability, heightBlocksStep, landTypeOfTerrainType, KNOWN_TERRAIN_TYPES } from '../src/index.js'
+import {
+  buildPassability,
+  EMPTY_TILE,
+  heightBlocksStep,
+  landTypeOfTerrainType,
+  KNOWN_TERRAIN_TYPES,
+} from '../src/index.js'
 import { readLocalText } from '../src/local-ini.js'
 import { openTheater } from '../src/theater.js'
 
@@ -65,13 +71,21 @@ test('原版雪地地图：水与悬崖不可通行，草地/道路可通行', {
   assert.deepEqual(passability.unknownTerrainTypes, [], '原版地图的地形类型应当全部在映射表里')
 
   // 逐格核对：被判不可通行的格子，其地块类型必须确实是 0 系数
-  const blockedIndices = new Set(passability.blocked.map((cell) => cell.y * map.width + cell.x))
+  // 格空间由 `cellBounds` 给出（原版的格空间是斜置区域，不等于 width×height）
+  const blockedIndices = new Set(passability.blocked.map((cell) => cell.y * map.cellBounds.right + cell.x))
   let checkedBlocked = 0
   let checkedPassable = 0
+  let emptyCells = 0
   for (const cell of map.cells) {
-    if (cell.cellX < 0 || cell.cellY < 0 || cell.cellX >= map.width || cell.cellY >= map.height) continue
+    if (cell.cellX < 0 || cell.cellY < 0 || cell.cellX >= map.cellBounds.right || cell.cellY >= map.cellBounds.bottom)
+      continue
+    // 空记录（tile = -1）没有地块，不在这条判据里
+    if (cell.tileIndex === EMPTY_TILE) {
+      emptyCells++
+      continue
+    }
     const landType = landTypeAt(theater, cell)!
-    const blocked = blockedIndices.has(cell.cellY * map.width + cell.cellX)
+    const blocked = blockedIndices.has(cell.cellY * map.cellBounds.right + cell.cellX)
     if (blocked) {
       assert.equal(track(landType), 0, `(${cell.cellX},${cell.cellY}) 判不可通行但地块类型是 ${landType}`)
       checkedBlocked++
@@ -85,15 +99,20 @@ test('原版雪地地图：水与悬崖不可通行，草地/道路可通行', {
     .map(([name, count]) => `${name}=${count}`)
     .join(' ')
   assert.ok(checkedPassable > 1000, `可通行格太少：${checkedPassable}（${summary}）`)
-  assert.equal(checkedBlocked, passability.blocked.length, '每个不可通行格都要能追到 0 系数')
+  // 不可通行格 = 0 系数地块 + 地图里没有地块的格子（菱形以外）
+  assert.equal(checkedBlocked + emptyCells, passability.blocked.length, '每个不可通行格要么是 0 系数、要么是空记录')
   // 不可通行格数 = 所有 0 系数地块类型（水/岩石/悬崖）的格数之和
   const impassableByLandType = [...passability.landTypeCounts]
     .filter(([name]) => track(name) === 0)
     .reduce((sum, [, count]) => sum + count, 0)
-  assert.equal(passability.blocked.length, impassableByLandType, `不可通行格数与地块类型不符（${summary}）`)
+  assert.equal(
+    passability.blocked.length,
+    impassableByLandType + emptyCells,
+    `不可通行格数与"0 系数地块 + 空记录"不符（${summary}）`,
+  )
   assert.ok((passability.landTypeCounts.get('Cliff') ?? 0) > 0, `这张图应当有悬崖（${summary}）`)
-  // 这张城市图没有水域：草地、道路、崎岖地形都可通行，只有 373 格悬崖挡路
-  assert.equal(passability.landTypeCounts.get('Water'), undefined)
+  // 格空间按 `cellBounds` 之后，菱形外沿的水域也进来了（地图外面那一圈）
+  assert.ok((passability.landTypeCounts.get('Water') ?? 0) > 0, `外侧水域应当被算进来（${summary}）`)
 })
 
 function landTypeAt(theater: ReturnType<typeof openTheater>, cell: MapCell) {
@@ -125,12 +144,13 @@ test('带水域的地图：水域按 [Water] 判为不可通行，海滩可通�
     })
     const water = passability.landTypeCounts.get('Water') ?? 0
     if (water === 0) continue
-    const blockedIndices = new Set(passability.blocked.map((cell) => cell.y * map.width + cell.x))
+    const blockedIndices = new Set(passability.blocked.map((cell) => cell.y * map.cellBounds.right + cell.x))
     let blockedWater = 0
     for (const cell of map.cells) {
-      if (cell.cellX < 0 || cell.cellY < 0 || cell.cellX >= map.width || cell.cellY >= map.height) continue
+      if (cell.cellX < 0 || cell.cellY < 0 || cell.cellX >= map.cellBounds.right || cell.cellY >= map.cellBounds.bottom)
+        continue
       if (landTypeAt(theater, cell) !== 'Water') continue
-      if (blockedIndices.has(cell.cellY * map.width + cell.cellX)) blockedWater++
+      if (blockedIndices.has(cell.cellY * map.cellBounds.right + cell.cellX)) blockedWater++
     }
     found = { water, beach: passability.landTypeCounts.get('Beach') ?? 0, blockedWater }
     break
@@ -147,7 +167,7 @@ test('取不到地块图形只报数，不混进不可通行', { skip: skipMap }
 
   // 本机资产缺一批地块集（如 ZMM 那几套）的图形，档案里必定有图用到它们
   let missing: ReturnType<typeof buildPassability> | undefined
-  let inRangeCells = 0
+  let foundMap: MapFile | undefined
   for (const entry of index.entries) {
     let map
     try {
@@ -161,18 +181,23 @@ test('取不到地块图形只报数，不混进不可通行', { skip: skipMap }
     const passability = buildPassability(map, theater, { speedType: 'Track', speedFactor: () => 1 })
     if (passability.missingArt.cells > 0) {
       missing = passability
-      inRangeCells = map.cells.filter(
-        (cell) => cell.cellX >= 0 && cell.cellY >= 0 && cell.cellX < map!.width && cell.cellY < map!.height,
-      ).length
+      foundMap = map
       break
     }
   }
 
   assert.ok(missing, '档案里应当有一张用到本机没有的地块图形的图')
-  assert.deepEqual(missing!.blocked, [], '缺图形不能算不可通行')
+  const map = foundMap!
+  const inRange = (cell: { cellX: number; cellY: number }): boolean =>
+    cell.cellX >= 0 && cell.cellY >= 0 && cell.cellX < map.cellBounds.right && cell.cellY < map.cellBounds.bottom
+  const inRangeCells = map.cells.filter(inRange).length
+  const emptyCells = map.cells.filter((cell) => inRange(cell) && cell.tileIndex === EMPTY_TILE).length
+
+  // 系数恒为 1，所以 blocked 只该来自"地图没有这一格"的空记录 —— 缺图形本身不算不可通行
+  assert.equal(missing!.blocked.length, emptyCells, '缺图形不能算不可通行，blocked 只应来自空记录')
   assert.deepEqual(missing!.unknownTerrainTypes, [], '缺图形不能混进"未认识的地形类型"')
   assert.ok(missing!.missingArt.bySet.size > 0, '缺图时要报出涉及的地块集名')
-  // 每一格都要有归属：要么记了地块类型，要么记了缺图形（这一条里 blocked 为空）
+  // 每一格都要有归属：地块类型 / 缺图形 / 空记录，三者相加等于格里全部记录
   const counted = [...missing!.landTypeCounts.values()].reduce((sum, count) => sum + count, 0)
-  assert.equal(counted + missing!.missingArt.cells, inRangeCells, '格数账要不平：有格子既没类型也没记缺图')
+  assert.equal(counted + missing!.missingArt.cells + emptyCells, inRangeCells, '格数账要不平：有格子既没类型也没记缺图')
 })
