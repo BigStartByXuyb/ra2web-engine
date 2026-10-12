@@ -34,6 +34,8 @@ if len(argv) < 2:
 model_path, out_dir = argv[0], argv[1]
 side = int(argv[2]) if len(argv) > 2 else 720
 samples = int(argv[3]) if len(argv) > 3 else 48
+"""`--clay`：所有材质换成一盏浅灰，用来单独看形体（有没有洞、有没有断）。"""
+clay = "--clay" in sys.argv
 os.makedirs(out_dir, exist_ok=True)
 
 
@@ -62,6 +64,18 @@ def report() -> None:
 
 clear_scene()
 bpy.ops.import_scene.gltf(filepath=model_path)
+if clay:
+    clay_material = bpy.data.materials.new("Clay")
+    clay_material.use_nodes = True
+    principled = clay_material.node_tree.nodes["Principled BSDF"]
+    principled.inputs["Base Color"].default_value = (0.62, 0.62, 0.64, 1.0)
+    principled.inputs["Metallic"].default_value = 0.0
+    principled.inputs["Roughness"].default_value = 0.55
+    for obj in bpy.context.scene.objects:
+        if obj.type != "MESH":
+            continue
+        obj.data.materials.clear()
+        obj.data.materials.append(clay_material)
 report()
 
 low, high = measure()
@@ -73,27 +87,27 @@ for obj in list(bpy.context.scene.objects):
 
 span = max(extent.x, extent.y, extent.z)
 
-# 光照：一盏主光 + 环境补光，方向与引擎的 DEFAULT_LIGHT 同侧，便于与原版精灵对照
+# 光照：主光 + 反向补光 + 中性环境。只用一盏侧光会把朝相机那一面整个压黑，
+# 三视图是拿来读形体与颜色的，要两面都看得清。
 world = bpy.data.worlds.new("审阅环境")
 bpy.context.scene.world = world
 world.use_nodes = True
-world.node_tree.nodes["Background"].inputs[0].default_value = (0.06, 0.07, 0.09, 1.0)
+world.node_tree.nodes["Background"].inputs[0].default_value = (0.30, 0.32, 0.36, 1.0)
 world.node_tree.nodes["Background"].inputs[1].default_value = 1.0
 
 sun_data = bpy.data.lights.new("主光", type="SUN")
-sun_data.energy = 4.0
+sun_data.energy = 3.0
 sun_data.angle = 0.15
 sun = bpy.data.objects.new("主光", sun_data)
 bpy.context.scene.collection.objects.link(sun)
-sun.rotation_euler = (0.9, 0.2, 0.7)
+sun.rotation_euler = (0.75, 0.25, 0.55)
 
-fill_data = bpy.data.lights.new("补光", type="AREA")
-fill_data.energy = span * span * 40
-fill_data.size = span * 2
+fill_data = bpy.data.lights.new("补光", type="SUN")
+fill_data.energy = 1.6
+fill_data.angle = 0.6
 fill = bpy.data.objects.new("补光", fill_data)
 bpy.context.scene.collection.objects.link(fill)
-fill.location = (-span * 1.5, span * 1.5, span * 1.2)
-fill.rotation_euler = (1.0, -0.6, -0.6)
+fill.rotation_euler = (-0.65, -0.3, -0.6)
 
 camera_data = bpy.data.cameras.new("审阅相机")
 camera_data.type = "ORTHO"

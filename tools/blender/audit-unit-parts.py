@@ -159,3 +159,43 @@ def height_profile(bands: int = 17) -> None:
 
 
 height_profile()
+
+
+def face_probe(axis: int = 0, columns: int = 56, rows: int = 20) -> None:
+    """沿 +axis 反方向打射线，印出"从这一侧看到的第一层是什么材质"。
+
+    用来分辨"这块黑是黑材质"还是"这其实看到的是内部/凹槽"。
+    """
+    mesh_objects = [obj for obj in bpy.context.scene.objects if obj.type == "MESH"]
+    across = (axis + 1) % 3
+    up = (axis + 2) % 3
+    names = sorted({mat.name for obj in mesh_objects for mat in obj.data.materials if mat})
+    letter_of = {name: "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[index] for index, name in enumerate(names)}
+    start = whole[axis + 3] + 1.0
+    print(f"[审阅] 沿 {'XYZ'[axis]} 反向看第一层（每个字母一个材质）")
+    for row in range(rows - 1, -1, -1):
+        line = []
+        for column in range(columns):
+            origin = Vector((0.0, 0.0, 0.0))
+            origin[across] = whole[across] + (column + 0.5) / columns * (whole[across + 3] - whole[across])
+            origin[up] = whole[up] + (row + 0.5) / rows * (whole[up + 3] - whole[up])
+            origin[axis] = start
+            direction = Vector((0.0, 0.0, 0.0))
+            direction[axis] = -1.0
+            nearest: tuple[float, str] | None = None
+            for obj in mesh_objects:
+                inverse = obj.matrix_world.inverted()
+                hit, location, _normal, index = obj.ray_cast(inverse @ origin, (inverse.to_3x3() @ direction).normalized())
+                if not hit:
+                    continue
+                world_distance = (obj.matrix_world @ location - origin).length
+                slot = obj.data.polygons[index].material_index
+                material = obj.data.materials[slot] if slot < len(obj.data.materials) else None
+                if nearest is None or world_distance < nearest[0]:
+                    nearest = (world_distance, letter_of.get(material.name if material else "", "?"))
+            line.append(nearest[1] if nearest else ".")
+        print("    " + "".join(line))
+    print("    " + " ".join(f"{letter_of[name]}={name}" for name in names))
+
+
+face_probe()

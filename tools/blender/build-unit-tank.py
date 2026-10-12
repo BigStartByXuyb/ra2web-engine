@@ -1,102 +1,39 @@
-"""参数化造一辆重型坦克（现代工业风），导出 GLB。单个脚本就是这辆车的唯一来源。
+"""重型坦克（HTNK）的参数化形状。共用件在 `unit_build.py`，契约在 `docs/ENGINE-UNIT3D.md`。
 
 用法：
     blender.exe -b -P tools/blender/build-unit-tank.py -- <参考模型.glb> <输出.glb>
 
-参考模型给的是**尺寸与贴地枢轴**：引擎直接把 GLB 顶点当体素坐标用（`webgl-unit3d` 只做轴交换，
-不做缩放），所以新车的包围盒必须与参考一致 —— 长度取 X、宽度取 Y、高度取 Z，最低点 z=0，
-在 X/Y 上居中。参考取原版体素翻模（`htnk-voxel.glb`）就等价于"和游戏里的车一样大"。
+形体定数：
 
-形体要点（都是踩过坑之后的定数）：
-
-- **车体侧面必须与履带相接**：车体半宽 11.8、履带内侧面 11.6，重叠 0.2 保证融合；
-  车体窄了会在正视图里露出两条贯穿的空缝（旧版就是 10.8 / 12.9，缝宽 2.4）。
-- **外侧有裙板**（|y| 16.4..17.0，z 4.4..9.1）把履带上半段与车体上方那条缝也封住，
-  裙板上压一条红色识别带 —— 原版体素侧面就是这条红带。
+- **车体侧面必须与履带相接**：车体半宽 14.2、履带内侧面 11.6，重叠 2.6 保证融合；
+  车体窄了会在正视图里露出两条贯穿的空缝。
+- **侧裙盖住履带上半段**（|y| 14.2..16.9，z 3.5..9.4），外侧压一条红色识别带 ——
+  原版体素侧面就是这条红带。
 - **履带是链**：沿"上直线 → 前导向轮圆弧 → 下直线 → 后主动轮圆弧"等弧长摆 44 节链节，
-  每节按切线转；负重轮 6 对夹在上下链之间，从侧面看得见。
-- 自检不通过**不导出**：包围盒对不上参考、横向还有整段空白、最低点离地，任一条挂了就直接失败。
+  每节按切线转；6 对负重轮夹在上下链之间，从侧面看得见。
+- **纵向分带照原版体素**：履带 0..3.5、车体 2.8..9.4、炮塔 9.4..15.2、舱盖 15.2..17.2。
 """
 
 import math
 import os
 import sys
 
-import bpy
 from mathutils import Vector
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from unit_audit import measure, see_through_bands  # noqa: E402
+from unit_build import (
+    add_box,
+    add_cylinder,
+    finish_and_export,
+    make_material,
+    parse_args,
+    reference_size,
+)
 
-argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
-if len(argv) < 2:
-    print("[建车] 用法：blender.exe -b -P tools/blender/build-unit-tank.py -- <参考.glb> <输出.glb>")
-    sys.exit(0)
-reference_glb, out_glb = argv[0], argv[1]
-
-"""参考尺寸：长度 46 / 宽度 34 / 高度 17.15（原版体素翻模实测值，取不到就退回这套数）。"""
-REFERENCE = Vector((46.0, 34.0, 17.15))
-
-
-def clear_scene() -> None:
-    bpy.ops.wm.read_factory_settings(use_empty=True)
-
-
-def make_material(name: str, color: tuple[float, float, float], metallic: float, roughness: float, emission: float = 0.0):
-    material = bpy.data.materials.new(name)
-    material.use_nodes = True
-    principled = material.node_tree.nodes["Principled BSDF"]
-    principled.inputs["Base Color"].default_value = (*color, 1.0)
-    principled.inputs["Metallic"].default_value = metallic
-    principled.inputs["Roughness"].default_value = roughness
-    if emission > 0:
-        principled.inputs["Emission Color"].default_value = (*color, 1.0)
-        principled.inputs["Emission Strength"].default_value = emission
-    return material
-
-
-def finish(obj, material, bevel: float, segments: int = 2):
-    if bevel > 0:
-        modifier = obj.modifiers.new("bevel", "BEVEL")
-        modifier.width = bevel
-        modifier.segments = segments
-        modifier.limit_method = "ANGLE"
-    obj.data.materials.append(material)
-    return obj
-
-
-def add_box(name, center, size, material, bevel=0.0, rotation=(0.0, 0.0, 0.0)):
-    # 边长直接给 2，再乘 size/2 才等于 size：`size=1` 时乘 size/2 会把盒子砍成一半
-    bpy.ops.mesh.primitive_cube_add(size=2, location=center, rotation=rotation)
-    obj = bpy.context.active_object
-    obj.name = name
-    obj.scale = (size[0] / 2, size[1] / 2, size[2] / 2)
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-    return finish(obj, material, bevel)
-
-
-def add_cylinder(name, center, radius, depth, material, axis="Z", vertices=24, bevel=0.0, rotation_z=0.0):
-    rotation = {"Z": (0, 0, 0), "X": (0, math.pi / 2, 0), "Y": (math.pi / 2, 0, 0)}[axis]
-    bpy.ops.mesh.primitive_cylinder_add(
-        vertices=vertices, radius=radius, depth=depth, location=center, rotation=rotation
-    )
-    obj = bpy.context.active_object
-    obj.name = name
-    if rotation_z:
-        obj.rotation_euler.rotate_axis("Z", rotation_z)
-    return finish(obj, material, bevel)
-
-
-clear_scene()
-bpy.ops.import_scene.gltf(filepath=reference_glb)
-low, high = measure()
-reference = high - low
-if abs(reference.x - REFERENCE.x) > 2 or abs(reference.y - REFERENCE.y) > 2:
-    print(f"[建车] 参考模型尺寸可疑，改用内置值：实测 {tuple(round(v, 2) for v in reference)}")
-    reference = REFERENCE.copy()
-print(f"[建车] 参考尺寸 {tuple(round(v, 2) for v in reference)}")
-
-clear_scene()
+reference_glb, out_glb = parse_args(
+    "[建车] 用法：blender.exe -b -P tools/blender/build-unit-tank.py -- <参考.glb> <输出.glb>"
+)
+reference_low, reference_high = reference_size(reference_glb)
 
 armor = make_material("Armor", (0.30, 0.33, 0.28), 0.90, 0.42)
 armor_light = make_material("ArmorLight", (0.39, 0.42, 0.36), 0.85, 0.36)
@@ -110,8 +47,7 @@ accent = make_material("Accent", (0.62, 0.09, 0.08), 0.30, 0.55)
 track_inner, track_outer = 11.6, 17.0
 track_y = (track_inner + track_outer) / 2
 track_width = track_outer - track_inner
-"""纵向基准照原版体素的高度分带：履带 0..4.9、车体连侧裙全宽 4.9..9.0、炮塔 9.0..14.2、舱盖 14.2..16.2。"""
-track_top = 3.5
+"""纵向基准照原版体素的高度分带。"""
 hull_bottom, hull_top = 2.8, 9.4
 turret_bottom, turret_top = 9.4, 15.2
 sponson_inner, sponson_outer = 14.2, 16.9
@@ -201,7 +137,9 @@ for side in (-1, 1):
         add_box(f"Susp{tag}{index}", (wheel_x, side * 13.2, 2.6), (1.4, 2.6, 0.9), armor_light, bevel=0.1)
 
     # 挡泥板（前后）+ 侧裙装甲（分三块，留缝；外侧压红带）
-    add_box(f"MudFront{tag}", (20.0, side * 14.3, 2.6), (1.3, track_width - 0.8, 2.2), rubber, bevel=0.1, rotation=(0, -0.3, 0))
+    add_box(
+        f"MudFront{tag}", (20.0, side * 14.3, 2.6), (1.3, track_width - 0.8, 2.2), rubber, bevel=0.1, rotation=(0, -0.3, 0)
+    )
     add_box(f"MudRear{tag}", (-20.0, side * 14.3, 2.6), (1.3, track_width - 0.8, 2.2), rubber, bevel=0.1, rotation=(0, 0.3, 0))
     skirt_centre = side * (sponson_inner + sponson_outer) / 2
     skirt_height = hull_top - hull_bottom - 1.4
@@ -229,21 +167,24 @@ for side in (-1, 1):
     tag = "LR"[side > 0]
     add_cylinder(f"Headlamp{tag}", (21.4, side * 14.6, 8.6), 0.8, 0.7, optic, axis="X")
     add_box(f"Tool{tag}", (-6.0, side * 13.4, 9.6), (7.0, 0.8, 0.5), bare_metal)
-    # 首上备用履带块
     for index in range(3):
         add_box(f"SpareLink{tag}{index}", (17.4 - index * 0.75, side * 6.4, 8.1), (0.55, 4.4, 0.75), track_link, bevel=0.06)
 
 """—— 炮塔 ——"""
 turret_mid = (turret_bottom + turret_top) / 2
 add_cylinder("TurretRing", (-1.2, 0.0, turret_bottom - 0.3), 9.0, 1.0, armor_light, vertices=24, bevel=0.15)
-add_cylinder("Turret", (-1.8, 0.0, turret_mid), 9.3, turret_top - turret_bottom - 0.8, armor, vertices=8, bevel=0.75, rotation_z=math.pi / 8)
+add_cylinder(
+    "Turret", (-1.8, 0.0, turret_mid), 9.3, turret_top - turret_bottom - 0.8, armor, vertices=8, bevel=0.75, rotation_z=math.pi / 8
+)
 add_box("TurretFront", (7.0, 0.0, turret_mid + 0.4), (7.4, 16.2, 4.6), armor, bevel=0.6, rotation=(0, -0.40, 0))
 add_box("TurretBustle", (-11.0, 0.0, turret_mid - 0.9), (5.2, 15.0, 3.0), armor, bevel=0.4)
 add_box("Basket", (-13.8, 0.0, turret_mid - 0.5), (1.4, 13.2, 2.4), bare_metal, bevel=0.12)
 add_cylinder("Mantlet", (10.2, 0.0, turret_mid + 0.2), 3.2, 2.6, armor, axis="X", bevel=0.3)
 
 barrel_length, barrel_radius = 11.8, 0.85
-add_cylinder("Barrel", (11.2 + barrel_length / 2, 0.0, turret_mid + 0.2), barrel_radius, barrel_length, bare_metal, axis="X", vertices=20)
+add_cylinder(
+    "Barrel", (11.2 + barrel_length / 2, 0.0, turret_mid + 0.2), barrel_radius, barrel_length, bare_metal, axis="X", vertices=20
+)
 for index in range(4):
     add_cylinder(f"Thermal{index}", (13.8 + index * 1.85, 0.0, turret_mid + 0.2), 1.2, 0.8, bare_metal, axis="X", vertices=20)
 add_cylinder("Muzzle", (21.7, 0.0, turret_mid + 0.2), 1.45, 2.6, bare_metal, axis="X", vertices=20)
@@ -272,72 +213,4 @@ for side in (-1, 1):
             rotation_z=side * 0.35,
         )
 
-"""—— 合并成一个网格、平滑着色 ——"""
-if "--parts" in sys.argv:
-    for want in ("Tub", "Glacis", "SponsonL", "LinkL00", "WheelL0", "SuspL0", "Turret", "SkirtL"):
-        for obj in bpy.context.scene.objects:
-            if obj.name != want or obj.type != "MESH":
-                continue
-            part_low = Vector((float("inf"),) * 3)
-            part_high = Vector((float("-inf"),) * 3)
-            for vertex in obj.data.vertices:
-                world = obj.matrix_world @ vertex.co
-                part_low = Vector((min(part_low[i], world[i]) for i in range(3)))
-                part_high = Vector((max(part_high[i], world[i]) for i in range(3)))
-            print(
-                f"[部件] {want:10s} x {part_low.x:+7.2f}..{part_high.x:+7.2f}"
-                f"  y {part_low.y:+7.2f}..{part_high.y:+7.2f}"
-                f"  z {part_low.z:+6.2f}..{part_high.z:+6.2f}"
-            )
-
-meshes = [obj for obj in bpy.context.scene.objects if obj.type == "MESH"]
-for obj in meshes:
-    bpy.context.view_layer.objects.active = obj
-    while obj.modifiers:
-        bpy.ops.object.modifier_apply(modifier=obj.modifiers[0].name)
-for obj in meshes:
-    obj.select_set(True)
-bpy.context.view_layer.objects.active = meshes[0]
-bpy.ops.object.join()
-tank = bpy.context.active_object
-tank.name = "HTNK"
-bpy.ops.object.shade_auto_smooth(angle=math.radians(32))
-
-"""—— 自检：不达标就不导出 ——"""
-low, high = measure()
-# 整体落到地面：纯平移，不改形状
-tank.location.z -= low.z
-bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)
-low, high = measure()
-size = high - low
-bands = see_through_bands(low, high)
-band = max((end - start for start, end in bands), default=0.0)
-problems: list[str] = []
-for axis, target in (("x", reference.x), ("y", reference.y), ("z", reference.z)):
-    actual = getattr(size, axis)
-    if abs(actual - target) > 0.6:
-        problems.append(f"{axis} 尺寸 {actual:.2f} 偏离参考 {target:.2f}")
-if abs(low.z) > 0.06:
-    problems.append(f"最低点 z={low.z:.2f} 不贴地")
-if abs(low.y + high.y) > 0.3:
-    problems.append(f"横向没居中（{low.y:.2f}..{high.y:.2f}）")
-if band > 0.8:
-    problems.append(f"横向最长空缝 {band:.2f} 过宽，零件没接上")
-
-triangles = 0
-tank.data.calc_loop_triangles()
-triangles = len(tank.data.loop_triangles)
-print(
-    f"[建车] 尺寸 {size.x:.2f}×{size.y:.2f}×{size.z:.2f}，最低点 {low.z:.2f}，"
-    f"横向空缝 {band:.2f}，三角面 {triangles}，材质 {len(tank.data.materials)}"
-)
-if problems:
-    print("[建车] 自检不通过，未导出：")
-    for problem in problems:
-        print(f"  - {problem}")
-    for start, end in bands:
-        print(f"  - 横向空缝 y {start:+.2f}..{end:+.2f}")
-    sys.exit(0)
-
-bpy.ops.export_scene.gltf(filepath=out_glb, export_format="GLB", export_apply=True, use_selection=False)
-print(f"[建车] 已导出 {out_glb}")
+sys.exit(finish_and_export(out_glb, reference_low, reference_high))
