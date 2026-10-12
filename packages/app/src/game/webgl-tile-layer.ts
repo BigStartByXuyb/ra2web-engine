@@ -4,6 +4,7 @@ import { viewScale } from './camera.js'
 import { sortedStructures, structureDepth, structureOrigin, type MapPreview } from './map-preview.js'
 import { WET_REFLECTION } from './post-process.js'
 import { createUnit3dModel, createUnit3dRenderer, type Unit3dModel } from './webgl-unit3d.js'
+import { animatedTileIndex } from './water-animation.js'
 
 /**
  * WebGL 地块层 —— 换渲染后端的第一步 spike。
@@ -58,6 +59,8 @@ export interface GlSceneContext {
   readonly groundCanvas?: HTMLCanvasElement | undefined
   /** 单位：与建筑按同一个等距深度键混排（`depth` 由 2D 路径同一处算）；坐标是"贴地锚点" */
   readonly units: readonly GlUnitQuad[]
+  /** 水面动画当前到第几帧（`MapPreview.water` 给出范围；0 = 第一帧） */
+  readonly waterFrame?: number | undefined
 }
 
 /** 一个贴图四边形：纹理 + 世界落位（地面块与地块共用这一形状） */
@@ -715,7 +718,10 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
           if (x < 0 || y < 0 || x >= preview.width || y >= preview.height) continue
           const cell = preview.cellByIndex.get(y * preview.width + x)
           if (!cell) continue
-          const painted = tileCanvasAt(cell.tileIndex, cell.subTile)
+          const painted = tileCanvasAt(
+            animatedTileIndex(cell.tileIndex, preview.water, context.waterFrame ?? 0),
+            cell.subTile,
+          )
           const centerX = (x - y) * (view.cellWidth / 2)
           const centerY = (x + y) * (view.cellHeight / 2)
           if (groundTexture) {

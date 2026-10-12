@@ -9,6 +9,7 @@ import { drawScene } from './draw.js'
 import { createHud } from './hud.js'
 import { buildMapPreview, type MapPreview } from './map-preview.js'
 import { openOverlayLayer } from './overlay-layer.js'
+import { waterFrameAt, waterTileRange } from './water-animation.js'
 import { drawOfficialPreview } from './official-preview.js'
 import { openStructureLayer } from './structure-layer.js'
 import { openTileLayer } from './tile-layer.js'
@@ -94,6 +95,8 @@ let reflections = false
 let bloom = false
 /** 真 3D 单位（B 路，默认关闭）：`?units3d=1`，模型从 `/packs/units3d/<单位>.glb` 取 */
 let units3d = false
+/** 水面动画（原版水面本来就动）；`?anim=0` 关掉，用于逐像素比对 */
+let animateWater = true
 /** 覆盖素材包（写实/超清包）：按次序优先命中，空数组就是纯原版 */
 let overrides: readonly AssetOverride[] = []
 let accumulator = 0
@@ -249,7 +252,13 @@ async function showMap(bytes: Uint8Array, fileName: string, entryIndex: number):
             map.placements.filter((placement) => placement.kind === 'structure').map((placement) => placement.type),
           )
         : undefined
-    mapPreview = buildMapPreview(map, tileLayer, overlayLayer, structureLayer)
+    mapPreview = buildMapPreview(
+      map,
+      tileLayer,
+      overlayLayer,
+      structureLayer,
+      theater ? waterTileRange(theater.ini) : undefined,
+    )
     drawOfficialPreview(previewBox, previewCanvas, map)
     notice.hidden = true
     battle = undefined
@@ -466,6 +475,7 @@ function frame(now: number): void {
     reflections,
     bloom,
     unit3d: (typeId) => (units3d ? glTiles?.unit3d(typeId) : undefined),
+    waterFrame: waterFrameAt(now, mapPreview?.water, animateWater),
   })
   hud.update(now, { battle, mapPreview, camera, hoverCell })
   requestAnimationFrame(frame)
@@ -578,6 +588,9 @@ bloom = new URLSearchParams(location.search).get('bloom') === '1'
 // 3D 单位默认开：重制画面就是默认档，模型缺失的类型自动退回 8 朝向贴图。
 // 要比对"原版精灵"那条线（两条绘制路径逐像素一致、逐帧位置判据）时用 `?units3d=0`。
 units3d = new URLSearchParams(location.search).get('units3d') !== '0'
+// 水面动画默认开（原版水面本来就在动）。要逐像素比对（同一机位两次运行一致）时用 `?anim=0` ——
+// 动画是按墙钟推进的，开着就不可能跨次截图逐像素相同。
+animateWater = new URLSearchParams(location.search).get('anim') !== '0'
 units3dSelect.value = units3d ? '3d' : '2d'
 void autoLoadFromQuery()
 

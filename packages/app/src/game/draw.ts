@@ -49,6 +49,8 @@ export interface Scene {
   readonly bloom?: boolean
   /** 单位有 3D 模型时用实时 3D 画（B 路）；没有的类型照旧走精灵 */
   readonly unit3d?: ((typeId: string) => Unit3dModel | undefined) | undefined
+  /** 水面动画当前帧（`MapPreview.water` 给范围；两条绘制路径共用同一个帧号） */
+  readonly waterFrame?: number | undefined
 }
 
 const VIEW = RA2_ISO_VIEW
@@ -87,6 +89,7 @@ export function drawScene(scene: Scene): void {
       tileCanvasAt: (tileIndex: number, subTile: number) => preview.tileLayer?.canvasAt(tileIndex, subTile),
       groundCanvas: preview.tileLayer?.groundCanvas(),
       units: scene.battle ? collectUnits(scene.battle, scene.artByUnit, scene.unit3d) : [],
+      waterFrame: scene.waterFrame,
     }
     // 图层次序由 GL 层排定：清屏 → 地面 → 倒影 → 阴影 → 物体 → 雾
     scene.glTiles.render(glContext, {
@@ -105,7 +108,10 @@ export function drawScene(scene: Scene): void {
   }
   if (isEmpty) drawCanvasHint(context, scene.canvas, '先在上面选「RA2.MIX」与地图档案，或点「内置示例战场」')
   if (!battle && scene.mapPreview) {
-    drawMapPreview(context, scene.mapPreview, VIEW, range, { drawTiles: scene.glTiles === undefined })
+    drawMapPreview(context, scene.mapPreview, VIEW, range, {
+      drawTiles: scene.glTiles === undefined,
+      waterFrame: scene.waterFrame,
+    })
     if (scene.hoverCell) strokeCell(context, VIEW, scene.hoverCell, HOVER_COLOR)
   }
   if (battle) {
@@ -115,6 +121,7 @@ export function drawScene(scene: Scene): void {
       drawMapPreview(context, scene.mapPreview, VIEW, range, {
         drawTiles: scene.glTiles === undefined,
         drawStructures: false,
+        waterFrame: scene.waterFrame,
       })
     } else drawTerrain(context, battle.world.grid, VIEW, range)
     if (scene.hoverCell) strokeCell(context, VIEW, scene.hoverCell, HOVER_COLOR)

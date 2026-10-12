@@ -4,6 +4,7 @@ import type { CellRange } from './camera.js'
 import type { OverlayLayer } from './overlay-layer.js'
 import type { StructureLayer, StructureSprite } from './structure-layer.js'
 import type { TileLayer } from './tile-layer.js'
+import { animatedTileIndex, type WaterTileRange } from './water-animation.js'
 
 /**
  * 官方地图预览：在还没有 TMP 地块美术之前，用 `z`（高度）着色画出地图的**形状**。
@@ -34,6 +35,8 @@ export interface MapPreview {
   readonly overlayLayer: OverlayLayer | undefined
   /** 地图预置的建筑；没有美术的已被过滤掉 */
   readonly structures: readonly StructureSprite[]
+  /** 水面地块集的范围：有它才播水面动画（见 `water-animation.ts`） */
+  readonly water: WaterTileRange | undefined
 }
 
 export function buildMapPreview(
@@ -41,6 +44,7 @@ export function buildMapPreview(
   tileLayer: TileLayer | undefined = undefined,
   overlayLayer: OverlayLayer | undefined = undefined,
   structureLayer: StructureLayer | undefined = undefined,
+  water: WaterTileRange | undefined = undefined,
 ): MapPreview {
   const cellByIndex = new Map<number, MapCell>()
   let zMin = Number.POSITIVE_INFINITY
@@ -81,6 +85,7 @@ export function buildMapPreview(
           .map((placement) => structureLayer.spriteAt(placement))
           .filter((sprite): sprite is StructureSprite => sprite !== undefined)
       : [],
+    water,
   }
 }
 
@@ -89,7 +94,11 @@ export function drawMapPreview(
   preview: MapPreview,
   view: IsoView,
   range: CellRange,
-  options: { readonly drawTiles?: boolean; readonly drawStructures?: boolean } = {},
+  options: {
+    readonly drawTiles?: boolean
+    readonly drawStructures?: boolean
+    readonly waterFrame?: number | undefined
+  } = {},
 ): void {
   // 静态地图层（地块 + 覆盖物 + 建筑）交给 WebGL 时整层都不画，避免两层叠着对不齐
   if (options.drawTiles === false) return
@@ -122,7 +131,10 @@ export function drawMapPreview(
       if (!hasCell(x, y)) continue
       const cell = preview.cellByIndex.get(y * preview.width + x)!
       const center = cellToScreen(view, { x, y })
-      const painted = preview.tileLayer?.canvasAt(cell.tileIndex, cell.subTile)
+      const painted = preview.tileLayer?.canvasAt(
+        animatedTileIndex(cell.tileIndex, preview.water, options.waterFrame ?? 0),
+        cell.subTile,
+      )
       if (painted) {
         const scale = view.cellWidth / painted.width
         context.drawImage(

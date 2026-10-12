@@ -28,7 +28,7 @@ export interface UiCase {
 }
 
 /** 默认预设下的 GL 基线：后面的比对都拿它当参照 */
-const GL_BASE = { name: 'base-gl', query: 'renderer=webgl&units3d=0' }
+const GL_BASE = { name: 'base-gl', query: 'renderer=webgl&units3d=0&anim=0' }
 /**
  * 两条绘制路径（canvas2D 与 WebGL）的允许差异。
  *
@@ -68,6 +68,7 @@ async function selectAndMove(session: UiSession): Promise<{
     index: '0',
     battle: '1',
     renderer: 'webgl',
+    anim: '0',
   })
   await page.goto(`${session.origin}/game.html?${params.toString()}`, { waitUntil: 'load' })
   await page.waitForFunction(
@@ -121,7 +122,7 @@ export const cases: readonly UiCase[] = [
     name: 'WebGL 路径与 2D 路径画的是同一张图',
     async run(session) {
       const gl = await session.capture(GL_BASE)
-      const canvas = await session.capture({ name: 'base-2d', battle: true, query: 'units3d=0' })
+      const canvas = await session.capture({ name: 'base-2d', battle: true, query: 'units3d=0&anim=0' })
       const diff = diffImages(canvas, gl)
       assert.ok(
         diff.changed <= DIFF_TOLERANCE,
@@ -134,7 +135,7 @@ export const cases: readonly UiCase[] = [
     name: '阴影开关必须落在画面上',
     async run(session) {
       const base = await session.capture(GL_BASE)
-      const withShadows = await session.capture({ name: 'shadows', query: 'renderer=webgl&shadows=1&units3d=0' })
+      const withShadows = await session.capture({ name: 'shadows', query: 'renderer=webgl&shadows=1&units3d=0&anim=0' })
       const diff = diffImages(base, withShadows)
       assert.ok(diff.changed >= 500, `开阴影只改了 ${diff.changed} 像素，等于没上屏`)
       return `阴影改变 ${diff.changed} 像素`
@@ -144,7 +145,10 @@ export const cases: readonly UiCase[] = [
     name: '倒影开关必须落在画面上',
     async run(session) {
       const base = await session.capture(GL_BASE)
-      const withReflection = await session.capture({ name: 'reflect', query: 'renderer=webgl&reflect=1&units3d=0' })
+      const withReflection = await session.capture({
+        name: 'reflect',
+        query: 'renderer=webgl&reflect=1&units3d=0&anim=0',
+      })
       const diff = diffImages(base, withReflection)
       // 倒影压扁 + 远端渐隐后本来就淡，阈值按"肉眼能看出来"定；几何正确性由单元测试管
       assert.ok(diff.changed >= 150, `开倒影只改了 ${diff.changed} 像素，等于没上屏`)
@@ -156,7 +160,7 @@ export const cases: readonly UiCase[] = [
     async run(session) {
       const glWet = await session.capture({
         name: 'wet-gl',
-        query: 'renderer=webgl&reflect=1&units3d=0',
+        query: 'renderer=webgl&reflect=1&units3d=0&anim=0',
         quality: 'wetNight',
       })
       const canvasWet = await session.capture({ name: 'wet-2d', quality: 'wetNight' })
@@ -174,7 +178,7 @@ export const cases: readonly UiCase[] = [
     name: '泛光必须是提亮，不是整体压暗',
     async run(session) {
       const base = await session.capture(GL_BASE)
-      const bloom = await session.capture({ name: 'bloom', query: 'renderer=webgl&bloom=1&units3d=0' })
+      const bloom = await session.capture({ name: 'bloom', query: 'renderer=webgl&bloom=1&units3d=0&anim=0' })
       const diff = diffImages(base, bloom)
       const before = meanColor(base, { x: 0, y: 0, w: VIEWPORT.width, h: VIEWPORT.height })
       const after = meanColor(bloom, { x: 0, y: 0, w: VIEWPORT.width, h: VIEWPORT.height })
@@ -205,7 +209,7 @@ export const cases: readonly UiCase[] = [
     name: '3D 单位只替换单位，且与精灵位置重合',
     async run(session) {
       const sprites = await session.capture(GL_BASE)
-      const models = await session.capture({ name: 'units3d', query: 'renderer=webgl&units3d=1' })
+      const models = await session.capture({ name: 'units3d', query: 'renderer=webgl&units3d=1&anim=0' })
       const diff = diffImages(sprites, models)
       assert.ok(diff.changed >= 500, `开 3D 单位只改了 ${diff.changed} 像素：3D 层没画出来`)
       // 只换了单位：差异必须集中在单位那一带（高度就是单位自身高度），地块与建筑逐像素不动。
@@ -303,11 +307,16 @@ export const cases: readonly UiCase[] = [
         index: '0',
         battle: '1',
         renderer: 'webgl',
+        anim: '0',
       })
       await page.goto(`${session.origin}/game.html?${params.toString()}`, { waitUntil: 'load' })
-      await page.waitForFunction(() => /单位 \d+ 辆/.test(document.getElementById('status')?.textContent ?? ''), undefined, {
-        timeout: 300000,
-      })
+      await page.waitForFunction(
+        () => /单位 \d+ 辆/.test(document.getElementById('status')?.textContent ?? ''),
+        undefined,
+        {
+          timeout: 300000,
+        },
+      )
       // 等迷雾揭开的淡入走完：那一段每帧都在变，会把"只换了单位"这条判据喂满
       await page.waitForTimeout(4000)
       const initial = await page.evaluate(() => (document.getElementById('units3d') as HTMLSelectElement).value)
@@ -320,11 +329,53 @@ export const cases: readonly UiCase[] = [
 
       const diff = diffImages(sprites, models)
       assert.ok(diff.changed >= 500, `切到贴图档只改了 ${diff.changed} 像素：开关没接到画面上`)
-      assert.ok(
-        diff.box.height <= 140,
-        `差异高度 ${diff.box.height} 太大：换画法动了单位以外的东西（单位只占一条带）`,
-      )
+      assert.ok(diff.box.height <= 140, `差异高度 ${diff.box.height} 太大：换画法动了单位以外的东西（单位只占一条带）`)
       return `默认 ${initial}，切换后变化 ${diff.changed} 像素，范围 ${diff.box.width}×${diff.box.height}`
+    },
+  },
+  {
+    name: '水面在动，关掉动画后逐像素静止',
+    async run(session) {
+      const page = session.page
+      const load = async (anim: string): Promise<void> => {
+        const params = new URLSearchParams({
+          mix: '/pack/RA2.MIX',
+          map: '/pack/MULTI.MIX',
+          index: '57',
+          battle: '1',
+          renderer: 'webgl',
+          anim,
+        })
+        await page.goto(`${session.origin}/game.html?${params.toString()}`, { waitUntil: 'load' })
+        await page.waitForFunction(
+          () => /单位 \d+ 辆/.test(document.getElementById('status')?.textContent ?? ''),
+          undefined,
+          {
+            timeout: 300000,
+          },
+        )
+        // 等迷雾揭开的淡入走完，否则比到的全是迷雾
+        await page.waitForTimeout(4000)
+      }
+
+      await load('1')
+      const movingFirst = await session.snapshot('water-on-a')
+      await page.waitForTimeout(300)
+      const movingSecond = await session.snapshot('water-on-b')
+      const moving = diffImages(movingFirst, movingSecond)
+      assert.ok(moving.changed >= 200, `开动画两次截图只差 ${moving.changed} 像素：水面没在动`)
+
+      await load('0')
+      const stillFirst = await session.snapshot('water-off-a')
+      await page.waitForTimeout(300)
+      const stillSecond = await session.snapshot('water-off-b')
+      const still = diffImages(stillFirst, stillSecond)
+      assert.equal(
+        still.changed,
+        0,
+        `关掉动画后画面还在变（${still.changed} 像素，首个在 ${JSON.stringify(still.sample)}）：说明有东西按墙钟推进`,
+      )
+      return `开动画 300 毫秒内变化 ${moving.changed} 像素，关动画后 0 像素`
     },
   },
   {
@@ -337,9 +388,15 @@ export const cases: readonly UiCase[] = [
           map,
           mapIndex,
           battle: false,
-          query: 'renderer=webgl',
+          query: 'renderer=webgl&anim=0',
         })
-        const canvas = await session.capture({ name: `theater-${mapIndex}-2d`, map, mapIndex, battle: false })
+        const canvas = await session.capture({
+          name: `theater-${mapIndex}-2d`,
+          map,
+          mapIndex,
+          battle: false,
+          query: 'anim=0',
+        })
         const status = session.statusText(`theater-${mapIndex}-gl`) ?? ''
         const drawn = /建筑 \d+ 个（画出 (\d+) 个）/.exec(status)
         assert.ok(drawn, `${theater}地图没有报出建筑数，状态行是「${status}」`)
