@@ -23,6 +23,16 @@ export {
 } from './grid.js'
 export type { Cell, Grid } from './grid.js'
 export { findPath } from './path.js'
+export {
+  CELL_STEPS,
+  DIRECTIONS,
+  DIRECTION_COUNT,
+  FACING_FULL,
+  FACING_PER_STEP,
+  dirFromDelta,
+  dirFromFacing,
+  facingFromDir,
+} from './direction.js'
 export { advanceAlongPath, createUnit, unitCell } from './unit.js'
 export type { Unit } from './unit.js'
 export type { Command, CommandInput } from './command.js'

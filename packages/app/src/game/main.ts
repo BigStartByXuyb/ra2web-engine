@@ -1,7 +1,7 @@
 import { RA2_ISO_VIEW, cellToScreen } from '@ra2web/render'
 import { openTheater, type AssetOverride } from '@ra2web/assets'
 import { readMap, readMixEntry, readMixIndex, type MapFile } from '@ra2web/formats'
-import { TICKS_PER_SECOND, enqueueCommand, fromFixed, fromFixedExact, step, type Cell } from '@ra2web/sim'
+import { TICKS_PER_SECOND, dirFromFacing, enqueueCommand, fromFixed, step, type Cell } from '@ra2web/sim'
 import { createBattle, createDemoBattle, type Battle } from './battle.js'
 import { planMapBattle } from './map-battle.js'
 import { MIN_ZOOM, canvasToCell, canvasToWorld, createCamera, viewScale, zoomAt, type Camera } from './camera.js'
@@ -16,7 +16,7 @@ import { openTileLayer } from './tile-layer.js'
 import { loadHdTiles } from './hd-tiles.js'
 import { pickUnit } from './picking.js'
 import { createGlTileLayer, type GlTileLayer } from './webgl-tile-layer.js'
-import { facingFromDelta, buildDemoUnitArt, loadUnitArt, type QualityPreset, type UnitArt } from './unit-art.js'
+import { buildDemoUnitArt, loadUnitArt, type QualityPreset, type UnitArt } from './unit-art.js'
 
 /**
  * 战场入口：一局可玩的切片。
@@ -73,7 +73,6 @@ const hud = createHud({
 })
 
 const camera: Camera = createCamera()
-const lastPosition: Array<{ x: number; y: number } | undefined> = []
 let battle: Battle | undefined
 let mapPreview: MapPreview | undefined
 let gameArchive: Uint8Array | undefined
@@ -386,7 +385,6 @@ async function loadGameArchive(bytes: Uint8Array): Promise<void> {
 function activate(created: Battle, message: string, terrain: MapPreview | undefined = undefined): void {
   battle = created
   mapPreview = terrain
-  lastPosition.length = 0
   status.textContent = message
   void loadUnit3dModels(created)
   const first = created.world.units[0]
@@ -481,17 +479,13 @@ function frame(now: number): void {
   requestAnimationFrame(frame)
 }
 
-/** 朝向取自两帧之间的位移：模拟只推进位置，朝向属于表现层。 */
+/** 朝向读模拟层的 facing（16 位角顺时针 0=北），折成渲染帧序号。 */
 function updateFacings(active: Battle): void {
   active.world.units.forEach((unit, index) => {
-    // 用定点坐标的精确值：截断成整格的话，朝向要等跨过格线才转一次
-    const x = fromFixedExact(unit.x)
-    const y = fromFixedExact(unit.y)
-    const previous = lastPosition[index]
-    if (previous && (previous.x !== x || previous.y !== y)) {
-      active.facingByUnit[index] = facingFromDelta(x - previous.x, y - previous.y)
-    }
-    lastPosition[index] = { x, y }
+    const dir = dirFromFacing(unit.facing)
+    // sim 的 0 = 北；渲染器的帧 0 = 模型前方 +x（东）。北=帧 6、东=帧 0，故 +6 对齐。
+    // 这个偏移对应渲染器的自定约定（原版 HVA 朝向编号对应关系未核，见 render 包 README）。
+    active.facingByUnit[index] = (dir + 6) % 8
   })
 }
 
