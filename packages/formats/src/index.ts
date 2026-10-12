@@ -17,7 +17,15 @@ export { decompressLzo1x } from './lzo1x.js'
 export { decompressFormat80 } from './format80.js'
 export { readPackedBlocks } from './packed-blocks.js'
 export type { PackedBlockCodec } from './packed-blocks.js'
-export { MAP_RECORD_BYTES, OVERLAY_GRID_STRIDE, OVERLAY_NONE, PLACEMENT_UNITS_PER_CELL, readMap } from './map.js'
+export {
+  ISO_RECORD_SENTINEL,
+  MAP_RECORD_BYTES,
+  OVERLAY_GRID_STRIDE,
+  OVERLAY_NONE,
+  PLACEMENT_UNITS_PER_CELL,
+  TILE_NONE,
+  readMap,
+} from './map.js'
 export type { MapBounds, MapCell, MapFile, MapOverlay, MapPlacement, MapPreviewImage, PlacementKind } from './map.js'
 export { readTmp, tmpTileRows } from './tmp.js'
 export type { TmpFile, TmpRow, TmpSubTile } from './tmp.js'

@@ -1,5 +1,5 @@
 import { cellToScreen, type IsoView } from '@ra2web/render'
-import type { MapCell, MapFile } from '@ra2web/formats'
+import { TILE_NONE, type MapCell, type MapFile } from '@ra2web/formats'
 import type { CellRange } from './camera.js'
 import type { OverlayLayer } from './overlay-layer.js'
 import type { StructureLayer, StructureSprite } from './structure-layer.js'
@@ -54,14 +54,13 @@ export function buildMapPreview(
     overlayLayer,
     structures: structureLayer
       ? map.placements
-          .filter(
-            (placement) =>
-              placement.kind === 'structure' &&
-              placement.cellX >= 0 &&
-              placement.cellY >= 0 &&
-              placement.cellX < map.width &&
-              placement.cellY < map.height,
-          )
+          .filter((placement) => {
+            if (placement.kind !== 'structure') return false
+            // 只画落在**真有地块**的格上的对象：原版对落在空格（`TILE_NONE`）或格空间之外的对象就是忽略，
+            // 画出来会看到建筑飘在地图外面（实测这张图 25 个放置里有 5 个是这种）。
+            const cell = cellByIndex.get(placement.cellY * map.cellBounds.right + placement.cellX)
+            return cell !== undefined && cell.tileIndex !== TILE_NONE
+          })
           .map((placement) => structureLayer.spriteAt(placement))
           .filter((sprite): sprite is StructureSprite => sprite !== undefined)
       : [],

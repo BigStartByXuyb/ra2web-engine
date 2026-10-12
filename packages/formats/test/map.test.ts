@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { test } from 'node:test'
 import { readMixEntry, readMixIndex } from '../src/mix.js'
-import { MAP_RECORD_BYTES, readMap } from '../src/map.js'
+import { MAP_RECORD_BYTES, TILE_NONE, readMap } from '../src/map.js'
 
 /**
  * 合成地图：3×2 → 记录数 (2×3−1)×2 = 10 条、原始 110 字节。
@@ -144,7 +144,7 @@ test('没有覆盖物段时不报错，覆盖物全部为空', () => {
   assert.deepEqual(map.placements, [], '没有放置段时没有对象')
 })
 
-test('合成地图：建筑坐标是半格单位', () => {
+test('合成地图：建筑与单位坐标就是格坐标', () => {
   const text = new Uint8Array(
     Buffer.from(
       [
@@ -169,8 +169,8 @@ test('合成地图：建筑坐标是半格单位', () => {
     owner: 'Neutral',
     type: 'CABHUT',
     health: 256,
-    cellX: 10,
-    cellY: 15,
+    cellX: 20,
+    cellY: 30,
     facing: 0,
   })
   assert.deepEqual(map.placements[1], {
@@ -178,8 +178,8 @@ test('合成地图：建筑坐标是半格单位', () => {
     owner: 'BadGuy1',
     type: 'HTNK',
     health: 256,
-    cellX: 3,
-    cellY: 4,
+    cellX: 7,
+    cellY: 9,
     facing: 64,
   })
 })
@@ -285,19 +285,26 @@ test('原版 MULTI.MIX 的官方预览图能解出', { skip: multiPath ? false :
   assert.deepEqual([...map.preview!.rgb.subarray(0, 3)], [176, 184, 80], '首像素是草地绿')
 })
 
-test('原版地图的建筑坐标按半格解释才全部落在图内', { skip: multiPath ? false : '同目录没有 MULTI.MIX' }, () => {
+test('原版地图的建筑站在真有地块的格上（坐标就是格坐标）', { skip: multiPath ? false : '同目录没有 MULTI.MIX' }, () => {
   const archive = new Uint8Array(fs.readFileSync(multiPath!))
   const index = readMixIndex(archive)
   const map = readMap(readMixEntry(archive, index, index.entries[7]!))
   const structures = map.placements.filter((placement) => placement.kind === 'structure')
   assert.equal(structures.length, 38)
 
-  const inside = structures.filter(
-    (structure) =>
-      structure.cellX >= 0 && structure.cellY >= 0 && structure.cellX < map.width && structure.cellY < map.height,
+  // 判据：民用建筑必须站在**真有地块**的格上（原版对落在空格 `TILE_NONE` 或格空间之外的对象就是忽略）。
+  // 旧口径"坐标除以 2"只有少数命中，建筑会整体偏出地形、画面上表现为"飘在地图外面"。
+  const tileByCell = new Map<string, number>()
+  for (const cell of map.cells) tileByCell.set(`${cell.cellX},${cell.cellY}`, cell.tileIndex)
+  const onTerrain = structures.filter((structure) => {
+    const tile = tileByCell.get(`${structure.cellX},${structure.cellY}`)
+    return tile !== undefined && tile !== TILE_NONE
+  })
+  assert.ok(
+    onTerrain.length >= Math.ceil(structures.length * 0.7),
+    `站在真有地块上的建筑只有 ${onTerrain.length}/${structures.length}`,
   )
-  assert.equal(inside.length, structures.length, '半格解释下建筑应当全部落在图内')
-  // 文件里第一栋是 `CABHUT,256,31,53` → 半格换算 → (15, 26)
-  assert.deepEqual([structures[0]!.type, structures[0]!.cellX, structures[0]!.cellY], ['CABHUT', 15, 26])
+  // 文件里第一栋是 `CABHUT,256,31,53` → 原值就是格坐标 → (31, 53)
+  assert.deepEqual([structures[0]!.type, structures[0]!.cellX, structures[0]!.cellY], ['CABHUT', 31, 53])
   assert.ok(new Set(structures.map((structure) => structure.type)).size > 1)
 })

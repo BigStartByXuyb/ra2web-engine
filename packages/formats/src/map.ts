@@ -30,8 +30,14 @@ export const TILE_NONE = 0xffff
 export const OVERLAY_GRID_STRIDE = 512
 /** 覆盖物网格里的"无覆盖物"值。 */
 export const OVERLAY_NONE = 255
-/** 地图上摆放的建筑/单位坐标是**半格单位**：格子 = 坐标 / 2。 */
-export const PLACEMENT_UNITS_PER_CELL = 2
+/**
+ * 地图上摆放的建筑/单位坐标**本来就是格坐标**（与地形记录同一套格空间，见 `readCells`），所以倍率是 1。
+ *
+ * 判定依据：拿地图自带的 25 个民用建筑当判据（它们必须站在**真有地块**的格上）——
+ * 原值当格坐标 20/25 命中、只有 2 个在水上；除以 2 只剩 6/25 命中，建筑会整体偏出地形、
+ * 表现为"飘在地图外面"。
+ */
+export const PLACEMENT_UNITS_PER_CELL = 1
 
 export type PlacementKind = 'structure' | 'unit' | 'infantry' | 'aircraft' | 'terrain'
 
