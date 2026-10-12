@@ -72,6 +72,11 @@ const dark = pickWhere((ratio) => ratio < 0.62, main.color, 0.5)
 const darkest = pickWhere((ratio) => ratio < 0.45, dark, 0.55)
 const bright = pickWhere((ratio) => ratio > 1.25, main.color, 1.45)
 const lighter = pickWhere((ratio) => ratio > 1.05 && ratio <= 1.25, main.color, 1.15)
+/**
+ * 炮管/机件那类"枪铁色"：取原版里中等偏暗、又不是履带那么黑的那一簇
+ * （官方图标里炮管明显比车体暗，直接用车体的亮簇会显得发白）。
+ */
+const gunmetal = pickWhere((ratio) => ratio >= 0.45 && ratio < 0.62, dark, 0.62)
 /** 识别色（红星/红带）：出现最多的"明显偏红"那一簇。 */
 const accentHit = ranked.find((entry) => entry.color[0] - Math.max(entry.color[1], entry.color[2]) > 40)
 const accent: [number, number, number] = accentHit
@@ -93,13 +98,13 @@ const scale = (color: readonly [number, number, number], factor: number): [numbe
 const MATERIALS: Record<string, [number, number, number]> = {
   Armor: main.color,
   ArmorLight: lighter,
-  BareMetal: bright,
+  BareMetal: gunmetal,
   TrackLink: dark,
   Rubber: darkest,
 }
 
 /** 不贴图的那几种材质（识别色/光学件）只把颜色写进 colors.json，Blender 侧按它设纯色。 */
-const FLAT_COLORS: Record<string, [number, number, number]> = { Accent: accent, Optic: optic }
+const FLAT_COLORS: Record<string, [number, number, number]> = { Accent: accent, Optic: bright }
 
 console.log(`[单位配色] ${unitId} @ ${theaterName}：${histogram.size} 种颜色、${total} 个体素`)
 console.log(
@@ -146,6 +151,50 @@ for (const [material, color] of Object.entries(MATERIALS)) {
     out[at] = clamp(grey * color[0] * factor)
     out[at + 1] = clamp(grey * color[1] * factor)
     out[at + 2] = clamp(grey * color[2] * factor)
+  }
+  // 面板缝、铆钉、磨损：官方图标那种"华丽"靠的就是这些线脚。
+  // 贴在 8 体素/张的密度上，所以一条缝大约隔 4 个体素，正好是装甲板的尺度。
+  const shade = (x: number, y: number, scale: number): void => {
+    const at = ((y % SIZE) * SIZE + (x % SIZE)) * 4
+    for (let channel = 0; channel < 3; channel++) out[at + channel] = clamp(out[at + channel]! * scale)
+  }
+  const cell = SIZE / 2
+  /** 一条 1 像素宽的缝 + 沿线铆钉；`vertical` 决定方向。 */
+  const seam = (position: number, vertical: boolean): void => {
+    for (let step = 0; step < SIZE; step++) {
+      const x = vertical ? position : step
+      const y = vertical ? step : position
+      shade(x, y, 0.72)
+      shade(vertical ? x + 1 : x, vertical ? y : y + 1, 1.12)
+      if (step % 24 === 12) {
+        for (const dx of [-2, -1, 0, 1, 2]) {
+          for (const dy of [-2, -1, 0, 1, 2]) {
+            if (dx * dx + dy * dy > 4) continue
+            shade(x + dx, y + dy, dx === 0 && dy === 0 ? 1.22 : 1.08)
+          }
+        }
+      }
+    }
+  }
+  for (let line = 0; line < SIZE; line += cell) {
+    seam(line, true)
+    seam((line + cell / 2) % SIZE, false)
+  }
+  /** 磨损：缝附近的划痕与掉漆，用确定性的伪随机，跑两次结果一样。 */
+  let seed = 12345
+  const random = (): number => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff
+    return seed / 0x7fffffff
+  }
+  for (let index = 0; index < SIZE * 2; index++) {
+    const x = Math.floor(random() * SIZE)
+    const y = Math.floor(random() * SIZE)
+    const length = 4 + Math.floor(random() * 14)
+    const vertical = random() < 0.5
+    const dark = random() < 0.65
+    for (let step = 0; step < length; step++) {
+      shade(vertical ? x : x + step, vertical ? y + step : y, dark ? 0.86 : 1.1)
+    }
   }
   fs.writeFileSync(`${outDir}/${material}.png`, writePng(SIZE, SIZE, out))
 }

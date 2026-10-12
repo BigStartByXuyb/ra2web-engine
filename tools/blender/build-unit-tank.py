@@ -164,8 +164,11 @@ for side in (-1, 1):
             armor_light,
             bevel=0.5,
         )
-    add_box(f"Stripe{tag}", (-4.0, side * (sponson_outer - 0.02), 4.0), (14.0, 0.14, 0.9), accent)
-    add_box(f"Star{tag}", (-12.4, side * (sponson_outer + 0.04), 5.6), (2.2, 0.16, 2.1), accent)
+    # 红色标识按原版体素的位置刷：下侧三块红块 + 上沿一条长红带
+    # （原版 813/6317 个红色体素，z 只落在 7..14 这一带）
+    for index, centre_x in enumerate((-13.0, -1.5, 11.5)):
+        add_box(f"Stripe{tag}{index}", (centre_x, side * (sponson_outer - 0.02), 4.6), (5.4, 0.14, 1.1), accent)
+    add_box(f"HullBand{tag}", (-2.0, side * (sponson_inner - 0.02), 8.8), (34.0, 0.14, 1.0), accent)
 
 """—— 车体 ——"""
 add_box("Tub", (0.0, 0.0, (hull_bottom + hull_top) / 2), (39.0, sponson_inner * 2, hull_top - hull_bottom), armor, bevel=0.8)
