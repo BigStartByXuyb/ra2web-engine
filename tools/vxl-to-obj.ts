@@ -4,7 +4,11 @@ import { loadUnitModel } from './game-assets.js'
 
 // 原版单位体素 → OBJ + MTL，给 Blender 做高模与材质（3D 材质线的入口）。
 //
-// 用法：tsx tools/vxl-to-obj.ts <RA2.MIX> <out.obj> <单位ID> [--theater=temperate] [--scale=3]
+// 用法：tsx tools/vxl-to-obj.ts <RA2.MIX> <out.obj> <单位ID> [--theater=temperate] [--scale=1]
+//
+// `--scale` 默认 **1**：`docs/ENGINE-UNIT3D.md` 的契约要求参考模型落在**体素空间**，
+// 建模脚本的自检也拿它当尺寸基准（例如 HTNK 46×34×21）。默认值曾经是 3，
+// 漏写就会拿到三倍尺寸的参考，于是每次构建都卡在"车长偏离参考"上。
 //
 // 只导出**表面体素**（六邻都实心的内部体素不导）；每个调色板颜色一个材质（`c<索引>`，Kd 取该颜色），
 // Blender 里换材质就是换这几个槽位，这正是"材质可替换"要在美术侧留的口子。
@@ -12,13 +16,13 @@ import { loadUnitModel } from './game-assets.js'
 // 水平以模型中心为 0、竖直以底面为 0，与引擎精灵的锚点口径一致。
 const [archivePath, outPath, unitId, ...rest] = process.argv.slice(2)
 if (!archivePath || !outPath || !unitId) {
-  console.error('usage: tsx tools/vxl-to-obj.ts <RA2.MIX> <out.obj> <unitId> [--theater=temperate] [--scale=3]')
+  console.error('usage: tsx tools/vxl-to-obj.ts <RA2.MIX> <out.obj> <unitId> [--theater=temperate] [--scale=1]')
   process.exit(1)
 }
 const option = (name: string, fallback: string): string =>
   rest.find((value) => value.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback
 const theater = option('theater', 'temperate')
-const scale = Number(option('scale', '3'))
+const scale = Number(option('scale', '1'))
 
 const archive = new Uint8Array(fs.readFileSync(archivePath))
 const { model, palette } = loadUnitModel(archive, unitId, theater)
