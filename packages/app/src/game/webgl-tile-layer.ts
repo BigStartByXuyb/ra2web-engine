@@ -249,6 +249,11 @@ interface GroundedQuad {
   readonly bottomY: number
   readonly groundY: number
   readonly depth: number
+  /** 贴地锚点的世界 X（单位才有；建筑的落位用 originX 就够） */
+  readonly worldX?: number | undefined
+  /** 有 3D 模型时，本体与倒影都按模型画 */
+  readonly model?: Unit3dModel | undefined
+  readonly facing?: number | undefined
 }
 
 /** 倒影四边形的世界落位：`top` 是世界坐标里翻转后的上边（`height` 为负表示上下翻转）。 */
@@ -319,6 +324,9 @@ function groundedQuads(context: GlSceneContext): {
       bottomY: unit.worldY + (unit.source.height - unit.anchorY),
       groundY: unit.worldY,
       depth: unit.depth,
+      worldX: unit.worldX,
+      model: unit.model,
+      facing: unit.facing,
     })
   }
   return { structures: structures_, units }
@@ -757,7 +765,30 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       }
       // 地面先落地：倒影与阴影压在地面之上、物体之下，所以地面这一批必须先画掉
       flushBatch(cornerLocation, originLocation, sizeLocation)
-      if (effects.reflections) drawReflections(camera, grounded, view)
+      if (effects.reflections) {
+        // 精灵倒影：建筑，以及没有 3D 模型的单位
+        drawReflections(
+          camera,
+          grounded.filter((quad) => quad.model === undefined),
+          view,
+        )
+        // 有模型的单位：倒影由**模型本体**翻，不能拿精灵轮廓去镜像 —— 否则倒影的形状与实体不是一个东西
+        for (const quad of units) {
+          if (!quad.model || quad.worldX === undefined) continue
+          unitRenderer.draw(
+            camera,
+            [{ model: quad.model, worldX: quad.worldX, worldY: quad.groundY, facing: quad.facing ?? 0 }],
+            {
+              // 镜像线取**贴图底边**，不是格心锚点：坦克的前角本来就伸到锚点下方，
+              // 绕锚点翻会把整幅镜像顶回车身里，于是"倒影看不见"。
+              groundY: quad.bottomY,
+              squash: WET_REFLECTION.squash,
+              alpha: WET_REFLECTION.alpha,
+            },
+          )
+        }
+        useMainProgram(camera)
+      }
       if (effects.shadows) drawShadows(camera, grounded)
       drawOrderedObjects(camera, structures, context.units)
       if (effects.fog) drawFog()

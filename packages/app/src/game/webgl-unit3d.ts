@@ -43,9 +43,16 @@ export interface Unit3dDraw {
   readonly facing: number
 }
 
+/** 倒影参数：关于贴地线翻转、压扁、抬高，并整体变淡 */
+export interface Unit3dMirror {
+  readonly groundY: number
+  readonly squash: number
+  readonly alpha: number
+}
+
 export interface Unit3dRenderer {
   readonly ready: boolean
-  draw(camera: Camera, draws: readonly Unit3dDraw[]): void
+  draw(camera: Camera, draws: readonly Unit3dDraw[], mirror?: Unit3dMirror): void
 }
 
 const VERTEX_SHADER = `
@@ -57,6 +64,8 @@ uniform float u_facing;
 uniform vec2 u_camera;
 uniform float u_scale;
 uniform vec2 u_viewport;
+// 倒影：贴地线与压扁比例。压扁比例 0 表示正常画物体（不是倒影）。
+uniform vec3 u_mirror;
 varying vec3 v_normal;
 varying vec2 v_uv;
 varying float v_height;
@@ -70,6 +79,13 @@ void main() {
   v_height = position.z;
   // 引擎的精灵投影：screenX = x − y，screenY = (x + y)/2 − z
   vec2 world = u_origin + vec2(position.x - position.y, (position.x + position.y) * 0.5 - position.z);
+  // 倒影：关于贴地线翻转，再按"离贴地线的距离"压扁。
+  // **不做整体平移**：整体抬一段会把接触点也抬上去，镜像就整个躲进物体后面看不见了
+  // （实测抬 4 像素就已经被车身盖住，抬 40 像素则整层露在物体上方）。
+  if (u_mirror.z > 0.0) {
+    float mirrorY = u_mirror.x;
+    world.y = mirrorY + u_mirror.y * (mirrorY - world.y);
+  }
   vec2 pixel = (world - u_camera) * u_scale;
   // 深度用"沿视线方向的距离"近似，够在同一单位内部做前后遮挡
   float depth = (position.x + position.y + position.z) / 1024.0;
@@ -83,6 +99,7 @@ uniform float u_metallic;
 uniform float u_roughness;
 uniform sampler2D u_texture;
 uniform float u_hasTexture;
+uniform float u_alpha;
 varying vec3 v_normal;
 varying vec2 v_uv;
 varying float v_height;
@@ -108,7 +125,8 @@ void main() {
     albedo * (ambient + lambert * 0.82) + tint * specular * 0.9 + vec3(0.34, 0.40, 0.50) * fresnel * 0.28;
   // 接触阴影：贴地 4 体素内渐暗到 0.72，车体、履带与地面的接缝因此"咬"在一起
   color *= mix(0.72, 1.0, clamp(v_height / 4.0, 0.0, 1.0));
-  gl_FragColor = vec4(color, 1.0);
+  // 预乘 alpha：倒影按 u_alpha 变淡，本体是 1.0
+  gl_FragColor = vec4(color * u_alpha, u_alpha);
 }`
 
 function compile(gl: WebGLRenderingContext, type: number, source: string): WebGLShader | undefined {
@@ -316,18 +334,29 @@ export function createUnit3dRenderer(gl: WebGLRenderingContext): Unit3dRenderer 
   const cameraLocation = gl.getUniformLocation(program, 'u_camera')
   const scaleLocation = gl.getUniformLocation(program, 'u_scale')
   const viewportLocation = gl.getUniformLocation(program, 'u_viewport')
+  const mirrorLocation = gl.getUniformLocation(program, 'u_mirror')
+  const alphaLocation = gl.getUniformLocation(program, 'u_alpha')
   const baseColorLocation = gl.getUniformLocation(program, 'u_baseColor')
   const metallicLocation = gl.getUniformLocation(program, 'u_metallic')
   const roughnessLocation = gl.getUniformLocation(program, 'u_roughness')
 
   return {
     ready: true,
-    draw(camera, draws) {
+    /**
+     * 画一批 3D 单位。
+     *
+     * `mirror` 给了就是**倒影**：物体关于贴地线翻转、按 squash 压扁、抬 lift、整体乘 alpha。
+     * 倒影必须由模型自己翻，不能拿精灵轮廓去镜像 —— 否则倒影的形状和实体不是一个东西。
+     */
+    draw(camera, draws, mirror) {
       if (draws.length === 0) return
       gl.useProgram(program)
       gl.uniform2f(cameraLocation, camera.x, camera.y)
       gl.uniform1f(scaleLocation, viewScale(camera))
       gl.uniform2f(viewportLocation, gl.drawingBufferWidth, gl.drawingBufferHeight)
+      // 第三项只当"是不是倒影"的开关用（0 = 画本体）
+      gl.uniform3f(mirrorLocation, mirror?.groundY ?? 0, mirror?.squash ?? 0, mirror ? 1 : 0)
+      gl.uniform1f(alphaLocation, mirror?.alpha ?? 1)
       gl.enable(gl.DEPTH_TEST)
       gl.depthFunc(gl.LESS)
       gl.clear(gl.DEPTH_BUFFER_BIT)
