@@ -512,6 +512,9 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       if (models.length === 0) return
       unitRenderer.draw(camera, models)
       models = []
+      // 3D 渲染器改过 program / 混合 / 纹理绑定，切回精灵前必须把主程序状态建回来，
+      // 否则"排在第一个 3D 单位之后"的精灵会被 3D 那套状态画成消失或错乱
+      useMainProgram(camera)
     }
 
     for (const item of order) {
