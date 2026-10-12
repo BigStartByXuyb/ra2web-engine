@@ -500,6 +500,9 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       })),
     ].sort(compareDepthOrder)
 
+    // 上一批（地块/覆盖物）的 run 还留在批里，`flushBatch` 不清批 —— 不先 reset 的话，
+    // 这一 pass 的第一次 flush 会把整片地块按主程序重画一遍，正好盖在刚画好的 3D 单位上。
+    resetBatch()
     let batchDirty = false
     let models: { model: Unit3dModel; worldX: number; worldY: number; facing: number }[] = []
     const flushSprites = (): void => {
@@ -640,6 +643,9 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       const { preview, camera, range, view, tileCanvasAt } = context
       gl.clearColor(0, 0, 0, 0)
       gl.clear(gl.COLOR_BUFFER_BIT)
+      // 这一帧的深度缓冲只由 3D 单位那一段用（自己清、自己写、画完关掉写入）：
+      // 地块/精灵/倒影/阴影全是覆盖式叠画，一写深度就会把后面的 3D 单位整批挡掉。
+      gl.depthMask(false)
       useMainProgram(camera)
       // 物体在这一帧的位置只算一次，倒影/阴影/本体三个 pass 共用（锚点与视野裁剪只有这一处）
       const { structures, units } = groundedQuads(context)
