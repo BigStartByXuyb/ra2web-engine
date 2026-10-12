@@ -136,22 +136,32 @@ def add_box(
     rotation=(0.0, 0.0, 0.0),
     taper=1.0,
     taper_bottom=1.0,
+    width_front=1.0,
+    width_rear=1.0,
 ):
     """边长给 2 再乘 size/2 才等于 size：`size=1` 乘 size/2 会把每个盒子砍成一半。
 
     `taper` / `taper_bottom` 是顶面、底面的收分系数（1 = 不收）。车体侧面往里收一点，
     在这个尺度上才有"面在转"的观感；两个盒子侧面完全平行 = 一大片纯色。
+
+    `width_front` / `width_rear` 是平面上的收分：+x 端、−x 端各自的宽度系数。
+    盒子只有八个角，所以按 x 的符号取系数就是准确的梯形——基地车那种"两头收、中间宽"
+    的梭形平面只能这样表达，等宽长方体在斜角上会多出一整条轮廓。
     """
     bpy.ops.mesh.primitive_cube_add(size=2, location=center, rotation=rotation)
     obj = bpy.context.active_object
     obj.name = name
     obj.scale = (size[0] / 2, size[1] / 2, size[2] / 2)
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-    if taper != 1.0 or taper_bottom != 1.0:
+    if taper != 1.0 or taper_bottom != 1.0 or width_front != 1.0 or width_rear != 1.0:
         for vertex in obj.data.vertices:
             factor = taper if vertex.co.z > 0 else taper_bottom
             vertex.co.x *= factor
             vertex.co.y *= factor
+            if vertex.co.x > 0:
+                vertex.co.y *= width_front
+            elif vertex.co.x < 0:
+                vertex.co.y *= width_rear
         obj.data.update()
     return _finish(obj, material, bevel)
 
