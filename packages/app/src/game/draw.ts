@@ -5,7 +5,7 @@ import { viewScale, visibleCellRange, type Camera } from './camera.js'
 import { drawMapPreview, type MapPreview } from './map-preview.js'
 import { HOVER_COLOR, SELECTED_COLOR, drawTerrain, strokeCell } from './terrain.js'
 import { blitFogCell, createFogSprites, type FogSprites } from './fog-layer.js'
-import { applyWetNightGrade, drawWetReflection } from './post-process.js'
+import { BLOOM, applyBloom, applyWetNightGrade, drawWetReflection } from './post-process.js'
 import type { GlTileLayer } from './webgl-tile-layer.js'
 import type { GlUnitQuad } from './webgl-tile-layer.js'
 import { isWetNight, type QualityPreset, type UnitArt } from './unit-art.js'
@@ -44,6 +44,8 @@ export interface Scene {
   readonly fog?: boolean
   /** 湿地面倒影（重制版增强，默认关闭）：只对 WebGL 路径有效 */
   readonly reflections?: boolean
+  /** 泛光：亮部溢出（重制版增强，默认关闭） */
+  readonly bloom?: boolean
 }
 
 const VIEW = RA2_ISO_VIEW
@@ -82,10 +84,10 @@ export function drawScene(scene: Scene): void {
       fog: scene.fog,
     })
   }
-  // 雨夜后处理（调色/泛光/雨丝/暗角）画在 2D 画布上，而 GPU 层是另一块画布：
+  // 2D 后处理（泛光、雨夜那套调色/雨丝/暗角）画在 2D 画布上，而 GPU 层是另一块画布：
   // 先把它搬进来，后处理才作用于整幅画面；否则那层半透明叠加会把 GPU 层整块盖住。
-  // 只在雨夜预设下搬，平时省掉这一次全屏拷贝。
-  if (wet && scene.glCanvas) {
+  // 只在真要叠后处理时搬，平时省掉这一次全屏拷贝。
+  if ((wet || scene.bloom) && scene.glCanvas) {
     context.setTransform(1, 0, 0, 1, 0, 0)
     context.drawImage(scene.glCanvas, 0, 0)
     context.setTransform(scale, 0, 0, scale, -scene.camera.x * scale, -scene.camera.y * scale)
@@ -113,6 +115,9 @@ export function drawScene(scene: Scene): void {
   if (wet) {
     context.setTransform(1, 0, 0, 1, 0, 0)
     applyWetNightGrade(context, scene.canvas, { time: scene.time, scale })
+  } else if (scene.bloom) {
+    // 亮部溢出：只提亮亮部，不整体压暗（雨夜预设自带泛光，所以两条不叠加）
+    applyBloom(context, scene.canvas, BLOOM.standaloneAlpha)
   }
   context.setTransform(1, 0, 0, 1, 0, 0)
 }

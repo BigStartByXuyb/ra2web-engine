@@ -81,6 +81,22 @@ export const cases: readonly UiCase[] = [
     },
   },
   {
+    name: '泛光必须是提亮，不是整体压暗',
+    async run(session) {
+      const base = await session.capture(GL_BASE)
+      const bloom = await session.capture({ name: 'bloom', query: 'renderer=webgl&bloom=1' })
+      const diff = diffImages(base, bloom)
+      const before = meanColor(base, { x: 0, y: 0, w: VIEWPORT.width, h: VIEWPORT.height })
+      const after = meanColor(bloom, { x: 0, y: 0, w: VIEWPORT.width, h: VIEWPORT.height })
+      assert.ok(diff.changed >= 500, `开泛光只改了 ${diff.changed} 像素，等于没上屏`)
+      assert.ok(
+        after > before,
+        `泛光把画面压暗了（${before.toFixed(1)} → ${after.toFixed(1)}）：这不是亮部溢出，是整体变暗`,
+      )
+      return `亮度 ${before.toFixed(1)} → ${after.toFixed(1)}，改变 ${diff.changed} 像素`
+    },
+  },
+  {
     name: '选中与移动指令作用于模拟',
     async run(session) {
       const page = session.page

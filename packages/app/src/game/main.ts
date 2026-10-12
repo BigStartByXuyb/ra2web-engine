@@ -88,6 +88,8 @@ let shadows = false
 let fogEffect = false
 /** 湿地面倒影开关（重制版增强，默认关闭）：`?reflect=1` */
 let reflections = false
+/** 泛光开关（重制版增强，默认关闭）：`?bloom=1` */
+let bloom = false
 /** 覆盖素材包（写实/超清包）：按次序优先命中，空数组就是纯原版 */
 let overrides: readonly AssetOverride[] = []
 let accumulator = 0
@@ -436,6 +438,7 @@ function frame(now: number): void {
     shadows,
     fog: fogEffect,
     reflections,
+    bloom,
   })
   hud.update(now, { battle, mapPreview, camera, hoverCell })
   requestAnimationFrame(frame)
@@ -512,6 +515,7 @@ if (new URLSearchParams(location.search).get('renderer') === 'webgl') {
 shadows = new URLSearchParams(location.search).get('shadows') === '1'
 fogEffect = new URLSearchParams(location.search).get('fog') === '1'
 reflections = new URLSearchParams(location.search).get('reflect') === '1'
+bloom = new URLSearchParams(location.search).get('bloom') === '1'
 void autoLoadFromQuery()
 
 /**

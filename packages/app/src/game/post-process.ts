@@ -24,6 +24,26 @@ const RAIN_COLOR = 'rgba(190, 220, 255, 0.30)'
 const VIGNETTE = 'rgba(2, 6, 14, 0.72)'
 
 /**
+ * 泛光（亮部溢出）：把画面缩到 1/`scale`，先用 `highlightContrast` 把中间调压掉、**只留亮部**，
+ * 再模糊、按加色叠回。没有这道对比度门槛，泛光等于给整幅画面加亮（雪地会直接爆白、光晕盖到迷雾上）。
+ * 形状只有一个来源；强度分两档，因为前置条件不同：
+ * 雨夜预设先把整幅画面压暗了，白天单独开泛光时是原亮度画面，两档取的强度不同。
+ */
+export const BLOOM = {
+  scale: 4,
+  blurPx: 6,
+  brightness: 1.15,
+  highlightContrast: 3,
+  wetNightAlpha: 0.55,
+  standaloneAlpha: 0.18,
+}
+
+/** 泛光用的缩小尺寸：一律 ≥1 像素，避免小画布上除出 0。 */
+export function bloomSize(width: number, height: number, scale: number): { width: number; height: number } {
+  return { width: Math.max(1, Math.floor(width / scale)), height: Math.max(1, Math.floor(height / scale)) }
+}
+
+/**
  * 湿地面倒影的形状：本体镜像一份，压扁到 `squash` 倍高度、整体半透明，再沿贴地线向上抬
  * `liftRatio × 格高`。`alpha` 到贴地线一侧不变、远端渐隐（见 WebGL 的 `u_fade`），
  * 否则镜像会把等距精灵读成"朝另一个方向的另一个物体"。
@@ -33,6 +53,31 @@ export const WET_REFLECTION = { alpha: 0.28, squash: 0.6, liftRatio: 0.12 }
 
 /** 泛光用的缩小画布：全分辨率模糊太贵，缩到 1/4 再放大回来。 */
 let bloomCanvas: HTMLCanvasElement | undefined
+
+/**
+ * 提炼画面的亮部并加色叠回：只提亮、不压暗，所以它是"质感"而不是"变暗"。
+ * 画面已经合成在同一张画布上（GPU 层被搬进来之后）才调用。
+ */
+export function applyBloom(context: CanvasRenderingContext2D, canvas: HTMLCanvasElement, alpha: number): void {
+  bloomCanvas ??= document.createElement('canvas')
+  const bloom = bloomCanvas
+  const size = bloomSize(canvas.width, canvas.height, BLOOM.scale)
+  bloom.width = size.width
+  bloom.height = size.height
+  const bloomContext = bloom.getContext('2d')
+  if (!bloomContext) return
+  bloomContext.clearRect(0, 0, bloom.width, bloom.height)
+  bloomContext.filter = `contrast(${BLOOM.highlightContrast}) brightness(${BLOOM.brightness}) blur(${BLOOM.blurPx}px)`
+  bloomContext.drawImage(canvas, 0, 0, bloom.width, bloom.height)
+  bloomContext.filter = 'none'
+  context.save()
+  context.setTransform(1, 0, 0, 1, 0, 0)
+  context.globalCompositeOperation = 'lighter'
+  context.globalAlpha = alpha
+  context.drawImage(bloom, 0, 0, canvas.width, canvas.height)
+  context.globalAlpha = 1
+  context.restore()
+}
 
 /** 一个场景画完之后叠的整屏后处理。 */
 export function applyWetNightGrade(
@@ -51,21 +96,7 @@ export function applyWetNightGrade(
   context.fillRect(0, 0, width, height)
 
   // 2) 泛光：把画面缩小后模糊，再加色叠回来
-  bloomCanvas ??= document.createElement('canvas')
-  const bloom = bloomCanvas
-  bloom.width = Math.max(1, Math.floor(width / 4))
-  bloom.height = Math.max(1, Math.floor(height / 4))
-  const bloomContext = bloom.getContext('2d')
-  if (bloomContext) {
-    bloomContext.clearRect(0, 0, bloom.width, bloom.height)
-    bloomContext.filter = 'blur(6px) brightness(1.35)'
-    bloomContext.drawImage(canvas, 0, 0, bloom.width, bloom.height)
-    bloomContext.filter = 'none'
-    context.globalCompositeOperation = 'lighter'
-    context.globalAlpha = 0.55
-    context.drawImage(bloom, 0, 0, width, height)
-    context.globalAlpha = 1
-  }
+  applyBloom(context, canvas, BLOOM.wetNightAlpha)
 
   // 3) 冷色环境光
   context.globalCompositeOperation = 'lighter'
