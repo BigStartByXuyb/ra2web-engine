@@ -11,6 +11,8 @@ import { toCanvas } from './canvas-image.js'
 
 export interface TileLayer {
   canvasAt(tileIndex: number, subTile: number): HTMLCanvasElement | undefined
+  /** 地面块的图：垫在地块美术下面（地块美术不满一块菱形时补上），没有则 undefined */
+  groundCanvas(): HTMLCanvasElement | undefined
 }
 
 export function openTileLayer(
@@ -27,6 +29,7 @@ export function openTileLayer(
 
 export function createTileLayer(theater: TheaterAssets, palette: Palette): TileLayer {
   const cache = new Map<string, HTMLCanvasElement | undefined>()
+  let ground: HTMLCanvasElement | undefined | null = null
   return {
     canvasAt(tileIndex, subTile) {
       const key = `${tileIndex}:${subTile}`
@@ -34,6 +37,13 @@ export function createTileLayer(theater: TheaterAssets, palette: Palette): TileL
       const canvas = paint(tileIndex, subTile)
       cache.set(key, canvas)
       return canvas
+    },
+    groundCanvas() {
+      if (ground === null) {
+        const index = theater.groundTileIndex
+        ground = index === undefined ? undefined : this.canvasAt(index, 0)
+      }
+      return ground
     },
   }
 

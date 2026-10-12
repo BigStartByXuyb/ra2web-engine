@@ -78,6 +78,7 @@ export function drawScene(scene: Scene): void {
       range,
       view: VIEW,
       tileCanvasAt: (tileIndex: number, subTile: number) => preview.tileLayer?.canvasAt(tileIndex, subTile),
+      groundCanvas: preview.tileLayer?.groundCanvas(),
       units: scene.battle ? collectUnits(scene.battle, scene.artByUnit, scene.unit3d) : [],
     }
     // 图层次序由 GL 层排定：清屏 → 地面 → 倒影 → 阴影 → 物体 → 雾

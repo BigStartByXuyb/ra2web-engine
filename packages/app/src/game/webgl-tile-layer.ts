@@ -53,8 +53,24 @@ export interface GlSceneContext {
   readonly range: CellRange
   readonly view: IsoView
   readonly tileCanvasAt: (tileIndex: number, subTile: number) => HTMLCanvasElement | undefined
+  /** 地面块的图：每个格子先垫一层，再画地块本身（与 2D 路径同一判据） */
+  readonly groundCanvas?: HTMLCanvasElement | undefined
   /** 单位：按 (x+y) 升序画在建筑之后（与 2D 路径同一判据）；坐标是世界坐标里的"贴地锚点" */
   readonly units: readonly GlUnitQuad[]
+}
+
+/** 一个贴图四边形：纹理 + 世界落位（地面块与地块共用这一形状） */
+interface TileQuad {
+  readonly texture: WebGLTexture
+  readonly originX: number
+  readonly originY: number
+  readonly sizeX: number
+  readonly sizeY: number
+}
+
+/** 按纹理归组：同纹理的四边形挨在一起，draw call 就从"每格一次"降到"每种纹理一次" */
+function byTexture(left: TileQuad, right: TileQuad): number {
+  return left.texture < right.texture ? -1 : left.texture > right.texture ? 1 : 0
 }
 
 export interface GlUnitQuad {
@@ -593,8 +609,9 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       // 地块与覆盖物按格序画（覆盖物跟在它那一格之后，与 2D 路径一致）
       // 但地块/覆盖物**互不重叠**，绘制顺序对它们没有意义 —— 先收集、按纹理分组，
       // 再整组压进批里，draw call 就从"每格一次"降到"每种纹理一次"。
-      const grouped: Array<{ texture: WebGLTexture; originX: number; originY: number; sizeX: number; sizeY: number }> =
-        []
+      const groundTexture = context.groundCanvas === undefined ? undefined : textureFor(context.groundCanvas)
+      const grounds: TileQuad[] = []
+      const grouped: TileQuad[] = []
       for (let y = range.minY; y <= range.maxY; y++) {
         for (let x = range.minX; x <= range.maxX; x++) {
           if (x < 0 || y < 0 || x >= preview.width || y >= preview.height) continue
@@ -603,6 +620,15 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
           const painted = tileCanvasAt(cell.tileIndex, cell.subTile)
           const centerX = (x - y) * (view.cellWidth / 2)
           const centerY = (x + y) * (view.cellHeight / 2)
+          if (groundTexture) {
+            grounds.push({
+              texture: groundTexture,
+              originX: centerX - view.cellWidth / 2,
+              originY: centerY - view.cellHeight / 2,
+              sizeX: context.groundCanvas!.width,
+              sizeY: context.groundCanvas!.height,
+            })
+          }
           const paintedTexture = painted ? textureFor(painted) : undefined
           if (painted && paintedTexture) {
             grouped.push({
@@ -626,7 +652,12 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
           }
         }
       }
-      grouped.sort((left, right) => (left.texture < right.texture ? -1 : left.texture > right.texture ? 1 : 0))
+      // 地面先落地：地块压在地面之上，所以地面整批排在前面
+      grounds.sort(byTexture)
+      grouped.sort(byTexture)
+      for (const quad of grounds) {
+        pushQuad(quad.texture, quad.originX, quad.originY, quad.sizeX, quad.sizeY)
+      }
       for (const quad of grouped) {
         pushQuad(quad.texture, quad.originX, quad.originY, quad.sizeX, quad.sizeY)
       }

@@ -105,6 +105,11 @@ const GENERIC_LETTER = 'g'
 export interface TheaterAssets {
   readonly name: string
   readonly ini: TheaterIni
+  /**
+   * 地面块：`Clear` 段的第一块。地块美术不满一块菱形时（坡道、坡角）垫在它下面 ——
+   * 原版就是这么补的，判定见 `docs/ENGINE-MAP.md` 的"地块合成"。
+   */
+  readonly groundTileIndex: number | undefined
   /** 全局地块编号 → 地块图形；找不到返回 undefined */
   loadTile(tileIndex: number): TmpFile | undefined
   /**
@@ -157,9 +162,15 @@ export function openTheater(
 
   const cache = new Map<number, TmpFile | undefined>()
   const imageCache = new Map<string, ShpFile | undefined>()
+  // 地面块：三个剧场都叫 `Clear`。缺美术时退回"没有地面块"，绘制方按原样只画地块
+  const clearSet = ini.sets.find((set) => set.fileName.toLowerCase() === 'clear')
+  const clearTile = clearSet === undefined ? -1 : ini.tiles.findIndex((tile) => tile.setIndex === clearSet.index)
+  const groundTileIndex = clearTile >= 0 && readTile(clearTile) ? clearTile : undefined
+
   return {
     name: theaterName,
     ini,
+    groundTileIndex,
     loadTile(tileIndex) {
       const cached = cache.get(tileIndex)
       if (cached !== undefined || cache.has(tileIndex)) return cached

@@ -76,6 +76,8 @@ export function drawMapPreview(
 ): void {
   // 静态地图层（地块 + 覆盖物 + 建筑）交给 WebGL 时整层都不画，避免两层叠着对不齐
   if (options.drawTiles === false) return
+  // 地面块先垫一层：坡道一类的地块美术只画了半个菱形，下面是地面（与 WebGL 路径同一判据）
+  const ground = preview.tileLayer?.groundCanvas()
   context.lineWidth = 1
   for (let y = range.minY; y <= range.maxY; y++) {
     for (let x = range.minX; x <= range.maxX; x++) {
@@ -83,6 +85,7 @@ export function drawMapPreview(
       const cell = preview.cellByIndex.get(y * preview.width + x)
       if (!cell) continue
       const center = cellToScreen(view, { x, y })
+      if (ground) context.drawImage(ground, center.x - view.cellWidth / 2, center.y - view.cellHeight / 2)
       const painted = preview.tileLayer?.canvasAt(cell.tileIndex, cell.subTile)
       if (painted) {
         context.drawImage(painted, center.x - view.cellWidth / 2, center.y - view.cellHeight / 2)
