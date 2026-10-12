@@ -2,18 +2,19 @@ import { DIRECTIONS } from './direction.js'
 import { canStep, isBlocked, type Cell, type Grid } from './grid.js'
 
 /**
- * A* 寻路，八方向（原版口径：路径就是一串方向步，见 docs/ENGINE-MAP.md「单位移动核心」）。
+ * A* 寻路，八方向（原版口径：路径就是一串方向步，见 docs/ENGINE-MAP.md「寻路函数定位」）。
  *
- * 确定性要求：开放集合的取出顺序必须稳定 —— 以 (f, h, y, x) 四级比较取最小，
+ * 确定性要求：开放集合的取出顺序必须稳定 —— 以 (f, g, y, x) 四级比较取最小，
  * 不用堆的插入顺序做决胜，避免实现差异影响结果。
  *
- * 成本口径（本项目自定，整数）：直行 256，斜行 362（= ⌈256√2⌉，斜行一格的欧氏长度，
- * 与原版 lepton 步进表 0x851ac0 的 (±256,±256) 一致）。
- * 启发式用同口径的 octile 距离：`256×max(dx,dy) + 106×min(dx,dy)`（106 = 362−256）。
+ * 成本口径：直行 256，斜行 362（= ⌈256√2⌉，斜行一格的欧氏长度，与原版 lepton
+ * 步进表 0x851ac0 的 (±256,±256) 一致）。启发式用同口径的 octile 距离：
+ * `256×max(dx,dy) + 106×min(dx,dy)`（106 = 362−256）。
  *
- * 防切角（本项目自定）：斜步要求两个正交邻格都可走。原版推进核心里只见到对目标格的
- * 单格判定（`0x4a2670`），未见附加角检查；这里加上是为了不沿崖角/墙角穿越，
- * 待在二进制里核到原版寻路函数后再对齐。
+ * 斜步切角 = **软惩罚 ×10**（原版口径：fn-427110 对切角斜步乘常数 0x79c4c8=10；
+ * 2026-10-12 总工裁定照原版，切角是可达性行为不是路径偏好——原版斜缝可以穿，
+ * 硬禁止会让可达性与原版不一致）。斜步的**高度边**（blockedSteps 正交两条）
+ * 保持硬检查：高度是物理遮挡而非可走性，其原版口径归 Z 轴高度链核对。
  */
 
 /** 直行一格的成本（256 lepton = 1 格） */
@@ -21,6 +22,9 @@ const COST_STRAIGHT = 256
 
 /** 斜行一格的成本（⌈256√2⌉） */
 const COST_DIAGONAL = 362
+
+/** 切角斜步的代价乘数（原版 fn-427110 的 0x79c4c8 常数） */
+const DIAGONAL_CORNER_PENALTY = 10
 
 interface Node {
   readonly index: number
@@ -87,16 +91,25 @@ export function findPath(
       const ny = current.y + step.y
       if (isBlocked(grid, nx, ny)) continue
       if (extraBlocked?.has(ny * grid.width + nx)) continue
-      if (!canEnterCell(grid, current.x, current.y, nx, ny)) continue
+      const diagonal = step.x !== 0 && step.y !== 0
       const index = ny * grid.width + nx
       if (closed.has(index)) continue
-      const diagonal = step.x !== 0 && step.y !== 0
-      const g = current.g + (diagonal ? COST_DIAGONAL : COST_STRAIGHT)
+      let cost: number
+      if (diagonal) {
+        // 斜步：高度边硬检查（物理遮挡），可走性软惩罚（原版切角 ×10）
+        const multiplier = diagonalStepMultiplier(grid, current.x, current.y, nx, ny)
+        if (multiplier === undefined) continue
+        cost = COST_DIAGONAL * multiplier
+      } else {
+        const edgeIndex = step.x === 1 ? 0 : step.x === -1 ? 2 : step.y === 1 ? 1 : 3
+        if (!canStep(grid, current.x, current.y, edgeIndex)) continue
+        cost = COST_STRAIGHT
+      }
       const existing = nodes.get(index)
-      if (existing && g >= existing.g) continue
-      const node: Node = existing ?? { index, x: nx, y: ny, g, f: 0, parent: -1 }
-      node.g = g
-      node.f = g + heuristic(nx, ny, to.x, to.y)
+      if (existing && existing.g >= current.g + cost) continue
+      const node: Node = existing ?? { index, x: nx, y: ny, g: current.g + cost, f: 0, parent: -1 }
+      node.g = current.g + cost
+      node.f = node.g + heuristic(nx, ny, to.x, to.y)
       node.parent = current.index
       nodes.set(index, node)
       open.set(index, node)
@@ -106,24 +119,16 @@ export function findPath(
 }
 
 /**
- * 斜步要求：两个正交邻格可走（防切角，本项目自定）且这两条正交边不挡
- * （悬崖高度差数据记在四方向边上，斜步不得绕过它）；直步按边判定放行。
+ * 斜步的三态判定：undefined = 高度边挡住（不可走）；1 = 双正交邻格常态（原价）；
+ * 10 = 有正交邻格被堵（切角罚价，原版 fn-427110 的 ×10，见文件头）。
  */
-function canEnterCell(grid: Grid, x: number, y: number, nx: number, ny: number): boolean {
+function diagonalStepMultiplier(grid: Grid, x: number, y: number, nx: number, ny: number): number | undefined {
   const dx = nx - x
   const dy = ny - y
-  if (dx === 0 || dy === 0) {
-    const index = dx === 1 ? 0 : dx === -1 ? 2 : dy === 1 ? 1 : 3
-    return canStep(grid, x, y, index)
-  }
   const horizontal = dx > 0 ? 0 : 2
   const vertical = dy > 0 ? 1 : 3
-  return (
-    !isBlocked(grid, nx, y) &&
-    !isBlocked(grid, x, ny) &&
-    canStep(grid, x, y, horizontal) &&
-    canStep(grid, x, y, vertical)
-  )
+  if (!canStep(grid, x, y, horizontal) || !canStep(grid, x, y, vertical)) return undefined
+  return isBlocked(grid, nx, y) || isBlocked(grid, x, ny) ? DIAGONAL_CORNER_PENALTY : 1
 }
 
 function reconstruct(nodes: Map<number, Node>, end: Node): readonly Cell[] {
