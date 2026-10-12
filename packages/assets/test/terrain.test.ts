@@ -139,3 +139,40 @@ test('带水域的地图：水域按 [Water] 判为不可通行，海滩可通�
   assert.equal(found!.blockedWater, found!.water, '水域的每一格都要判为不可通行')
   assert.equal(track('Beach'), 0, '海滩对履带也是 0%')
 })
+
+test('取不到地块图形只报数，不混进不可通行', { skip: skipMap }, () => {
+  const archive = new Uint8Array(fs.readFileSync(mixPath!))
+  const mapArchive = new Uint8Array(fs.readFileSync(mapArchivePath!))
+  const index = readMixIndex(mapArchive)
+
+  // 本机资产缺一批地块集（如 ZMM 那几套）的图形，档案里必定有图用到它们
+  let missing: ReturnType<typeof buildPassability> | undefined
+  let inRangeCells = 0
+  for (const entry of index.entries) {
+    let map
+    try {
+      map = readMap(readMixEntry(mapArchive, index, entry))
+    } catch {
+      continue
+    }
+    const theater = openTheater(archive, map.theater ?? 'temperate')
+    if (!theater) continue
+    // 系数恒为 1：这样 blocked 只会来自地形类型不认识，不会来自通行系数
+    const passability = buildPassability(map, theater, { speedType: 'Track', speedFactor: () => 1 })
+    if (passability.missingArt.cells > 0) {
+      missing = passability
+      inRangeCells = map.cells.filter(
+        (cell) => cell.cellX >= 0 && cell.cellY >= 0 && cell.cellX < map!.width && cell.cellY < map!.height,
+      ).length
+      break
+    }
+  }
+
+  assert.ok(missing, '档案里应当有一张用到本机没有的地块图形的图')
+  assert.deepEqual(missing!.blocked, [], '缺图形不能算不可通行')
+  assert.deepEqual(missing!.unknownTerrainTypes, [], '缺图形不能混进"未认识的地形类型"')
+  assert.ok(missing!.missingArt.bySet.size > 0, '缺图时要报出涉及的地块集名')
+  // 每一格都要有归属：要么记了地块类型，要么记了缺图形（这一条里 blocked 为空）
+  const counted = [...missing!.landTypeCounts.values()].reduce((sum, count) => sum + count, 0)
+  assert.equal(counted + missing!.missingArt.cells, inRangeCells, '格数账要不平：有格子既没类型也没记缺图')
+})

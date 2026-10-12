@@ -1,4 +1,11 @@
-import { buildPassability, heightBlocksStep, openTheater, readLocalText, type LandTypeName } from '@ra2web/assets'
+import {
+  buildPassability,
+  heightBlocksStep,
+  openTheater,
+  readLocalText,
+  type LandTypeName,
+  type MissingArt,
+} from '@ra2web/assets'
 import type { MapCell, MapFile } from '@ra2web/formats'
 import { loadRules, readLandRules, speedFactor, type LandTypeRules, type SpeedType } from '@ra2web/rules'
 import { CARDINAL_DIRECTIONS, STEP_DIRECTION_COUNT, type Cell } from '@ra2web/sim'
@@ -32,6 +39,8 @@ export interface MapBattleSetup {
   readonly blockedSteps: Uint8Array
   readonly landTypeSummary: string
   readonly unknownTerrainTypes: readonly number[]
+  /** 取不到地块图形的格数与地块集名；非 0 说明这局在这份资产上开不了 */
+  readonly missingArt: MissingArt
   readonly spawns: readonly MapBattleSpawn[]
 }
 
@@ -81,6 +90,7 @@ export function planMapBattle(archiveBytes: Uint8Array, map: MapFile): MapBattle
     blockedSteps: buildBlockedSteps(map),
     landTypeSummary: summarizeLandTypes(passability.landTypeCounts, land, SPEED_TYPE),
     unknownTerrainTypes: passability.unknownTerrainTypes,
+    missingArt: passability.missingArt,
     spawns,
   }
 }

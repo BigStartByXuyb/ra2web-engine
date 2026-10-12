@@ -1,16 +1,20 @@
 # 逆向流程
 
 目标：从原版二进制里取出**可核对的行为依据**，供 `sim` 实现对照。产出伪代码与证据，不复刻实现细节。
+动手前置要求见 `AGENTS.md`。
 
 ## 工具链
 
-| 组件               | 版本              | 位置                              |
-| ------------------ | ----------------- | --------------------------------- |
-| REA（morluto/rea） | 6.3.0             | `npx -y rea-agents@latest`        |
-| Ghidra             | 12.1.4            | `work/tools/ghidra_12.1.4_PUBLIC` |
-| JDK                | Temurin 21.0.12.1 | `work/tools/jdk-21.0.12.1+1`      |
+| 组件               | 版本              | 位置                                 |
+| ------------------ | ----------------- | ------------------------------------ |
+| REA（morluto/rea） | 6.4.0             | 全局 CLI `rea`；MCP 服务名同为 `rea` |
+| Ghidra             | 12.1.4            | `work/tools/ghidra_12.1.4_PUBLIC`    |
+| JDK                | Temurin 21.0.12.1 | `work/tools/jdk-21.0.12.1+1`         |
 
-环境变量：`JAVA_HOME`、`GHIDRA_INSTALL_DIR`、`PATH` 需包含 `%JAVA_HOME%\bin`。
+目标二进制：`work/assets/pack/GAME.EXE`（v1.006）。
+
+环境变量：`GHIDRA_INSTALL_DIR` 指向 Ghidra 安装目录，`JAVA_HOME` 指向 JDK，`PATH` 需包含
+`%JAVA_HOME%\bin`。MCP 注册的 `[mcp_servers.rea].env` 已带前两项；CLI 与 MCP 是同一份二进制、同一套提供方。
 
 ## 步骤
 

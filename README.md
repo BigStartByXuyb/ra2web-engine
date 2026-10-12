@@ -26,6 +26,7 @@ INI 加载例程已读出并归档。进行中：函数清单分类、数据格�
 
 ## 工程约定
 
+- 项目级硬性约束（先取证再动手）：[AGENTS.md](AGENTS.md)
 - 编码规范：[docs/CONVENTIONS.md](docs/CONVENTIONS.md)
 - 架构与依赖边界：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - 逆向流程与产物：[docs/RE-PIPELINE.md](docs/RE-PIPELINE.md)

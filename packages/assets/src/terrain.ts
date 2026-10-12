@@ -30,6 +30,18 @@ export interface Passability {
   readonly unknownTerrainTypes: readonly number[]
   /** 各地块类型占了多少格，便于核对判定结果 */
   readonly landTypeCounts: ReadonlyMap<LandTypeName, number>
+  /**
+   * 取不到地块图形的格子：本机资产里没有这些地块集的图形。
+   * 与"不可通行"无关 —— 原版客户端在同样的格上会抛 `TileNum not found` / `SubTile not found`，
+   * 所以这里既不算可通行也不算不可通行，只如实报数，由调用方决定是否开这局。
+   */
+  readonly missingArt: MissingArt
+}
+
+export interface MissingArt {
+  readonly cells: number
+  /** 地块集名 → 缺图格数（地块号超出剧场地块表时记 {@link OUT_OF_RANGE_TILE_SET}） */
+  readonly bySet: ReadonlyMap<string, number>
 }
 
 export function buildPassability(
@@ -39,13 +51,16 @@ export function buildPassability(
 ): Passability {
   const blocked: { x: number; y: number }[] = []
   const unknown = new Set<number>()
+  const missingBySet = new Map<string, number>()
   const landTypeCounts = new Map<LandTypeName, number>()
+  let missingCells = 0
   for (const cell of map.cells) {
     if (cell.cellX < 0 || cell.cellY < 0 || cell.cellX >= map.width || cell.cellY >= map.height) continue
     const subTile = theater?.loadTile(cell.tileIndex)?.subTiles[cell.subTile]
     if (!subTile) {
-      unknown.add(NO_TERRAIN_DATA)
-      blocked.push({ x: cell.cellX, y: cell.cellY })
+      missingCells++
+      const setName = setNameOf(theater, cell.tileIndex)
+      missingBySet.set(setName, (missingBySet.get(setName) ?? 0) + 1)
       continue
     }
     const terrainType = subTile.terrainType
@@ -58,8 +73,20 @@ export function buildPassability(
     landTypeCounts.set(landType, (landTypeCounts.get(landType) ?? 0) + 1)
     if (request.speedFactor(landType) === 0) blocked.push({ x: cell.cellX, y: cell.cellY })
   }
-  return { blocked, unknownTerrainTypes: [...unknown].sort((left, right) => left - right), landTypeCounts }
+  return {
+    blocked,
+    unknownTerrainTypes: [...unknown].sort((left, right) => left - right),
+    landTypeCounts,
+    missingArt: { cells: missingCells, bySet: missingBySet },
+  }
 }
 
-/** 拿不到 TMP 子块（没有剧场美术）时的记号：按不可通行处理。 */
-export const NO_TERRAIN_DATA = -1
+/** 地块号超出剧场地块表时的记号，用于把"越界"和"这一集没图形"分开报。 */
+export const OUT_OF_RANGE_TILE_SET = '地块号超出剧场地块表'
+
+/** 这个地块号属于哪个地块集；越界或装不上剧场时给出记号，不猜。 */
+function setNameOf(theater: TheaterAssets | undefined, tileIndex: number): string {
+  const tile = theater?.ini.tiles[tileIndex]
+  if (!tile) return OUT_OF_RANGE_TILE_SET
+  return theater?.ini.sets[tile.setIndex]?.name ?? OUT_OF_RANGE_TILE_SET
+}

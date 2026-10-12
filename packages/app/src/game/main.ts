@@ -285,6 +285,16 @@ async function startBattleOnMap(): Promise<void> {
     status.textContent = '这张地图上找不到可通行的落脚点'
     return
   }
+  if (setup.missingArt.cells > 0) {
+    const where = [...setup.missingArt.bySet]
+      .sort((left, right) => right[1] - left[1])
+      .map(([name, count]) => `${name} ${count} 格`)
+      .join('、')
+    status.textContent =
+      `这张图用到了本机资产里没有的地块图形：共 ${setup.missingArt.cells} 格缺图（${where}）。` +
+      `原版客户端在这些格上会直接报"地块／子块找不到"，所以这里也不开这一局 —— 换一张图，或补上缺的那几个地块包。`
+    return
+  }
   try {
     const created = createBattle(gameArchive, {
       width: setup.width,

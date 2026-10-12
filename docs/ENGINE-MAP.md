@@ -524,6 +524,70 @@ z 取地图记录里的 z 字节。斜坡每格只升一级，因此能正常上
 整组判为不可通行。它答不了"哪种移动方式能进"，也处理不了海滩这类只对部分移动方式关闭的地块；
 曾据此推测"斜坡被悬崖集误拦"，实测三张图上都不成立（旧判据没有多拦任何可通行格）。
 
+`[General]` 里那些地块锚点（`ClearTile`/`RoughTile`/`SandTile`/`BlackTile`…）的值是**地块集编号**，
+不是地块号：`RoughTile=13` 指第 13 号集「LAT Grass」（`Ruff`），`BlackTile=6` 指第 6 号集「Blank」，
+雪地的 `SandTile=62` 指第 62 号集「LAT SnowyRock」（`sandy`）、`PaveTile=68` 指「LAT Pavement」（`Pvclr`）——
+名字与用途两两对得上，`CliffSet=10`/`WaterSet=21`/`BridgeSet=19` 也都落在对应的集上。
+客户端 `isLAT`/`isCLAT` 拿这些值判的就是集号，本项目的取地块顺序按集号累加，与之同源。
+
+### 地块图形落在哪个包不给定死：全局图形表
+
+客户端建的是一张**全局图形表**：装载进来的档案都往里塞，取图形时只按文件名查。
+所以"这个剧场的 iso 包"不等于"这个剧场的全部地块图形"。实测（RA2.MIX 的内嵌档案按内容认名，
+根索引不存文件名，只能拿只有某一个包才有的文件名去撞 CRC）：
+
+| 包             | 大小    | 认名依据                                                                |
+| -------------- | ------- | ----------------------------------------------------------------------- |
+| `local.mix`    | 34.8 MB | `snow.ini` / `urban.ini` / `temperat.ini`                               |
+| `isosnow.mix`  | 28.8 MB | `Cliff01.sno`、`Clear01.sno`、`shore30.sno`、`clat10.sno`、`ruff01.sno` |
+| `snow.mix`     | 18.4 MB | `warub01.sno`（RA2 Wash Rubble）、`ovrpsb01.sno`（Wood Bridges）        |
+| `isourb.mix`   | 31.8 MB | `clear01.urb`、`slope01.urb`                                            |
+| `urban.mix`    | 2.7 MB  | `warub01.urb`、`ovrpsb01.urb`                                           |
+| `isotemp.mix`  | 29.2 MB | `clear01.tem`                                                           |
+| `temperat.mix` | 2.7 MB  | —（与 urban 同为小包）                                                  |
+| `cache.mix`    | 196 KB  | `isotem.pal` 等调色板                                                   |
+
+只搜 iso 包会把 `warub*`（RA2 Wash Rubble）、`Ovrpsb*`（Wood Bridges）这类地块判成"缺图"：
+Maps01.mix 第 2 张 25 格、第 11/13/15/16/17 张共 301 格就是被这条漏掉的。
+改成与 SHP 共用同一张表（本剧场队列在前、其余剧场包在后）后，这 17 张可解析的图里 16 张全齐。
+
+### 缺地块图形：只报数，不算不可通行
+
+取不到 TMP 子块有三种来路，与"这格走不走得动"是两件事，所以 `buildPassability` 把它们记进
+`missingArt`（`cells` 总格数 + `bySet` 每集格数），既不算可通行也不算不可通行，由调用方决定是否开这局：
+
+1. **图形在本机资产里不存在**（下面那张表里的 ZMM 一系）；原版客户端在这里抛 `SubTile not found`。
+2. **地块号超出剧场的地块表**：客户端 `initTileSets`/`readMaxTileNum` 从 `TileSet0000` 起按编号连续读，
+   遇到缺号就停 —— 累加出来的地块表长度就是上限，越界时客户端抛 `TileNum not found`。
+3. **这一格的子块槽位在本地块的所有文件里都没有**：客户端 `getTmpFile` 在这个地块的
+   基础文件与字母变体里挑第一个有该槽位的，一个都没有才抛。
+
+实测（`tsx tools/vanilla-map-art.ts`，Maps01.mix 17 张可解析的图）：
+
+| 地图                        | 地块表 | 结果                                                            |
+| --------------------------- | ------ | --------------------------------------------------------------- |
+| 其余 16 张（含 4 张 URBAN） | 各自表 | 缺 0 格                                                         |
+| 第 3 张 114×132 SNOW        | 798    | 缺 5869/15048 格：ZMM Cliff Set 3831、地块号越界 1603、其余 435 |
+
+地块表长度与每张图用到的最大地块号严格对上（TEMPERATE 838 / 用到 837，URBAN 1077 / 用到 1076，
+SNOW 798 / 其余雪地图用到 797），**只有第 3 张用到 1060**，超过雪地表 262 个 ——
+它是对着更晚版本的地块表做的图。本机资产里这一系图形全部缺失：
+
+| 地块集                                                                                        | FileName | 全局地块号 |
+| --------------------------------------------------------------------------------------------- | -------- | ---------- |
+| ZMM Ramps                                                                                     | `mslop`  | 2..21      |
+| ZMM Height Pieces                                                                             | `mslop`  | 22..28     |
+| ZMM Cliff Set                                                                                 | `Mclif`  | 328..367   |
+| ZMM DirtRoadSlopes                                                                            | `MDRSLP` | 376..383   |
+| ZMM Slope Set                                                                                 | `MRAM`   | 394..403   |
+| Obsolete Height                                                                               | `hyte`   | 404..413   |
+| ZMM Ramp fixup                                                                                | `Mrmfx`  | 456..467   |
+| ZMM 其余（`MDrodc`/`MDrodj`/`MDrods`/`MShore`/`MWa-`/`MWb-`/`MWc-`/`MWd-`/`MWClif`/`MWater`） | —        | 493..693   |
+
+判定依据：把候选名（原名 + 字母变体 × 三个剧场后缀）在**本机全部 51 个档案**（含两层嵌套、
+含客户端自带的 `res/werhdexp.mix`）里逐个撞 CRC，`Cliff01.sno` 这类对照命中原包，
+而 `Mclif01.sno`/`mslop01.sno`/`hyte01.sno` 及各种大小写、字母变体、`.shp` 后缀一个都不命中。
+
 ### 实测补充（地图渲染暴露出来的）
 
 - **透明索引是 `0`**：客户端只在索引非 0 时写入像素，菱形的四角都是 0。
