@@ -37,14 +37,15 @@ export function buildMapPreview(
   let zMin = Number.POSITIVE_INFINITY
   let zMax = Number.NEGATIVE_INFINITY
   for (const cell of map.cells) {
-    if (cell.cellX < 0 || cell.cellY < 0 || cell.cellX >= map.width || cell.cellY >= map.height) continue
-    cellByIndex.set(cell.cellY * map.width + cell.cellX, cell)
+    if (cell.cellX < 0 || cell.cellY < 0 || cell.cellX >= map.cellBounds.right || cell.cellY >= map.cellBounds.bottom)
+      continue
+    cellByIndex.set(cell.cellY * map.cellBounds.right + cell.cellX, cell)
     if (cell.z < zMin) zMin = cell.z
     if (cell.z > zMax) zMax = cell.z
   }
   return {
-    width: map.width,
-    height: map.height,
+    width: map.cellBounds.right,
+    height: map.cellBounds.bottom,
     theater: map.theater,
     zMin: Number.isFinite(zMin) ? zMin : 0,
     zMax: Number.isFinite(zMax) ? zMax : 0,

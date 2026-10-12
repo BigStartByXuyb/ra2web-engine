@@ -21,8 +21,9 @@ function buildSyntheticMap(): Uint8Array {
   const records: number[] = []
   for (let index = 0; index < 10; index++) {
     const [cellX, cellY] = cells[index % cells.length]!
-    const diamondX = cellX + cellY + 1
-    const diamondY = cellY - cellX + 3
+    // 记录里的 X、Y 就是格坐标 + 1（原版口径：格下标 = Y × 512 + X）
+    const diamondX = cellX + 1
+    const diamondY = cellY + 1
     records.push(
       diamondX & 0xff,
       diamondX >> 8,

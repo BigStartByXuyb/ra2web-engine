@@ -22,6 +22,10 @@ import { readPackedBlocks, type PackedBlockCodec } from './packed-blocks.js'
  */
 
 export const MAP_RECORD_BYTES = 11
+/** 地形段的结束哨兵：读到 `(X, Y) = (0xFFFF, 0)` 这条就停（原版比的是全局哨兵对） */
+export const ISO_RECORD_SENTINEL = { x: 0xffff, y: 0 } as const
+/** 地块编号的"这一格没有地块"取值：原版先把格里的值置 0xFFFF，再读 4 字节覆盖 */
+export const TILE_NONE = 0xffff
 /** 覆盖物网格的索引步长：`下标 = 菱形横坐标 + 512 × 菱形纵坐标`。 */
 export const OVERLAY_GRID_STRIDE = 512
 /** 覆盖物网格里的"无覆盖物"值。 */
@@ -61,12 +65,13 @@ export interface MapOverlay {
 }
 
 export interface MapCell {
-  /** 地图包里的菱形坐标（rx, ry） */
+  /** 记录里的原始 X、Y（1 起；就是原版的格坐标，见 `readCells` 的判定依据） */
   readonly diamondX: number
   readonly diamondY: number
-  /** 方格坐标：cellX = rx − ry + width − 1，cellY = ⌊(rx + ry − width − 1) / 2⌋ */
+  /** 格坐标（0 起）= 记录里的 X − 1、Y − 1 */
   readonly cellX: number
   readonly cellY: number
+  /** 地块编号；`TILE_NONE` 表示这一格没有地块 */
   readonly tileIndex: number
   readonly subTile: number
   /** 原版 z 字节（高度），单位待核对 */
@@ -87,6 +92,11 @@ export interface MapFile {
   /** 地图宽高（= right − left / bottom − top） */
   readonly width: number
   readonly height: number
+  /**
+   * 格坐标范围（右/下开区间）。原版的格空间是 512×512 格数组里一块**斜置的区域**，
+   * 不等于 `width`×`height` 那个矩形：网格步长、可见性过滤都必须用这一组。
+   */
+  readonly cellBounds: MapBounds
   readonly localBounds: MapBounds | undefined
   readonly theater: string | undefined
   readonly cells: readonly MapCell[]
@@ -112,11 +122,12 @@ export function readMap(bytes: Uint8Array): MapFile {
   const height = bounds.bottom - bounds.top
   if (width <= 0 || height <= 0) throw new ParseError(`地图尺寸不合理：${width}×${height}`, bytes.byteOffset)
 
-  const cells = readCells(document, width, height)
+  const cells = readCells(document)
   return {
     bounds,
     width,
     height,
+    cellBounds: cellRangeOf(cells),
     localBounds: readBounds(document, 'localsize'),
     theater: iniValue(document, 'map', 'theater'),
     cells,
@@ -183,28 +194,52 @@ function readBounds(document: IniDocument, key: string): MapBounds | undefined {
   return { left: parts[0]!, top: parts[1]!, right: parts[2]!, bottom: parts[3]! }
 }
 
-function readCells(document: IniDocument, width: number, height: number): readonly MapCell[] {
-  const raw = readPackedSection(document, 'IsoMapPack5', 'lzo1x')
-  const count = (2 * width - 1) * height
-  const needed = count * MAP_RECORD_BYTES
-  if (raw.byteLength < needed) throw new TruncatedInputError(needed, raw.byteLength)
+/** 实际用到的格范围（右/下开区间，与 `[Map] Size` 同一约定）。 */
+function cellRangeOf(cells: readonly MapCell[]): MapBounds {
+  let left = Number.POSITIVE_INFINITY
+  let top = Number.POSITIVE_INFINITY
+  let right = Number.NEGATIVE_INFINITY
+  let bottom = Number.NEGATIVE_INFINITY
+  for (const cell of cells) {
+    left = Math.min(left, cell.cellX)
+    top = Math.min(top, cell.cellY)
+    right = Math.max(right, cell.cellX)
+    bottom = Math.max(bottom, cell.cellY)
+  }
+  return Number.isFinite(left)
+    ? { left, top, right: right + 1, bottom: bottom + 1 }
+    : { left: 0, top: 0, right: 0, bottom: 0 }
+}
 
+/**
+ * 地形记录（`IsoMapPack5`）：**11 字节一条**，末尾另跟 4 字节哨兵。
+ *
+ * 字段：`X(int16) | Y(int16) | 地块编号(int32，0xFFFF = 这一格没有地块) | subTile | z | 1 字节`。
+ *
+ * 判定依据：原版客户端 `GAME.EXE` 的 `FUN_0054e1e0`（VA 0x54e1e0，`IsoMapPack5` 的消费者）——
+ * 每次读 4 字节当 `(X, Y)`，用 `格下标 = Y × 512 + X` 直接取格，再读 4 字节写进格对象、再读 1+1+1 字节，
+ * 读到全局哨兵对就结束。**X、Y 本身就是引擎的格坐标，不存在"菱形 → 方格"的换算**。
+ *
+ * 实测印证：地图自带的 25 个民用建筑按 `(X − 1, Y − 1)` 落格，17 个落在陆地、0 个落在水面；
+ * 改前那条菱形换算只有 4 个陆地、11 个在水面，且道路交叉口会变成斜角。
+ */
+function readCells(document: IniDocument): readonly MapCell[] {
+  const raw = readPackedSection(document, 'IsoMapPack5', 'lzo1x')
   const overlays = readOverlayGrid(document)
-  const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength)
   const cells: MapCell[] = []
-  for (let index = 0; index < count; index++) {
-    const at = index * MAP_RECORD_BYTES
-    const diamondX = view.getUint16(at, true)
-    const diamondY = view.getUint16(at + 2, true)
-    const diamondSum = diamondX + diamondY
-    const cellX = diamondX - diamondY + width - 1
-    const cellY = Math.floor((diamondSum - width - 1) / 2)
+  for (let at = 0; at + MAP_RECORD_BYTES <= raw.byteLength; at += MAP_RECORD_BYTES) {
+    const x = raw[at]! | (raw[at + 1]! << 8)
+    const y = raw[at + 2]! | (raw[at + 3]! << 8)
+    if (x === ISO_RECORD_SENTINEL.x && y === ISO_RECORD_SENTINEL.y) break
+    const cellX = x - 1
+    const cellY = y - 1
+    const tile = raw[at + 4]! | (raw[at + 5]! << 8) | (raw[at + 6]! << 16) | (raw[at + 7]! << 24)
     cells.push({
-      diamondX,
-      diamondY,
+      diamondX: x,
+      diamondY: y,
       cellX,
       cellY,
-      tileIndex: Math.max(0, view.getInt16(at + 4, true)),
+      tileIndex: tile >>> 0,
       subTile: raw[at + 8]!,
       z: raw[at + 9]!,
       overlay: overlays?.(cellX + OVERLAY_GRID_STRIDE * cellY),

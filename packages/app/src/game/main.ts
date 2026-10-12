@@ -259,7 +259,7 @@ async function showMap(bytes: Uint8Array, fileName: string, entryIndex: number):
       `现在是 1:1 原版像素尺寸，屏幕只装得下一部分：拖动平移、滚轮缩放，或点「整幅显示」看全图`
     // 默认 1:1（原版像素尺寸）：整张地图约 5000×2500 像素，整幅看会很小，想看全局再点"整幅显示"
     camera.zoom = 1
-    centerOn(map.width / 2, map.height / 2)
+    centerOn(map.cellBounds.right / 2, map.cellBounds.bottom / 2)
     startLoop()
   } catch (error) {
     status.textContent = error instanceof Error ? `失败：${error.message}` : '失败'

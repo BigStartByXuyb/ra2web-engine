@@ -55,7 +55,8 @@ export function buildPassability(
   const landTypeCounts = new Map<LandTypeName, number>()
   let missingCells = 0
   for (const cell of map.cells) {
-    if (cell.cellX < 0 || cell.cellY < 0 || cell.cellX >= map.width || cell.cellY >= map.height) continue
+    if (cell.cellX < 0 || cell.cellY < 0 || cell.cellX >= map.cellBounds.right || cell.cellY >= map.cellBounds.bottom)
+      continue
     const subTile = theater?.loadTile(cell.tileIndex)?.subTiles[cell.subTile]
     if (!subTile) {
       missingCells++

@@ -62,30 +62,33 @@ export function planMapBattle(archiveBytes: Uint8Array, map: MapFile): MapBattle
     speedFactor: (landType: LandTypeName) => speedFactor(land, landType, SPEED_TYPE),
   })
 
+  // 格空间宽高：原版的格是 512×512 数组里一块斜置区域，不能拿 map.width/height 当格边界
+  const gridWidth = map.cellBounds.right
+  const gridHeight = map.cellBounds.bottom
   const blockedCells = new Set<number>()
   const passable: Cell[] = []
   for (const cell of passability.blocked) {
-    blockedCells.add(cell.y * map.width + cell.x)
+    blockedCells.add(cell.y * gridWidth + cell.x)
   }
   for (const cell of map.cells) {
-    if (cell.cellX < 0 || cell.cellY < 0 || cell.cellX >= map.width || cell.cellY >= map.height) continue
-    const index = cell.cellY * map.width + cell.cellX
+    if (cell.cellX < 0 || cell.cellY < 0 || cell.cellX >= gridWidth || cell.cellY >= gridHeight) continue
+    const index = cell.cellY * gridWidth + cell.cellX
     if (blockedCells.has(index)) continue
-    if (!passable.some((candidate) => candidate.y * map.width + candidate.x === index)) {
+    if (!passable.some((candidate) => candidate.y * gridWidth + candidate.x === index)) {
       passable.push({ x: cell.cellX, y: cell.cellY })
     }
   }
   passable.sort((left, right) => left.x + left.y - (right.x + right.y))
 
   const blocked: Cell[] = [...blockedCells].map((index) => ({
-    x: index % map.width,
-    y: Math.floor(index / map.width),
+    x: index % gridWidth,
+    y: Math.floor(index / gridWidth),
   }))
   const spawns = pickSpawns(passable)
 
   return {
-    width: map.width,
-    height: map.height,
+    width: gridWidth,
+    height: gridHeight,
     blocked,
     blockedSteps: buildBlockedSteps(map),
     landTypeSummary: summarizeLandTypes(passability.landTypeCounts, land, SPEED_TYPE),
@@ -97,20 +100,22 @@ export function planMapBattle(archiveBytes: Uint8Array, map: MapFile): MapBattle
 
 /** 相邻格高度差 ≥ 2 的边标成"不能走"：正反两个方向各自记一次。 */
 function buildBlockedSteps(map: MapFile): Uint8Array {
+  const gridWidth = map.cellBounds.right
+  const gridHeight = map.cellBounds.bottom
   const zByIndex = new Map<number, number>()
   for (const cell of map.cells) {
-    if (cell.cellX < 0 || cell.cellY < 0 || cell.cellX >= map.width || cell.cellY >= map.height) continue
-    zByIndex.set(cell.cellY * map.width + cell.cellX, cell.z)
+    if (cell.cellX < 0 || cell.cellY < 0 || cell.cellX >= gridWidth || cell.cellY >= gridHeight) continue
+    zByIndex.set(cell.cellY * gridWidth + cell.cellX, cell.z)
   }
-  const blockedSteps = new Uint8Array(map.width * map.height * STEP_DIRECTION_COUNT)
-  for (let y = 0; y < map.height; y++) {
-    for (let x = 0; x < map.width; x++) {
-      const z = zByIndex.get(y * map.width + x)
+  const blockedSteps = new Uint8Array(gridWidth * gridHeight * STEP_DIRECTION_COUNT)
+  for (let y = 0; y < gridHeight; y++) {
+    for (let x = 0; x < gridWidth; x++) {
+      const z = zByIndex.get(y * gridWidth + x)
       if (z === undefined) continue
       CARDINAL_DIRECTIONS.forEach((direction, index) => {
-        const neighbour = zByIndex.get((y + direction.y) * map.width + (x + direction.x))
+        const neighbour = zByIndex.get((y + direction.y) * gridWidth + (x + direction.x))
         if (neighbour === undefined) return
-        if (heightBlocksStep(z, neighbour)) blockedSteps[(y * map.width + x) * STEP_DIRECTION_COUNT + index] = 1
+        if (heightBlocksStep(z, neighbour)) blockedSteps[(y * gridWidth + x) * STEP_DIRECTION_COUNT + index] = 1
       })
     }
   }
