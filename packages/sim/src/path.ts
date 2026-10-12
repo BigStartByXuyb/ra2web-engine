@@ -1,11 +1,26 @@
-import { CARDINAL_DIRECTIONS, canStep, isBlocked, type Cell, type Grid } from './grid.js'
+import { DIRECTIONS } from './direction.js'
+import { canStep, isBlocked, type Cell, type Grid } from './grid.js'
 
 /**
- * A* 寻路，只走四方向。
+ * A* 寻路，八方向（原版口径：路径就是一串方向步，见 docs/ENGINE-MAP.md「单位移动核心」）。
  *
  * 确定性要求：开放集合的取出顺序必须稳定 —— 以 (f, h, y, x) 四级比较取最小，
  * 不用堆的插入顺序做决胜，避免实现差异影响结果。
+ *
+ * 成本口径（本项目自定，整数）：直行 256，斜行 362（= ⌈256√2⌉，斜行一格的欧氏长度，
+ * 与原版 lepton 步进表 0x851ac0 的 (±256,±256) 一致）。
+ * 启发式用同口径的 octile 距离：`256×max(dx,dy) + 106×min(dx,dy)`（106 = 362−256）。
+ *
+ * 防切角（本项目自定）：斜步要求两个正交邻格都可走。原版推进核心里只见到对目标格的
+ * 单格判定（`0x4a2670`），未见附加角检查；这里加上是为了不沿崖角/墙角穿越，
+ * 待在二进制里核到原版寻路函数后再对齐。
  */
+
+/** 直行一格的成本（256 lepton = 1 格） */
+const COST_STRAIGHT = 256
+
+/** 斜行一格的成本（⌈256√2⌉） */
+const COST_DIAGONAL = 362
 
 interface Node {
   readonly index: number
@@ -17,7 +32,9 @@ interface Node {
 }
 
 function heuristic(ax: number, ay: number, bx: number, by: number): number {
-  return Math.abs(ax - bx) + Math.abs(ay - by)
+  const dx = Math.abs(ax - bx)
+  const dy = Math.abs(ay - by)
+  return COST_STRAIGHT * Math.max(dx, dy) + (COST_DIAGONAL - COST_STRAIGHT) * Math.min(dx, dy)
 }
 
 function isBetter(candidate: Node, current: Node): boolean {
@@ -57,14 +74,16 @@ export function findPath(grid: Grid, from: Cell, to: Cell): readonly Cell[] | un
     open.delete(current.index)
     closed.add(current.index)
 
-    for (let direction = 0; direction < CARDINAL_DIRECTIONS.length; direction++) {
-      if (!canStep(grid, current.x, current.y, direction)) continue
-      const nx = current.x + CARDINAL_DIRECTIONS[direction]!.x
-      const ny = current.y + CARDINAL_DIRECTIONS[direction]!.y
+    for (let direction = 0; direction < DIRECTIONS.length; direction++) {
+      const step = DIRECTIONS[direction]!
+      const nx = current.x + step.x
+      const ny = current.y + step.y
       if (isBlocked(grid, nx, ny)) continue
+      if (!canEnterCell(grid, current.x, current.y, nx, ny)) continue
       const index = ny * grid.width + nx
       if (closed.has(index)) continue
-      const g = current.g + 1
+      const diagonal = step.x !== 0 && step.y !== 0
+      const g = current.g + (diagonal ? COST_DIAGONAL : COST_STRAIGHT)
       const existing = nodes.get(index)
       if (existing && g >= existing.g) continue
       const node: Node = existing ?? { index, x: nx, y: ny, g, f: 0, parent: -1 }
@@ -76,6 +95,27 @@ export function findPath(grid: Grid, from: Cell, to: Cell): readonly Cell[] | un
     }
   }
   return undefined
+}
+
+/**
+ * 斜步要求：两个正交邻格可走（防切角，本项目自定）且这两条正交边不挡
+ * （悬崖高度差数据记在四方向边上，斜步不得绕过它）；直步按边判定放行。
+ */
+function canEnterCell(grid: Grid, x: number, y: number, nx: number, ny: number): boolean {
+  const dx = nx - x
+  const dy = ny - y
+  if (dx === 0 || dy === 0) {
+    const index = dx === 1 ? 0 : dx === -1 ? 2 : dy === 1 ? 1 : 3
+    return canStep(grid, x, y, index)
+  }
+  const horizontal = dx > 0 ? 0 : 2
+  const vertical = dy > 0 ? 1 : 3
+  return (
+    !isBlocked(grid, nx, y) &&
+    !isBlocked(grid, x, ny) &&
+    canStep(grid, x, y, horizontal) &&
+    canStep(grid, x, y, vertical)
+  )
 }
 
 function reconstruct(nodes: Map<number, Node>, end: Node): readonly Cell[] {

@@ -1,3 +1,5 @@
+import { CELL_STEPS } from './direction.js'
+
 /**
  * 地图格子：逐格"可走 / 不可走"，外加**边判定** —— 相邻格之间的高度差会挡住这一步。
  *
@@ -6,7 +8,7 @@
  * 1 表示"从这一格朝这个方向不能走"。它是静态数据，不进世界状态哈希。
  */
 
-/** 四方向次序：东、南、西、北。 */
+/** 四方向次序：东、南、西、北（边判定数据的历史口径，地图层按它生成）。 */
 export const CARDINAL_DIRECTIONS = [
   { x: 1, y: 0 },
   { x: 0, y: 1 },
@@ -15,6 +17,9 @@ export const CARDINAL_DIRECTIONS = [
 ] as const
 
 export const STEP_DIRECTION_COUNT = CARDINAL_DIRECTIONS.length
+
+/** 移动用的八方向（原版口径，顺时针从北起，见 `direction.ts`）。 */
+export const DIRECTIONS = CELL_STEPS
 
 export interface Grid {
   readonly width: number

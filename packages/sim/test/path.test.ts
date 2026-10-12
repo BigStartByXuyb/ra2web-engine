@@ -17,8 +17,35 @@ test('绕墙找到路径，且不穿过障碍', () => {
   assert.ok(path)
   assert.deepEqual(path[path.length - 1], { x: 6, y: 2 })
   assert.ok(path.every((cell) => !WALL.some((wall) => wall.x === cell.x && wall.y === cell.y)))
-  // 必须绕行：最短曼哈顿距离是 6，绕墙至少多 4 步
-  assert.ok(path.length >= 10)
+  // 八方向寻路（原版口径，见 docs/ENGINE-MAP.md「单位移动核心」）后，绕墙不再需要
+  // 四方向那么多的折返步；这里只钉"必须绕行"与"比四方向短"两条。
+  assert.ok(path.length >= 6, `绕墙至少 6 步（实际 ${path.length}）`)
+  assert.ok(path.length < 10, '八方向应比四方向的 10 步更短')
+})
+
+test('开阔地斜走：对角目标两步直达', () => {
+  const path = findPath(createGrid(5, 5, []), { x: 0, y: 0 }, { x: 2, y: 2 })
+  assert.deepEqual(path, [
+    { x: 1, y: 1 },
+    { x: 2, y: 2 },
+  ])
+})
+
+test('防切角：斜步要求两个正交邻格都可走（本项目自定，防崖角穿越）', () => {
+  // (1,0) 被堵时，(0,0)→(1,1) 的斜步被拒，必须先走 (0,1)
+  const oneWall = createGrid(5, 5, [
+    { x: 1, y: 0 },
+    { x: 2, y: 0 },
+  ])
+  const path = findPath(oneWall, { x: 0, y: 0 }, { x: 2, y: 2 })
+  assert.ok(path)
+  assert.deepEqual(path[0], { x: 0, y: 1 }, '第一步只能向下')
+  // 两个正交邻格全堵时彻底无路
+  const corner = createGrid(5, 5, [
+    { x: 1, y: 0 },
+    { x: 0, y: 1 },
+  ])
+  assert.equal(findPath(corner, { x: 0, y: 0 }, { x: 2, y: 2 }), undefined)
 })
 
 test('目标不可达时返回 undefined', () => {

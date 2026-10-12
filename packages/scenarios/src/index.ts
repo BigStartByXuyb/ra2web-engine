@@ -7,8 +7,10 @@ import { ONE, createWorld, enqueueCommand, hashWorld, step, type World } from '@
 
 export const SCENARIO_TICKS = 200
 
-/** Node 端确认过的末态哈希；浏览器端跑出别的值就说明存在平台相关的不确定性。 */
-export const GOLDEN_FINAL_HASH = 'fc71c296'
+/** Node 端确认过的末态哈希；浏览器端跑出别的值就说明存在平台相关的不确定性。
+ * 2026-10-12 有意更新（fc71c296 → 277e4fb6）：移动层改为八方向直线推进 + 朝向
+ * （docs/ENGINE-MAP.md「单位移动核心」），机制变更必然改哈希；这条钉的是"跨端一致"。 */
+export const GOLDEN_FINAL_HASH = '277e4fb6'
 
 export function buildScenarioWorld(): World {
   return createWorld({
