@@ -1,17 +1,10 @@
 import fs from 'node:fs'
-import zlib from 'node:zlib'
-import {
-  crc32,
-  findMixEntry,
-  hashFileName,
-  paletteColor,
-  readMixFile,
-  readMixIndex,
-  readShp,
-  readVxl,
-} from '@ra2web/formats'
+import { crc32, findMixEntry, paletteColor, readMixIndex, readShp, readVxl } from '@ra2web/formats'
 import { loadTheaterPalette } from '@ra2web/assets'
 import { FACING_COUNT, METALLIC_STYLE, positionVoxelModel, renderVoxelSprite } from '@ra2web/render'
+import { findGameFile } from './game-assets.js'
+import { writeMix } from './mix-write.js'
+import { writePng } from './png-write.js'
 
 /**
  * 把原版图形转成**真彩 PNG** 后打包成一个覆盖素材包 —— 写实/超清素材包的最小可用形态。
@@ -48,74 +41,6 @@ if (!palette) {
   console.error(`取不到 ${theaterName} 的单位色板`)
   process.exit(1)
 }
-
-const CONTAINERS = [
-  'local.mix',
-  'conquer.mix',
-  'generic.mix',
-  'isogen.mix',
-  'isotemp.mix',
-  'isosnow.mix',
-  'isourb.mix',
-  'temperat.mix',
-  'snow.mix',
-  'urban.mix',
-  'tem.mix',
-  'sno.mix',
-  'urb.mix',
-] as const
-
-function find(fileName: string): Uint8Array | undefined {
-  for (const container of CONTAINERS) {
-    const bytes = readMixFile({ bytes: archive, fileName, containerFileName: container })
-    if (bytes) return bytes
-  }
-  return readMixFile({ bytes: archive, fileName })
-}
-
-/** 8 位 RGBA、非隔行 PNG 写出（用 Node 的 zlib 做 deflate）。 */
-function writePng(width: number, height: number, rgba: Uint8Array): Uint8Array {
-  const stride = width * 4
-  const raw = Buffer.alloc((stride + 1) * height)
-  for (let y = 0; y < height; y++) {
-    raw[y * (stride + 1)] = 0
-    Buffer.from(rgba.subarray(y * stride, (y + 1) * stride)).copy(raw, y * (stride + 1) + 1)
-  }
-  const chunk = (type: string, data: Buffer): Buffer => {
-    const head = Buffer.alloc(8)
-    head.writeUInt32BE(data.length, 0)
-    head.write(type, 4, 'ascii')
-    const body = Buffer.concat([Buffer.from(type, 'ascii'), data])
-    let crc = 0xffffffff
-    for (const byte of body) crc = CRC_TABLE[(crc ^ byte) & 0xff]! ^ (crc >>> 8)
-    const tail = Buffer.alloc(4)
-    tail.writeUInt32BE((crc ^ 0xffffffff) >>> 0, 0)
-    return Buffer.concat([head, data, tail])
-  }
-  const ihdr = Buffer.alloc(13)
-  ihdr.writeUInt32BE(width, 0)
-  ihdr.writeUInt32BE(height, 4)
-  ihdr[8] = 8
-  ihdr[9] = 6
-  return new Uint8Array(
-    Buffer.concat([
-      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-      chunk('IHDR', ihdr),
-      chunk('IDAT', zlib.deflateSync(raw, { level: 9 })),
-      chunk('IEND', Buffer.alloc(0)),
-    ]),
-  )
-}
-
-const CRC_TABLE = (() => {
-  const table: number[] = []
-  for (let n = 0; n < 256; n++) {
-    let c = n
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
-    table[n] = c >>> 0
-  }
-  return table
-})()
 
 /**
  * 超清包观感预览用的图像处理：双线性放大 + 反锐化 + 金属调色。
@@ -219,7 +144,7 @@ function clampChannel(value: number): number {
 /** 建筑：SHP 第一个非空帧 → 按色板上色 → 真彩 PNG。 */
 function structurePng(graphicName: string): Uint8Array | undefined {
   for (const candidate of [`${graphicName}.shp`, `${graphicName}.tem`, `${graphicName}.sno`, `${graphicName}.urb`]) {
-    const bytes = find(candidate)
+    const bytes = findGameFile(archive, candidate)
     if (!bytes) continue
     const shp = readShp(bytes)
     const frame = shp.frames.find((item) => !item.isEmpty)
@@ -246,10 +171,10 @@ function structurePng(graphicName: string): Uint8Array | undefined {
 
 /** 单位：VXL 按 8 朝向渲染 → 横向贴条 PNG。 */
 function unitSheet(unitId: string): Uint8Array | undefined {
-  const bodyBytes = find(`${unitId.toLowerCase()}.vxl`)
+  const bodyBytes = findGameFile(archive, `${unitId.toLowerCase()}.vxl`)
   if (!bodyBytes) return undefined
   const models = [readVxl(bodyBytes)]
-  const turretBytes = find(`${unitId.toLowerCase()}tur.vxl`)
+  const turretBytes = findGameFile(archive, `${unitId.toLowerCase()}tur.vxl`)
   if (turretBytes) models.push(readVxl(turretBytes))
   const model = positionVoxelModel(models)
   const sprites = Array.from({ length: FACING_COUNT }, (_unused, facing) =>
@@ -284,26 +209,6 @@ function unitSheet(unitId: string): Uint8Array | undefined {
       : { rgba, width: frameSize * FACING_COUNT, height: frameSize }
   console.log(`${unitId}.vxl → ${unitId}.png（8 帧 × ${frameSize}×${frameSize}）`)
   return writePng(enhanced.width, enhanced.height, enhanced.rgba)
-}
-
-/** 明文头 MIX：u16 条目数 + u32 数据区长度 + 条目表 + 数据区。 */
-function writeMix(entries: ReadonlyArray<{ name: string; data: Uint8Array }>): Uint8Array {
-  const tableBytes = 6 + entries.length * 12
-  const dataSize = entries.reduce((total, entry) => total + entry.data.length, 0)
-  const bytes = new Uint8Array(tableBytes + dataSize)
-  const view = new DataView(bytes.buffer)
-  view.setUint16(0, entries.length, true)
-  view.setUint32(2, dataSize, true)
-  let offset = 0
-  entries.forEach((entry, index) => {
-    const at = 6 + index * 12
-    view.setUint32(at, hashFileName(entry.name, crc32), true)
-    view.setUint32(at + 4, offset, true)
-    view.setUint32(at + 8, entry.data.length, true)
-    bytes.set(entry.data, tableBytes + offset)
-    offset += entry.data.length
-  })
-  return bytes
 }
 
 const packed: Array<{ name: string; data: Uint8Array }> = []
