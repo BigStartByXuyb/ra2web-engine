@@ -508,6 +508,11 @@ function clampCameraToMap(): void {
     maxX - minX <= viewWidth ? (minX + maxX - viewWidth) / 2 : Math.min(Math.max(camera.x, minX), maxX - viewWidth)
   camera.y =
     maxY - minY <= viewHeight ? (minY + maxY - viewHeight) / 2 : Math.min(Math.max(camera.y, minY), maxY - viewHeight)
+  // 再夹一层"菱形"：地图真正的格集是斜置的菱形，`x + y` 落在 [cellSumMin, cellSumMax] 里，而 worldY = (x + y) · 15，
+  // 所以只夹**相机中心的世界 Y** 就能把可玩区域收进菱形（角上那圈空拖不出来了）。
+  const centerY = camera.y + viewHeight / 2
+  camera.y =
+    Math.min(Math.max(centerY, preview.cellSumMin * halfHeight), preview.cellSumMax * halfHeight) - viewHeight / 2
 }
 
 /** 把整张地图放进画布：按投影后的包围盒算缩放，再让地图中心对准画布中心。 */

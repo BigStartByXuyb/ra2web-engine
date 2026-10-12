@@ -12,6 +12,15 @@ import type { TileLayer } from './tile-layer.js'
  */
 
 export interface MapPreview {
+  /** 地图**声明**尺寸（`[Map] Size`），用于界面显示；格空间范围是 `width`×`height`，两者不是一回事 */
+  readonly declaredWidth: number
+  readonly declaredHeight: number
+  /**
+   * 格坐标之和的范围（含端点）。地图在格空间里是块**斜置的菱形**：`x + y` 落在这个区间里，
+   * 而 `worldY = (x + y) · 15`，所以"把可玩区域收成菱形"只需夹相机中心的世界 Y。
+   */
+  readonly cellSumMin: number
+  readonly cellSumMax: number
   readonly width: number
   readonly height: number
   readonly theater: string | undefined
@@ -36,14 +45,22 @@ export function buildMapPreview(
   const cellByIndex = new Map<number, MapCell>()
   let zMin = Number.POSITIVE_INFINITY
   let zMax = Number.NEGATIVE_INFINITY
+  let sumMin = Number.POSITIVE_INFINITY
+  let sumMax = Number.NEGATIVE_INFINITY
   for (const cell of map.cells) {
     if (cell.cellX < 0 || cell.cellY < 0 || cell.cellX >= map.cellBounds.right || cell.cellY >= map.cellBounds.bottom)
       continue
     cellByIndex.set(cell.cellY * map.cellBounds.right + cell.cellX, cell)
     if (cell.z < zMin) zMin = cell.z
     if (cell.z > zMax) zMax = cell.z
+    sumMin = Math.min(sumMin, cell.cellX + cell.cellY)
+    sumMax = Math.max(sumMax, cell.cellX + cell.cellY)
   }
   return {
+    declaredWidth: map.width,
+    declaredHeight: map.height,
+    cellSumMin: Number.isFinite(sumMin) ? sumMin : 0,
+    cellSumMax: Number.isFinite(sumMax) ? sumMax : 0,
     width: map.cellBounds.right,
     height: map.cellBounds.bottom,
     theater: map.theater,

@@ -48,7 +48,7 @@ export function createHud(elements: HudElements): Hud {
       const summary = state.battle && index !== undefined ? state.battle.summaryByUnit[index] : undefined
       if (!summary) {
         elements.selected.textContent = state.mapPreview
-          ? `地图 ${state.mapPreview.width}×${state.mapPreview.height} ${state.mapPreview.theater ?? '-'} z ${state.mapPreview.zMin}–${state.mapPreview.zMax}`
+          ? `地图 ${state.mapPreview.declaredWidth}×${state.mapPreview.declaredHeight} ${state.mapPreview.theater ?? '-'} z ${state.mapPreview.zMin}–${state.mapPreview.zMax}`
           : '无'
         return
       }
