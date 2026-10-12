@@ -1,5 +1,5 @@
 import { cellToScreen, type IsoView } from '@ra2web/render'
-import { TILE_NONE, type MapCell, type MapFile } from '@ra2web/formats'
+import type { MapCell, MapFile } from '@ra2web/formats'
 import type { CellRange } from './camera.js'
 import type { OverlayLayer } from './overlay-layer.js'
 import type { StructureLayer, StructureSprite } from './structure-layer.js'
@@ -73,10 +73,10 @@ export function buildMapPreview(
       ? map.placements
           .filter((placement) => {
             if (placement.kind !== 'structure') return false
-            // 只画落在**真有地块**的格上的对象：原版对落在空格（`TILE_NONE`）或格空间之外的对象就是忽略，
-            // 画出来会看到建筑飘在地图外面（实测这张图 25 个放置里有 5 个是这种）。
-            const cell = cellByIndex.get(placement.cellY * map.cellBounds.right + placement.cellX)
-            return cell !== undefined && cell.tileIndex !== TILE_NONE
+            // 只画"格存在"的对象：原版判定能不能放东西看的是**这一格在不在**（地形流里有记录即可），
+            // 不看有没有地块 —— 地图自带的装饰（油井、路灯、雕像）本来就有一批放在未上色的格上
+            // （实测 11 张图的 76 个这种对象全部落在有记录、`TILE_NONE` 的格上，没有一个落在无记录的格上）。
+            return cellByIndex.get(placement.cellY * map.cellBounds.right + placement.cellX) !== undefined
           })
           .map((placement) => structureLayer.spriteAt(placement))
           .filter((sprite): sprite is StructureSprite => sprite !== undefined)

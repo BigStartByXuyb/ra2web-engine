@@ -72,16 +72,21 @@ for (const mapPath of mapPaths) {
     }
     const structures = map.placements.filter((placement) => placement.kind === 'structure')
     let onTerrain = 0
+    let onVoidCell = 0
+    let offMap = 0
     for (const structure of structures) {
       const tile = tileByCell.get(`${structure.cellX},${structure.cellY}`)
-      if (tile !== undefined && tile !== TILE_NONE) onTerrain++
+      if (tile === undefined) offMap++
+      else if (tile === TILE_NONE) onVoidCell++
+      else onTerrain++
     }
     placed += structures.length
     placedOnTerrain += onTerrain
     const hit = structures.length === 0 ? 1 : onTerrain / structures.length
     if (structures.length > 0 && hit < 0.7) {
       lowHit.push(
-        `${mapPath} 第 ${entry} 张 ${map.width}×${map.height} ${map.theater ?? '?'}：建筑 ${onTerrain}/${structures.length} 落在真有地块上`,
+        `${mapPath} 第 ${entry} 张 ${map.width}×${map.height} ${map.theater ?? '?'}：建筑 ${onTerrain} 有地块 / ` +
+          `${onVoidCell} 未上色格 / ${offMap} 无记录（共 ${structures.length}）`,
       )
     }
   }
