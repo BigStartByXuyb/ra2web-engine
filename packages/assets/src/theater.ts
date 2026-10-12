@@ -26,18 +26,24 @@ import { findOverride, type AssetOverride } from './overrides.js'
  *
  * 地块图形名 = `<FileName><两位序号>[a..z]<后缀>`（同一地块的附加图像用字母结尾，
  * 按存在与否依次尝试）—— 与客户端实现一致。
+ * 图形落在**哪个包**不给定死：客户端建的是一张**全局图形表**，所有装载的档案都往里塞，
+ * 取的时候只按文件名查。实测同一剧场的地块分散在两个包里 —— `isosnow.mix` 放 `Cliff01.sno`
+ * 这类基础块，`snow.mix` 放 `warub13.sno`（RA2 Wash Rubble）、`Ovrpsb16.sno`（Wood Bridges）
+ * 这类补充块；只搜 iso 包会丢掉它们。
  *
- * 非地块图形（覆盖物、建筑）的名字规则与地块不同，见 `loadImage`。
+ * 非地块图形（覆盖物、建筑）的名字规则与地块不同，见 `loadImage`；两者查的是同一张表。
  */
 
 interface TheaterFiles {
   readonly ini: string
-  readonly tiles: string
   readonly suffix: string
   readonly palette: string
   /** 单位/建筑用的色板（`unittem.pal` 一类） */
   readonly unitPalette: string
-  /** 本剧场**优先**搜索的图形包；找不到时继续在 `SHARED_IMAGE_MIXES` 里找 */
+  /**
+   * 本剧场**优先**搜索的图形包（第一个是地块主包）；找不到时继续在 `SHARED_IMAGE_MIXES` 里找。
+   * 地块图形与 SHP 图形共用这一张表。
+   */
   readonly mixes: readonly string[]
   /** 图形名第 2 个字符替换用的剧场字母 */
   readonly letter: string
@@ -46,7 +52,6 @@ interface TheaterFiles {
 const THEATERS: Readonly<Record<string, TheaterFiles>> = {
   temperate: {
     ini: 'temperat.ini',
-    tiles: 'isotemp.mix',
     suffix: '.tem',
     palette: 'isotem.pal',
     unitPalette: 'unittem.pal',
@@ -55,7 +60,6 @@ const THEATERS: Readonly<Record<string, TheaterFiles>> = {
   },
   snow: {
     ini: 'snow.ini',
-    tiles: 'isosnow.mix',
     suffix: '.sno',
     palette: 'isosno.pal',
     unitPalette: 'unitsno.pal',
@@ -64,7 +68,6 @@ const THEATERS: Readonly<Record<string, TheaterFiles>> = {
   },
   urban: {
     ini: 'urban.ini',
-    tiles: 'isourb.mix',
     suffix: '.urb',
     palette: 'isourb.pal',
     unitPalette: 'uniturb.pal',
@@ -148,11 +151,6 @@ export function openTheater(
   const ini = readTheaterIni(readMixEntry(localBytes, local, iniEntry))
   if (ini.tiles.length === 0) return undefined
 
-  const tilesEntry = findMixEntry(root, files.tiles, crc32)
-  if (!tilesEntry) return undefined
-  const tilesBytes = readMixEntry(archiveBytes, root, tilesEntry)
-  const tiles = readMixIndex(tilesBytes)
-
   const imageMixes = [...new Set([...files.mixes, ...SHARED_IMAGE_MIXES])].flatMap((name) => {
     const entry = findMixEntry(root, name, crc32)
     if (!entry) return []
@@ -221,12 +219,14 @@ export function openTheater(
           return undefined
         }
       }
-      const entry = findMixEntry(tiles, candidate, crc32)
-      if (!entry) continue
-      try {
-        return readTmp(readMixEntry(tilesBytes, tiles, entry))
-      } catch {
-        return undefined
+      for (const mix of imageMixes) {
+        const entry = findMixEntry(mix.index, candidate, crc32)
+        if (!entry) continue
+        try {
+          return readTmp(readMixEntry(mix.bytes, mix.index, entry))
+        } catch {
+          return undefined
+        }
       }
     }
     return undefined
