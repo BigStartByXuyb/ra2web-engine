@@ -140,13 +140,46 @@ void main() {
  * 这一档是增强，所以宁可弱、不可假。
  */
 export interface ShadowStyle {
+  /** 影子椭圆的长轴 = 物体贴图宽度 × 这个比例 */
+  readonly footprint: number
   readonly offsetX: number
   readonly offsetY: number
-  readonly squash: number
   readonly alpha: number
 }
 
-export const DEFAULT_SHADOW: ShadowStyle = { offsetX: 5, offsetY: 3, squash: 0.5, alpha: 0.45 }
+/**
+ * 影子是**贴地的一块椭圆**，不是把精灵压扁贴上去。
+ *
+ * 把整张精灵按 `squash` 压扁再贴上地面，等距视角下会读成"物体朝光的方向又拉出一份自己"，
+ * 斜躺在地上（用户报的就是这个）。地面上的影子本来就是**沿地面铺开的一块**，
+ * 所以按物体占地画一个 2:1 的椭圆（等距地面上的圆就是这个比例），带一点柔边。
+ */
+export const DEFAULT_SHADOW: ShadowStyle = { footprint: 0.8, offsetX: 4, offsetY: 2, alpha: 0.4 }
+
+/** 影子椭圆贴图的像素尺寸（2:1，等距地面上的圆）；柔边靠径向渐变，越靠边越透明。 */
+const SHADOW_BLOB = { width: 128, height: 64 }
+
+/** 生成一次影子椭圆：黑色 + 径向 alpha 渐变，边缘 40% 开始渐隐。 */
+function createShadowBlob(): HTMLCanvasElement {
+  const canvas = document.createElement('canvas')
+  canvas.width = SHADOW_BLOB.width
+  canvas.height = SHADOW_BLOB.height
+  const context = canvas.getContext('2d')!
+  context.save()
+  context.translate(SHADOW_BLOB.width / 2, SHADOW_BLOB.height / 2)
+  // 圆先压成 2:1：等距视角里地面上的圆在屏幕上是扁的
+  context.scale(1, SHADOW_BLOB.height / SHADOW_BLOB.width)
+  const gradient = context.createRadialGradient(0, 0, 0, 0, 0, SHADOW_BLOB.width / 2)
+  gradient.addColorStop(0, 'rgba(0, 0, 0, 1)')
+  gradient.addColorStop(0.55, 'rgba(0, 0, 0, 0.85)')
+  gradient.addColorStop(1, 'rgba(0, 0, 0, 0)')
+  context.fillStyle = gradient
+  context.beginPath()
+  context.arc(0, 0, SHADOW_BLOB.width / 2, 0, Math.PI * 2)
+  context.fill()
+  context.restore()
+  return canvas
+}
 
 /**
  * 大气雾：等距视角里**屏幕上越靠上 = 离镜头越远**，所以用屏幕纵向梯度当雾的浓度，
@@ -372,6 +405,8 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
   /** B 路：单位的实时 3D 模型（按单位类型注册），没有就退回精灵 */
   const unitModels = new Map<string, Unit3dModel>()
   const unitRenderer = createUnit3dRenderer(gl)
+  /** 影子椭圆贴图：整场共用一张，第一次画阴影时生成 */
+  let shadowBlob: WebGLTexture | undefined
 
   /**
    * 顶点批处理：一帧里所有四边形先拼进同一个数组、**一次上传**，再逐个 `drawArrays`。
@@ -553,10 +588,12 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
 
   /**
    * 实时阴影：不单独做阴影贴图，直接把物体的贴图当**遮蔽掩模**，按光方向偏移、
-   * 垂直压扁后贴回地面 —— 每个物体一次 draw call，RTS 同屏物体数完全够用。
+   * 地面：每个物体在脚下铺一块 2:1 的柔边椭圆（等距地面上的圆就是这个比例）。
    */
   const drawShadows = (camera: Camera, quads: readonly GroundedQuad[]): void => {
     if (!shadowProgram) return
+    shadowBlob ??= textureFor(createShadowBlob())
+    if (!shadowBlob) return
     gl.useProgram(shadowProgram)
     gl.uniform2f(shadowCameraLocation!, camera.x, camera.y)
     gl.uniform1f(shadowScaleLocation!, viewScale(camera))
@@ -564,19 +601,19 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
     gl.uniform1i(shadowTextureLocation!, 0)
     gl.uniform1f(shadowAlphaLocation!, DEFAULT_SHADOW.alpha)
     gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, shadowBlob)
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
     resetBatch()
     for (const quad of quads) {
-      const texture = textureFor(quad.source)
-      if (!texture) continue
-      const shadowHeight = Math.max(1, Math.round(quad.source.height * DEFAULT_SHADOW.squash))
-      // 影子底边与物体贴图底边对齐，再按光方向偏移
+      const width = Math.max(8, Math.round(quad.source.width * DEFAULT_SHADOW.footprint))
+      const height = Math.max(4, Math.round(width / 2))
+      // 椭圆中心落在物体贴图的水平中线与贴地线上，再按光方向偏一点
       pushQuad(
-        texture,
-        quad.originX + DEFAULT_SHADOW.offsetX,
-        quad.bottomY - shadowHeight + DEFAULT_SHADOW.offsetY,
-        quad.source.width,
-        shadowHeight,
+        shadowBlob,
+        quad.originX + (quad.source.width - width) / 2 + DEFAULT_SHADOW.offsetX,
+        quad.groundY - height / 2 + DEFAULT_SHADOW.offsetY,
+        width,
+        height,
       )
     }
     flushBatch(shadowCornerLocation, shadowOriginLocation, shadowSizeLocation)
