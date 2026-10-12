@@ -1,0 +1,130 @@
+import assert from 'node:assert/strict'
+import { describe, it } from 'node:test'
+import { RA2_ISO_VIEW, type ScreenPoint } from '../src/iso.js'
+import { buildTerrainMesh, type TerrainFace } from '../src/terrain-mesh.js'
+
+/**
+ * 3D 地形网格：抬高必须与崖壁同时生成。
+ *
+ * 关键判据是**不留缝**：每块崖壁的上边与高的一侧的共边完全重合、下边与低的一侧的共边完全重合。
+ * 只抬高不补面，就会在没有悬崖图块的地方漏出竖向空洞 —— 这几条就是那道红线的回归。
+ */
+const Z_STEP = 15
+
+function meshOf(levels: ReadonlyMap<string, number>, cells: readonly { cellX: number; cellY: number }[]) {
+  return buildTerrainMesh({
+    view: RA2_ISO_VIEW,
+    zStep: Z_STEP,
+    cells,
+    levelAt: (x, y) => levels.get(`${x},${y}`),
+  })
+}
+
+function samePoint(left: ScreenPoint, right: ScreenPoint): boolean {
+  return left.x === right.x && left.y === right.y
+}
+
+describe('3D 地形网格', () => {
+  it('平地只有顶面，不生成崖壁', () => {
+    const faces = meshOf(new Map([['0,0', 2]]), [{ cellX: 0, cellY: 0 }])
+    assert.equal(faces.length, 1)
+    assert.equal(faces[0]!.kind, 'top')
+  })
+
+  it('一格高出一级：共边处生成一块崖壁，且上下两条边与两侧顶面完全重合', () => {
+    const faces = meshOf(
+      new Map([
+        ['0,0', 1],
+        ['1,0', 0],
+      ]),
+      [
+        { cellX: 0, cellY: 0 },
+        { cellX: 1, cellY: 0 },
+      ],
+    )
+    const walls = faces.filter((face) => face.kind === 'wall')
+    assert.equal(walls.length, 1)
+
+    const high = faces.find((face) => face.kind === 'top' && face.cellX === 0)!
+    const low = faces.find((face) => face.kind === 'top' && face.cellX === 1)!
+    const wall = walls[0]!
+
+    // 上边 = 高格那条共边（右→下）
+    assert.ok(samePoint(wall.corners[0], high.corners[1]!))
+    assert.ok(samePoint(wall.corners[1], high.corners[2]!))
+    // 下边 = 低格那条共边（左→上），方向与高格那条相反
+    assert.ok(samePoint(wall.corners[2], low.corners[3]!))
+    assert.ok(samePoint(wall.corners[3], low.corners[0]!))
+    // 高度差就是一级
+    assert.equal(wall.corners[2]!.y - wall.corners[1]!.y, Z_STEP)
+  })
+
+  it('高差几级，崖壁就有几级高', () => {
+    const faces = meshOf(
+      new Map([
+        ['0,0', 6],
+        ['1,0', 2],
+      ]),
+      [
+        { cellX: 0, cellY: 0 },
+        { cellX: 1, cellY: 0 },
+      ],
+    )
+    const wall = faces.find((face) => face.kind === 'wall')!
+    assert.equal(wall.corners[2]!.y - wall.corners[1]!.y, 4 * Z_STEP)
+  })
+
+  it('四邻都低：四条边各生成一块崖壁', () => {
+    const levels = new Map([
+      ['0,0', 2],
+      ['1,0', 1],
+      ['-1,0', 1],
+      ['0,1', 1],
+      ['0,-1', 1],
+    ])
+    const faces = meshOf(levels, [{ cellX: 0, cellY: 0 }])
+    assert.equal(faces.filter((face) => face.kind === 'wall').length, 4)
+  })
+
+  it('地图外按同高处理：边界格不生成崖壁', () => {
+    const faces = meshOf(new Map([['0,0', 5]]), [{ cellX: 0, cellY: 0 }])
+    assert.equal(faces.filter((face) => face.kind === 'wall').length, 0)
+  })
+
+  it('高低混合的 3×3 上，每一条有落差的边都恰好补一块崖壁', () => {
+    const levels = new Map<string, number>()
+    const cells: { cellX: number; cellY: number }[] = []
+    for (let y = 0; y < 3; y++) {
+      for (let x = 0; x < 3; x++) {
+        // 左半边高、右半边低，中间那条缝横跨三格
+        levels.set(`${x},${y}`, x < 1 ? 3 : 1)
+        cells.push({ cellX: x, cellY: y })
+      }
+    }
+    const faces = meshOf(levels, cells)
+    const walls = faces.filter((face) => face.kind === 'wall')
+    // 3 行里每行 x=0 与 x=1 之间一条缝 → 3 块崖壁
+    assert.equal(walls.length, 3)
+    for (const wall of walls) {
+      assert.equal(wall.corners[2]!.y - wall.corners[1]!.y, 2 * Z_STEP)
+    }
+    assert.equal(faces.length, 9 + 3)
+  })
+
+  it('每一块面都有四个角与四个贴图坐标', () => {
+    const faces: readonly TerrainFace[] = meshOf(
+      new Map([
+        ['0,0', 2],
+        ['1,0', 0],
+      ]),
+      [
+        { cellX: 0, cellY: 0 },
+        { cellX: 1, cellY: 0 },
+      ],
+    )
+    for (const face of faces) {
+      assert.equal(face.corners.length, 4)
+      assert.equal(face.uvs.length, 4)
+    }
+  })
+})

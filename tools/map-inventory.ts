@@ -181,6 +181,50 @@ if (hdNames.size === 0) {
   }
 }
 lines.push('')
+lines.push('### 地块画布尺寸分布')
+lines.push('')
+lines.push('标准格是 60×30；高过 30 的那部分就是画在地面之下的崖面。这张表用来核对"一级高度差 = 多少像素"。')
+lines.push('')
+lines.push('| 画布（宽×高） | 地块种数 | 格数 |')
+lines.push('| --- | --- | --- |')
+const canvasSizes = new Map<string, { tiles: number; cells: number }>()
+for (const [tileIndex, count] of tiles) {
+  const tile = theater?.loadTile(tileIndex)
+  if (!tile) continue
+  const key = `${tile.cellWidth}×${tile.cellHeight}`
+  const row = canvasSizes.get(key) ?? { tiles: 0, cells: 0 }
+  row.tiles++
+  row.cells += count
+  canvasSizes.set(key, row)
+}
+for (const [size, row] of [...canvasSizes.entries()].sort((a, b) => b[1].cells - a[1].cells)) {
+  lines.push(`| ${size} | ${row.tiles} | ${row.cells} |`)
+}
+lines.push('')
+lines.push('### 子块高度字段分布')
+lines.push('')
+lines.push('TMP 子块头里自带 `height` 字节。它是不是"可用的高度场"看这张表：平地子块应当全是 0，')
+lines.push('只有带崖面的子块才非零；如果全图都是同一个值，那它就不是高度。')
+lines.push('')
+lines.push('| height 值 | 子块数 | 出现在几种地块 | 该值的 rampType 取值 |')
+lines.push('| --- | --- | --- | --- |')
+const heightBuckets = new Map<number, { subtiles: number; tiles: Set<number>; ramps: Set<number> }>()
+for (const tileIndex of tiles.keys()) {
+  const tile = theater?.loadTile(tileIndex)
+  if (!tile) continue
+  for (const sub of tile.subTiles) {
+    if (sub.isEmpty) continue
+    const row = heightBuckets.get(sub.height) ?? { subtiles: 0, tiles: new Set<number>(), ramps: new Set<number>() }
+    row.subtiles++
+    row.tiles.add(tileIndex)
+    row.ramps.add(sub.rampType)
+    heightBuckets.set(sub.height, row)
+  }
+}
+for (const [height, row] of [...heightBuckets.entries()].sort((a, b) => b[1].subtiles - a[1].subtiles)) {
+  lines.push(`| ${height} | ${row.subtiles} | ${row.tiles.size} | ${[...row.ramps].sort((a, b) => a - b).join(' ')} |`)
+}
+lines.push('')
 
 lines.push('## 预置单位')
 lines.push('')
