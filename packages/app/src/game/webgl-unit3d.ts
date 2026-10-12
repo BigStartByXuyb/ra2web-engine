@@ -59,12 +59,15 @@ uniform float u_scale;
 uniform vec2 u_viewport;
 varying vec3 v_normal;
 varying vec2 v_uv;
+varying float v_height;
 void main() {
   float c = cos(u_facing);
   float s = sin(u_facing);
   vec3 position = vec3(a_position.x * c - a_position.y * s, a_position.x * s + a_position.y * c, a_position.z);
   v_normal = vec3(a_normal.x * c - a_normal.y * s, a_normal.x * s + a_normal.y * c, a_normal.z);
   v_uv = a_uv;
+  // 离地高度：贴地那一圈要压暗（接触阴影），这是"车压在地上"而不是"浮在地面上"的关键
+  v_height = position.z;
   // 引擎的精灵投影：screenX = x − y，screenY = (x + y)/2 − z
   vec2 world = u_origin + vec2(position.x - position.y, (position.x + position.y) * 0.5 - position.z);
   vec2 pixel = (world - u_camera) * u_scale;
@@ -82,12 +85,14 @@ uniform sampler2D u_texture;
 uniform float u_hasTexture;
 varying vec3 v_normal;
 varying vec2 v_uv;
+varying float v_height;
 void main() {
   vec4 texel = u_hasTexture > 0.5 ? texture2D(u_texture, v_uv) : vec4(1.0);
   // 贴图带透明通道时按贴图裁形（写实素材里常见的铁丝网、迷彩边缘）
   if (u_hasTexture > 0.5 && texel.a < 0.35) discard;
   vec3 albedo = u_baseColor * texel.rgb;
-  vec3 light = normalize(vec3(-0.35, 0.55, 0.75));
+  // 光更偏上方：顶面与两个可见侧面的明暗差要够大，1:1 的几十像素里才有体积感
+  vec3 light = normalize(vec3(-0.25, 0.42, 0.87));
   vec3 view = normalize(vec3(1.0, 1.0, 1.0));
   vec3 normal = normalize(v_normal);
   float lambert = max(0.0, dot(normal, light));
@@ -96,11 +101,13 @@ void main() {
   float specular = pow(max(0.0, dot(normal, halfVector)), shine) * (0.35 + 0.65 * u_metallic);
   vec3 tint = mix(vec3(1.0), albedo, u_metallic);
   // 半球环境光：朝上偏冷、朝下偏暖，法线一动颜色就变 —— 大平面上才有明暗过渡，不然一大片纯色
-  vec3 ambient = mix(vec3(0.16, 0.15, 0.13), vec3(0.30, 0.35, 0.44), normal.z * 0.5 + 0.5);
+  vec3 ambient = mix(vec3(0.11, 0.11, 0.10), vec3(0.30, 0.35, 0.44), normal.z * 0.5 + 0.5);
   // 菲涅尔：掠射角补一点天光，边缘自己就"起来"了，这是圆润感的来源之一
   float fresnel = pow(1.0 - max(0.0, dot(normal, view)), 3.0);
   vec3 color =
-    albedo * (ambient + lambert * 0.72) + tint * specular * 0.9 + vec3(0.34, 0.40, 0.50) * fresnel * 0.28;
+    albedo * (ambient + lambert * 0.82) + tint * specular * 0.9 + vec3(0.34, 0.40, 0.50) * fresnel * 0.28;
+  // 接触阴影：贴地 4 体素内渐暗到 0.72，车体、履带与地面的接缝因此"咬"在一起
+  color *= mix(0.72, 1.0, clamp(v_height / 4.0, 0.0, 1.0));
   gl_FragColor = vec4(color, 1.0);
 }`
 
