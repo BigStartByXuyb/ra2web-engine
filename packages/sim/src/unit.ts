@@ -26,6 +26,8 @@ export interface Unit {
   facing: number
   /** 每 tick 最大转向量（16 位角单位）。原版转速与 rules `ROT=` 的换算未核，此默认值是本项目自定。 */
   readonly turnRate: number
+  /** 满血值（原版单位类型的 Strength）；伤车判定用它算血量百分比。缺省按创建时的 health。 */
+  readonly maxHealth: number
   /** 剩余路径（格子），空表示无移动任务 */
   path: Cell[]
   pathIndex: number
@@ -47,6 +49,7 @@ export function createUnit(
   sight: number,
   facing = 0,
   turnRate = DEFAULT_TURN_RATE,
+  maxHealth = 0,
 ): Unit {
   return {
     id,
@@ -58,6 +61,7 @@ export function createUnit(
     sight,
     facing: ((facing % FACING_FULL) + FACING_FULL) % FACING_FULL,
     turnRate,
+    maxHealth: maxHealth > 0 ? maxHealth : health,
     path: [],
     pathIndex: 0,
     target: undefined,

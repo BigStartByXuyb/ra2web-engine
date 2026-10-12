@@ -1,5 +1,5 @@
 import { readLocalText } from '@ra2web/assets'
-import { loadRules, parseUnitType, type UnitType } from '@ra2web/rules'
+import { loadRules, parseUnitType, valueOf, type UnitType } from '@ra2web/rules'
 import { buildDataDrivenScene, type UnitSpawn } from '@ra2web/scenarios'
 import { ONE, createWorld, type Cell, type World } from '@ra2web/sim'
 
@@ -43,6 +43,7 @@ export interface BattleOptions {
 export function createBattle(archiveBytes: Uint8Array, options: BattleOptions): Battle {
   const rulesText = readRulesText(archiveBytes)
   const rules = loadRules([{ name: 'local.mix/rules.ini', text: rulesText }])
+  const conditionYellow = conditionYellowOf(rules)
   const parsed = new Map<string, UnitType>()
   for (const spawn of options.spawns) {
     const key = spawn.unitId.toLowerCase()
@@ -58,6 +59,7 @@ export function createBattle(archiveBytes: Uint8Array, options: BattleOptions): 
     blocked: options.blocked,
     ...(options.blockedSteps ? { blockedSteps: options.blockedSteps } : {}),
     ...(options.terrainSpeed ? { terrainSpeed: options.terrainSpeed } : {}),
+    ...(conditionYellow !== undefined ? { crippled: { threshold: conditionYellow, factor: CRIPPLED_FACTOR } } : {}),
     seed: options.seed,
   })
   return {
@@ -94,6 +96,19 @@ export function createDemoBattle(): Battle {
 function summarize(typeId: string, type: UnitType | undefined): UnitSummary {
   if (!type) return { id: typeId, name: typeId, strength: undefined, speed: undefined }
   return { id: type.id, name: type.displayName ?? type.id, strength: type.strength, speed: type.speed }
+}
+
+/** 伤车慢速系数：原版写死在推进核心里（fn-4a2670），不是 INI 键。 */
+const CRIPPLED_FACTOR = 0.75
+
+/** rules.ini `[General] ConditionYellow=50%` → 0.5（伤车阈值）。
+ *  依据：推进核心 fn-4a2670 拿 FUN_005d4540（血量%）与 rules+0x1368 比较，
+ *  而	INI 读值点（0x6464d0 附近）把 `ConditionYellow` 写进 rules+0x1368。 */
+function conditionYellowOf(rules: ReturnType<typeof loadRules>): number | undefined {
+  const raw = valueOf(rules, 'General', 'ConditionYellow')?.trim()
+  if (!raw) return undefined
+  const percent = raw.endsWith('%') ? Number(raw.slice(0, -1)) : Number(raw) * 100
+  return Number.isFinite(percent) ? percent / 100 : undefined
 }
 
 function readRulesText(archiveBytes: Uint8Array): string {

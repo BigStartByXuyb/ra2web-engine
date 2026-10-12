@@ -58,6 +58,8 @@ export function buildDataDrivenScene(
       owner: spawn.owner,
       cell: spawn.cell,
       health: type.strength,
+      // 伤车判定（ConditionYellow ×0.75）需要满血值；上阵时都是满血
+      maxHealth: type.strength,
       speed: speedToMovementPerTick(type.speed),
       ...(type.sight !== undefined ? { sight: type.sight } : {}),
     }

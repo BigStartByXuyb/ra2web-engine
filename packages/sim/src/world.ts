@@ -26,8 +26,18 @@ export interface UnitSpec {
   readonly cell: Cell
   readonly speed: number
   readonly health: number
+  /** 满血值（单位类型的 Strength）；伤车判定用它算血量百分比。缺省按 health。 */
+  readonly maxHealth?: number
   /** 视野半径（格）；不给按客户端缺省值 1 */
   readonly sight?: number
+}
+
+/** 伤车慢速参数：血量百分比 ≤ threshold 时移速 ×factor。
+ *  原版证据（fn-4a2670 + 0x5d4540 + rules+0x1368=ConditionYellow）：阈值来自
+ *  rules.ini `[General] ConditionYellow`（实测 50%），系数 0.75 写死在代码里。 */
+export interface CrippledRule {
+  readonly threshold: number
+  readonly factor: number
 }
 
 export interface WorldOptions {
@@ -39,6 +49,8 @@ export interface WorldOptions {
   /** 每格地表速度系数（长度 width×height，0..1；原版 0x850ea0 表 × 移动类型的乘积，已封顶 1）。
    *  静态数据，不进世界状态哈希。不给就全 1。 */
   readonly terrainSpeed?: Float32Array
+  /** 伤车慢速（ConditionYellow ×0.75）；不给就不做伤车判定 */
+  readonly crippled?: CrippledRule
   readonly units: readonly UnitSpec[]
   readonly seed: number
 }
@@ -52,6 +64,8 @@ export interface World {
   readonly rng: RngState
   /** 每格地表速度系数（静态数据，与 grid.blockedSteps 同类，不进哈希） */
   readonly terrainSpeed: Float32Array | undefined
+  /** 伤车慢速规则（静态数据，不进哈希）；undefined = 不做伤车判定 */
+  readonly crippled: CrippledRule | undefined
   pending: Command[]
   /** 入队序号，用于同 tick 指令的稳定排序 */
   sequence: number
@@ -60,7 +74,17 @@ export interface World {
 export function createWorld(options: WorldOptions): World {
   const grid = createGrid(options.width, options.height, options.blocked ?? [], options.blockedSteps)
   const units = options.units.map((spec, index) =>
-    createUnit(index + 1, spec.owner, spec.cell, spec.speed, spec.health, spec.sight ?? DEFAULT_SIGHT),
+    createUnit(
+      index + 1,
+      spec.owner,
+      spec.cell,
+      spec.speed,
+      spec.health,
+      spec.sight ?? DEFAULT_SIGHT,
+      0,
+      undefined,
+      spec.maxHealth,
+    ),
   )
   const ownerCount = units.reduce((max, unit) => Math.max(max, unit.owner + 1), 1)
   const shroud = createShroud(ownerCount, options.width, options.height)
@@ -72,6 +96,7 @@ export function createWorld(options: WorldOptions): World {
     shroud,
     rng: createRng(options.seed),
     terrainSpeed: options.terrainSpeed,
+    crippled: options.crippled,
     pending: [],
     sequence: 0,
   }
@@ -161,6 +186,12 @@ export function step(world: World): void {
       const raw = world.terrainSpeed[cell.y * world.grid.width + cell.x] ?? 1
       const factor = raw <= 0 ? 0.5 : Math.min(raw, 1)
       effective = Math.floor(unit.speed * factor)
+    }
+    // 伤车慢速（原版 0x5d4540 ≤ ConditionYellow → ×0.75，见 CrippledRule 注释）
+    if (world.crippled && unit.maxHealth > 0) {
+      if (unit.health / unit.maxHealth <= world.crippled.threshold) {
+        effective = Math.floor(effective * world.crippled.factor)
+      }
     }
     advanceAlongPath(unit, effective)
     occupancy.delete(occupiedIndex(world.grid, unit))
