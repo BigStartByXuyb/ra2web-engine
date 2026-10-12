@@ -257,7 +257,7 @@ export function openTheater(
 }
 
 /** 该地块的候选文件名：原名 + 逐字母变体（RA2 的 `w-a-`/`w-b-` 这类多块图形）。 */
-function tileFileCandidates(tile: TheaterTile, suffix: string): readonly string[] {
+export function tileFileCandidates(tile: TheaterTile, suffix: string): readonly string[] {
   const base = tileFileName(tile, suffix)
   const candidates = [base]
   for (const letter of 'abcdefghijklmnopqrstuvwxyz') {
