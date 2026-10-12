@@ -55,7 +55,12 @@ export function createHud(elements: HudElements): Hud {
       const unit = index === undefined ? undefined : state.battle?.world.units[index]
       const cell = unit ? unitCell(unit) : undefined
       const remaining = unit ? unit.path.length - unit.pathIndex : 0
-      elements.selected.textContent = `${summary.id}（${summary.name}）HP ${summary.strength ?? '-'} 速度 ${
+      // HP 显示单位的**当前**血量（伤车验证靠它目检）：没有单位数据时退回类型满血
+      const hpText =
+        unit === undefined
+          ? String(summary.strength ?? '-')
+          : `${unit.health}/${unit.maxHealth}`
+      elements.selected.textContent = `${summary.id}（${summary.name}）HP ${hpText} 速度 ${
         summary.speed ?? '-'
       } 位置 ${cell ? `${cell.x}, ${cell.y}` : '-'} 路径 ${remaining}`
     },

@@ -206,6 +206,15 @@ function toQualityPreset(value: string): QualityPreset {
 // 单位画法：3D 模型 ↔ 原版 8 朝向贴图。开着时缺模型的类型照样退回贴图，所以这是个纯开关。
 units3dSelect.addEventListener('change', () => {
   units3d = units3dSelect.value === '3d'
+  // 3D 单位走 WebGL 单位层：非 WebGL 渲染器下选「3D 模型」时自动切渲染器并重载，
+  // 不允许静默无效（总工 2026-10-12；此前开关变了画面毫无反应）。
+  if (units3d && !glTiles) {
+    const params = new URLSearchParams(location.search)
+    params.set('renderer', 'webgl')
+    params.set('units3d', '3d')
+    location.search = params.toString()
+    return
+  }
   if (units3d && battle) void loadUnit3dModels(battle)
 })
 
@@ -323,6 +332,7 @@ async function startBattleOnMap(): Promise<void> {
       blocked: setup.blocked,
       blockedSteps: setup.blockedSteps,
       terrainSpeed: setup.terrainSpeed,
+      ...(spawnHealthPercent !== undefined ? { spawnHealthPercent } : {}),
       spawns: setup.spawns,
       seed: 20261010,
     })
@@ -335,7 +345,10 @@ async function startBattleOnMap(): Promise<void> {
       created,
       `官方地图开战：${setup.width}×${setup.height}，不可通行格 ${setup.blocked.length}` +
         `（按地块类型判定：${setup.landTypeSummary}），高度差不小于 2 的相邻格不能迈过去；` +
-        `单位 ${setup.spawns.length} 辆${unknownNote}`,
+        `单位 ${setup.spawns.length} 辆${unknownNote}` +
+        (spawnHealthPercent !== undefined
+          ? `；上阵血量 ${spawnHealthPercent}%（伤车验证：血量 ≤ ConditionYellow 移速 ×0.75）`
+          : ''),
       terrain,
     )
   } catch (error) {
@@ -586,6 +599,12 @@ units3d = new URLSearchParams(location.search).get('units3d') !== '0'
 // 水面动画默认开（原版水面本来就在动）。要逐像素比对（同一机位两次运行一致）时用 `?anim=0` ——
 // 动画是按墙钟推进的，开着就不可能跨次截图逐像素相同。
 animateWater = new URLSearchParams(location.search).get('anim') !== '0'
+/** `?hp=45`：上阵单位按该百分比血量生成（伤车减速的人工验证入口，满血对照用 `?hp=100`）。
+ *  只在 1..100 才生效，缺省满血。 */
+const spawnHealthPercent = (() => {
+  const raw = Number(new URLSearchParams(location.search).get('hp'))
+  return Number.isFinite(raw) && raw >= 1 && raw <= 100 ? raw : undefined
+})()
 units3dSelect.value = units3d ? '3d' : '2d'
 void autoLoadFromQuery()
 

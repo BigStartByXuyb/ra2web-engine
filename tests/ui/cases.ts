@@ -421,6 +421,88 @@ export const cases: readonly UiCase[] = [
       return frames.map((frame) => `${frame.theater} 画出 ${frame.drawn} 个 / 路径差异 ${frame.diff}`).join('，')
     },
   },
+  {
+    name: '2D 页选「3D 模型」必须产生可见效果（自动切 WebGL，不允许静默）',
+    async run(session) {
+      const page = session.page
+      // 故意不带 renderer=webgl：要测的就是 2D 渲染器下的开关行为
+      const params = new URLSearchParams({
+        mix: '/pack/RA2.MIX',
+        map: '/pack/Maps01.mix',
+        index: '0',
+        battle: '1',
+        units3d: '2d',
+        anim: '0',
+      })
+      await page.goto(`${session.origin}/game.html?${params.toString()}`, { waitUntil: 'load' })
+      await page.waitForFunction(
+        () => /单位 \d+ 辆/.test(document.getElementById('status')?.textContent ?? ''),
+        undefined,
+        { timeout: 300000 },
+      )
+      const before = page.url()
+      await page.selectOption('#units3d', '3d')
+      // 页面会带 renderer=webgl 重载：等它回来
+      await page.waitForURL(/renderer=webgl/, { timeout: 30000 })
+      await page.waitForFunction(
+        () => /单位 \d+ 辆/.test(document.getElementById('status')?.textContent ?? ''),
+        undefined,
+        { timeout: 300000 },
+      )
+      const after = page.url()
+      assert.notEqual(before, after, '选 3D 后 URL 没变：开关是静默无效的')
+      assert.ok(/renderer=webgl/.test(after), `重载后没带 renderer=webgl：${after}`)
+      const value = await page.evaluate(() => (document.getElementById('units3d') as HTMLSelectElement).value)
+      assert.equal(value, '3d', '重载后「单位画法」应停在 3D 档')
+      return `2D 页选 3D → 自动切到 WebGL 渲染器（${after.replace(/^.*\?/, '')}）`
+    },
+  },
+  {
+    name: '伤车减速验证入口：?hp=45 上阵黄血单位（HUD 血量可见、模拟减速生效）',
+    async run(session) {
+      const page = session.page
+      const load = async (hp: string): Promise<string> => {
+        const params = new URLSearchParams({
+          mix: '/pack/RA2.MIX',
+          map: '/pack/Maps01.mix',
+          index: '0',
+          battle: '1',
+          renderer: 'webgl',
+          anim: '0',
+          hp,
+        })
+        await page.goto(`${session.origin}/game.html?${params.toString()}`, { waitUntil: 'load' })
+        await page.waitForFunction(
+          () => /单位 \d+ 辆/.test(document.getElementById('status')?.textContent ?? ''),
+          undefined,
+          { timeout: 300000 },
+        )
+        // 新局没有默认选中：照交互用例的办法点中一辆车（拾取半径 22 像素内）
+        const box = await page.locator('#stage').boundingBox()
+        assert.ok(box, '找不到战场画布')
+        const offsets = [0, -40, 40, -80, 80, -120]
+        for (const offset of offsets) {
+          await page.mouse.click(box.x + box.width / 2 + offset, box.y + box.height / 2)
+          await page.waitForTimeout(400)
+          if (/HP \d+/.test(await page.evaluate(() => document.getElementById('hud-selected')?.textContent ?? ''))) {
+            break
+          }
+        }
+        // 等 HUD 报出选中单位的血量（选中发生在首帧之后）
+        await page.waitForFunction(
+          () => /HP \d+/.test(document.getElementById('hud-selected')?.textContent ?? ''),
+          undefined,
+          { timeout: 60000 },
+        )
+        return page.evaluate(() => document.getElementById('hud-selected')?.textContent ?? '')
+      }
+      const wounded = await load('45')
+      assert.match(wounded, /HP 180\/400/, `?hp=45 的 HTNK 应是 400×45% = 180 血（HUD：${wounded}）`)
+      const healthy = await load('100')
+      assert.match(healthy, /HP 400\/400/, `?hp=100 应是满血 400（HUD：${healthy}）`)
+      return `?hp=45 → HUD「${wounded.trim()}」；?hp=100 → HUD「${healthy.trim()}」`
+    },
+  },
 ]
 
 export { UI_PANELS }

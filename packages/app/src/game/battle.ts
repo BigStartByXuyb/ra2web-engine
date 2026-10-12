@@ -36,6 +36,8 @@ export interface BattleOptions {
   readonly blockedSteps?: Uint8Array
   /** 每格地表速度系数（0..1），见 `WorldOptions.terrainSpeed` */
   readonly terrainSpeed?: Float32Array
+  /** 上阵血量百分比（1..100）：伤车减速的人工验证入口（URL `?hp=`），缺省满血 */
+  readonly spawnHealthPercent?: number
   readonly spawns: readonly UnitSpawn[]
   readonly seed: number
 }
@@ -59,6 +61,7 @@ export function createBattle(archiveBytes: Uint8Array, options: BattleOptions): 
     blocked: options.blocked,
     ...(options.blockedSteps ? { blockedSteps: options.blockedSteps } : {}),
     ...(options.terrainSpeed ? { terrainSpeed: options.terrainSpeed } : {}),
+    ...(options.spawnHealthPercent !== undefined ? { spawnHealthPercent: options.spawnHealthPercent } : {}),
     ...(conditionYellow !== undefined ? { crippled: { threshold: conditionYellow, factor: CRIPPLED_FACTOR } } : {}),
     seed: options.seed,
   })

@@ -45,6 +45,8 @@ export function buildDataDrivenScene(
     readonly blockedSteps?: Uint8Array
     /** 每格地表速度系数（0..1），见 `WorldOptions.terrainSpeed` */
     readonly terrainSpeed?: Float32Array
+    /** 上阵血量百分比（1..100）：伤车减速的人工验证入口，缺省满血 */
+    readonly spawnHealthPercent?: number
     readonly seed: number
   },
 ): DataSceneResult {
@@ -54,11 +56,15 @@ export function buildDataDrivenScene(
     if (!type) throw new Error(`场景引用了未定义的兵种：${spawn.unitId}`)
     if (type.strength === undefined) throw new Error(`${type.id} 缺少 Strength，无法上阵`)
     if (type.speed === undefined) throw new Error(`${type.id} 缺少 Speed，无法上阵`)
+    const health =
+      options.spawnHealthPercent !== undefined
+        ? Math.max(1, Math.round((type.strength * options.spawnHealthPercent) / 100))
+        : type.strength
     return {
       owner: spawn.owner,
       cell: spawn.cell,
-      health: type.strength,
-      // 伤车判定（ConditionYellow ×0.75）需要满血值；上阵时都是满血
+      health,
+      // 伤车判定（ConditionYellow ×0.75）需要满血值；maxHealth 永远是类型满血
       maxHealth: type.strength,
       speed: speedToMovementPerTick(type.speed),
       ...(type.sight !== undefined ? { sight: type.sight } : {}),
