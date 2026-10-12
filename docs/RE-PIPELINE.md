@@ -44,6 +44,20 @@ rea function <GAME.EXE> <函数入口地址> --format md > fn-<addr>.md
 
 产物含：伪代码、引用字符串、调用者/被调用者、基本块。
 
+#### 补充：函数地址不在 Ghidra 函数表里（"No procedure exists"）
+
+Ghidra 自动分析会漏掉只经虚表/间接调用进入的函数（实例：移动核心 `0x4a05f0`，两个函数表
+条目之间的空洞）。用仓库里的脚本在已保存的 Ghidra 项目里建函数并直接反编译：
+
+```bash
+analyzeHeadless <projDir> ra2 -process GAME.EXE -noanalysis \
+  -scriptPath <脚本目录> -postScript DecompileAt.java 0x<addr> <out.c>
+```
+
+脚本在 `tools/re/DecompileAt.java`（含调用者清单）。判断"函数起点"的办法：
+先 `rea function` 报错拿不到伪代码 → 用调用点 xref 定位函数区间 → 十六进制查看区间找
+`0x90` 填充后的序言（`83 EC .. 53 55 56` 一类）确定入口。
+
 ### 4. 全量函数表（含每个函数引用的字符串）
 
 ```bash
