@@ -75,6 +75,16 @@ test('转向时序：朝向未对齐前不位移（原版先转后走，fn-4a267
   assert.equal(unit.x, before.x + ONE, '对齐后按速度直线推进')
 })
 
+test('炮塔朝向：无战斗目标时跟随车体（独立字段，战斗目标追踪归战斗线）', () => {
+  const world = worldWith({ x: 8, y: 2 })
+  const unit = world.units[0]!
+  assert.equal(unit.turretFacing, 0, '初始炮塔与车体同向（北）')
+  step(world)
+  step(world)
+  assert.equal(unit.turretFacing, unit.facing, '车体转向时炮塔跟随')
+  assert.notEqual(unit.turretFacing, 0, '已跟随到新方向')
+})
+
 test('向南走朝向 0x8000，向西走朝向 0xc000（顺时针口径）', () => {
   const south = worldWith({ x: 2, y: 8 })
   for (let i = 0; i < 40; i++) step(south)

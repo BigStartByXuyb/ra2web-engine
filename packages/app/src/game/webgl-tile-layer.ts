@@ -91,6 +91,8 @@ export interface GlUnitQuad {
   readonly model?: Unit3dModel | undefined
   /** 朝向弧度（3D 用；精灵已经按朝向取好帧了） */
   readonly facing?: number | undefined
+  /** 炮塔朝向弧度（相对车体的偏转；3D 分件模型的炮塔/炮管用） */
+  readonly turretFacing?: number | undefined
 }
 
 const VERTEX_SHADER = `
@@ -257,6 +259,8 @@ interface GroundedQuad {
   /** 有 3D 模型时，本体与倒影都按模型画 */
   readonly model?: Unit3dModel | undefined
   readonly facing?: number | undefined
+  /** 炮塔朝向弧度（相对车体；分件模型的炮塔/炮管组用） */
+  readonly turretFacing?: number | undefined
 }
 
 /** 倒影四边形的世界落位：`top` 是世界坐标里翻转后的上边（`height` 为负表示上下翻转）。 */
@@ -330,6 +334,7 @@ function groundedQuads(context: GlSceneContext): {
       worldX: unit.worldX,
       model: unit.model,
       facing: unit.facing,
+      turretFacing: unit.turretFacing,
     })
   }
   return { structures: structures_, units }
@@ -556,7 +561,13 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
     // 这一 pass 的第一次 flush 会把整片地块按主程序重画一遍，正好盖在刚画好的 3D 单位上。
     resetBatch()
     let batchDirty = false
-    let models: { model: Unit3dModel; worldX: number; worldY: number; facing: number }[] = []
+    let models: {
+      model: Unit3dModel
+      worldX: number
+      worldY: number
+      facing: number
+      turretFacing?: number | undefined
+    }[] = []
     const flushSprites = (): void => {
       if (!batchDirty) return
       flushBatch(cornerLocation, originLocation, sizeLocation)
@@ -581,6 +592,7 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
           worldX: item.unit!.worldX,
           worldY: item.unit!.worldY,
           facing: item.unit!.facing ?? 0,
+          turretFacing: item.unit!.turretFacing,
         })
         continue
       }
@@ -783,7 +795,15 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
           if (!quad.model || quad.worldX === undefined) continue
           unitRenderer.draw(
             camera,
-            [{ model: quad.model, worldX: quad.worldX, worldY: quad.groundY, facing: quad.facing ?? 0 }],
+            [
+              {
+                model: quad.model,
+                worldX: quad.worldX,
+                worldY: quad.groundY,
+                facing: quad.facing ?? 0,
+                turretFacing: quad.turretFacing,
+              },
+            ],
             {
               // 镜像线取**贴图底边**，不是格心锚点：坦克的前角本来就伸到锚点下方，
               // 绕锚点翻会把整幅镜像顶回车身里，于是"倒影看不见"。

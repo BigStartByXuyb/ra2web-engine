@@ -27,7 +27,9 @@ interface Unit3dPrimitive {
   readonly roughness: number
   /** 分组：0 = 车体（随 hull 旋转），1 = 炮塔（绕炮塔枢轴独立偏转），2 = 炮管（随炮塔 + 俯仰接口） */
   readonly group: 0 | 1 | 2
-  /** 本组节点在模型空间里的静止偏移（体素轴）：炮塔 = 枢轴平移，炮管 = 枢轴 + 耳轴相对平移 */
+  /** 本组绕炮塔枢轴的刚体偏移（体素轴）：车体/炮塔 = 0，炮管 = 耳轴相对平移 */
+  readonly pivotOffset: readonly [number, number, number]
+  /** 本组节点在模型空间里的静止平移（体素轴）：炮塔 = 枢轴，炮管 = 枢轴 + 耳轴偏移 */
   readonly nodeOffset: readonly [number, number, number]
 }
 
@@ -46,9 +48,9 @@ export interface Unit3dDraw {
   /** 车体朝向弧度（与 `rotateVoxels` 同一约定） */
   readonly facing: number
   /** 炮塔朝向弧度（相对车体的偏转，着色器约定与 facing 同向）；缺省 0 = 与车体同向 */
-  readonly turretFacing?: number
+  readonly turretFacing?: number | undefined
   /** 炮管俯仰弧度（绕耳轴，正 = 抬）；缺省 0（接口预留，sim 俯仰口径未落地） */
-  readonly barrelPitch?: number
+  readonly barrelPitch?: number | undefined
 }
 
 /** 倒影参数：关于贴地线翻转、压扁、抬高，并整体变淡 */
@@ -74,14 +76,46 @@ uniform float u_scale;
 uniform vec2 u_viewport;
 // 倒影：贴地线与压扁比例。压扁比例 0 表示正常画物体（不是倒影）。
 uniform vec3 u_mirror;
+// 炮塔独立偏转（P0）：组 0 = 车体，1 = 炮塔，2 = 炮管。
+// u_pivotOffset = 该组绕炮塔枢轴的刚体偏移（体素轴）；u_turretYaw = 相对车体的偏转弧度；
+// u_barrelPitch = 炮管俯仰（绕耳轴，接口预留，sim 俯仰口径未落地前恒 0）。
+uniform float u_group;
+uniform vec3 u_pivotOffset;
+uniform vec3 u_nodeOffset;
+uniform float u_turretYaw;
+uniform float u_barrelPitch;
 varying vec3 v_normal;
 varying vec2 v_uv;
 varying float v_height;
 void main() {
   float c = cos(u_facing);
   float s = sin(u_facing);
-  vec3 position = vec3(a_position.x * c - a_position.y * s, a_position.x * s + a_position.y * c, a_position.z);
-  v_normal = vec3(a_normal.x * c - a_normal.y * s, a_normal.x * s + a_normal.y * c, a_normal.z);
+  vec3 position = a_position;
+  vec3 normal = a_normal;
+  if (u_group > 0.5) {
+    // 炮塔 yaw：绕枢轴（炮塔环中心）在车体平面内偏转。
+    // pivotOffset = 枢轴到本组节点原点的刚体偏移；nodeOffset = 本组节点在模型空间的静止平移。
+    float ct = cos(u_turretYaw);
+    float st = sin(u_turretYaw);
+    position.x += u_pivotOffset.x;
+    position.y += u_pivotOffset.y;
+    position = vec3(position.x * ct - position.y * st, position.x * st + position.y * ct, position.z);
+    position.x += u_nodeOffset.x - u_pivotOffset.x;
+    position.y += u_nodeOffset.y - u_pivotOffset.y;
+    normal = vec3(normal.x * ct - normal.y * st, normal.x * st + normal.y * ct, normal.z);
+    if (u_group > 1.5) {
+      // 炮管俯仰：绕耳轴（本组原点）在炮管指向平面内抬/压
+      float cp = cos(u_barrelPitch);
+      float sp = sin(u_barrelPitch);
+      float px = position.x;
+      float pz = position.z;
+      position.x = px * cp - pz * sp;
+      position.z = px * sp + pz * cp;
+    }
+  }
+  position = vec3(position.x * c - position.y * s, position.x * s + position.y * c, position.z);
+  normal = vec3(normal.x * c - normal.y * s, normal.x * s + normal.y * c, normal.z);
+  v_normal = normal;
   v_uv = a_uv;
   // 离地高度：贴地那一圈要压暗（接触阴影），这是"车压在地上"而不是"浮在地面上"的关键
   v_height = position.z;
@@ -166,6 +200,10 @@ interface GltfPrimitive {
   readonly roughness: number
   /** 该 primitive 的 baseColor 贴图在 `GltfTextures.textures` 里的下标 */
   readonly textureIndex: number | undefined
+  /** 分组：0 = 车体，1 = 炮塔，2 = 炮管（按节点名归类） */
+  readonly group: 0 | 1 | 2
+  /** 绕炮塔枢轴的刚体偏移（体素轴）：车体 = 0，炮塔 = 0，炮管 = 耳轴相对平移 */
+  readonly pivotOffset: readonly [number, number, number]
 }
 
 /** GLB 里的一张图（内嵌 bufferView 或 data URI）与它的采样参数。 */
@@ -397,6 +435,10 @@ export function createUnit3dRenderer(gl: WebGLRenderingContext): Unit3dRenderer 
   const baseColorLocation = gl.getUniformLocation(program, 'u_baseColor')
   const metallicLocation = gl.getUniformLocation(program, 'u_metallic')
   const roughnessLocation = gl.getUniformLocation(program, 'u_roughness')
+  const groupLocation = gl.getUniformLocation(program, 'u_group')
+  const pivotOffsetLocation = gl.getUniformLocation(program, 'u_pivotOffset')
+  const turretYawLocation = gl.getUniformLocation(program, 'u_turretYaw')
+  const barrelPitchLocation = gl.getUniformLocation(program, 'u_barrelPitch')
 
   return {
     ready: true,
@@ -423,7 +465,17 @@ export function createUnit3dRenderer(gl: WebGLRenderingContext): Unit3dRenderer 
       for (const item of draws) {
         gl.uniform2f(originLocation, item.worldX, item.worldY)
         gl.uniform1f(facingLocation, item.facing)
+        // 炮塔偏转弧度（相对车体）与炮管俯仰——按"次"设，组内 primitive 共享
+        gl.uniform1f(turretYawLocation, item.turretFacing ?? 0)
+        gl.uniform1f(barrelPitchLocation, item.barrelPitch ?? 0)
         for (const primitive of item.model.primitives) {
+          gl.uniform1f(groupLocation, primitive.group)
+          gl.uniform3f(
+            pivotOffsetLocation,
+            primitive.pivotOffset[0],
+            primitive.pivotOffset[1],
+            primitive.pivotOffset[2],
+          )
           gl.uniform3f(baseColorLocation, primitive.baseColor[0], primitive.baseColor[1], primitive.baseColor[2])
           gl.uniform1f(metallicLocation, primitive.metallic)
           gl.uniform1f(roughnessLocation, primitive.roughness)
@@ -559,6 +611,9 @@ export async function createUnit3dModel(
       baseColor: primitive.baseColor,
       metallic: primitive.metallic,
       roughness: primitive.roughness,
+      group: primitive.group,
+      pivotOffset: primitive.pivotOffset,
+      nodeOffset: primitive.nodeOffset,
     })
   }
   return { typeId, primitives, height }

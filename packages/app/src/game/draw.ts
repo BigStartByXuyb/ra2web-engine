@@ -270,6 +270,11 @@ function collectUnits(
       // 曾经在这里补过 π 想对齐精灵帧，结果移动时车头全反了 —— 静帧上看"炮管朝哪边"受机位遮挡影响，
       // 不能拿它当一个帧的判据。
       facing: (battle.facingByUnit[index] ?? 0) * (Math.PI / 4),
+      // 炮塔朝向：sim 的 16 位角（turretFacing − facing = 相对车体的偏转），换算成弧度
+      // 叠在车体朝向上。分件模型的炮塔/炮管组用它做独立偏转（本项目自定，原版口径归战斗线）。
+      turretFacing:
+        (battle.facingByUnit[index] ?? 0) * (Math.PI / 4) +
+        (((unit.turretFacing - unit.facing + 32768) % 65536) - 32768) * ((Math.PI * 2) / 65536),
     })
   }
   return quads

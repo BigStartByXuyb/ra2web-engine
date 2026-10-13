@@ -29,6 +29,8 @@ export interface Unit {
   readonly turnRate: number
   /** 满血值（原版单位类型的 Strength）；伤车判定用它算血量百分比。缺省按创建时的 health。 */
   readonly maxHealth: number
+  /** 炮塔朝向：16 位角，口径同 facing。无战斗目标时跟随车体；目标追踪归战斗线。 */
+  turretFacing: number
   /** 坡度乘数选组（fn-4a2670 按 techno+0x5a4==1 选 Tracked 组）；缺省 other 组 */
   slopeClass: 'track' | 'other' | undefined
   /** 剩余路径（格子），空表示无移动任务 */
@@ -67,6 +69,7 @@ export function createUnit(
     facing: ((facing % FACING_FULL) + FACING_FULL) % FACING_FULL,
     turnRate,
     maxHealth: maxHealth > 0 ? maxHealth : health,
+    turretFacing: ((facing % FACING_FULL) + FACING_FULL) % FACING_FULL,
     slopeClass: undefined,
     path: [],
     pathIndex: 0,
@@ -119,6 +122,8 @@ export function advanceAlongPath(unit: Unit, effectiveSpeed: number = unit.speed
       const targetFacing = facingFromDir(dirFromDelta(dx, dy))
       if (unit.facing !== targetFacing) {
         unit.facing = rotateToward(unit.facing, targetFacing, unit.turnRate)
+        // 炮塔跟随（无战斗目标时与 hull 同向；目标追踪口径归战斗线）
+        unit.turretFacing = unit.facing
         return
       }
     }
