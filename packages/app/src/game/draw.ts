@@ -68,6 +68,8 @@ export interface Scene {
   readonly spriteYaw?: number | undefined
   /** 地貌线 terrain3d 场景（`?terrain3d=1`）：给了就由 PBR 地形画地面，地块 quads 交空 */
   readonly terrain3d?: Terrain3dScene | undefined
+  /** 方向性投影阴影（渲染线任务 4）：有 3D 模型的单位的影子（替代其椭圆 blob） */
+  readonly projectedShadows?: ((units: readonly GlUnitQuad[]) => void) | undefined
   /** 水面动画当前帧（`MapPreview.water` 给范围；两条绘制路径共用同一个帧号） */
   readonly waterFrame?: number | undefined
 }
@@ -133,6 +135,7 @@ export function drawScene(scene: Scene): void {
             zStep: TERRAIN_Z_STEP_PX,
           }
         : undefined,
+      projectedShadows: scene.projectedShadows,
     })
   }
   // 2D 后处理（泛光、雨夜那套调色/雨丝/暗角）画在 2D 画布上，而 GPU 层是另一块画布：
@@ -187,6 +190,9 @@ export function drawScene(scene: Scene): void {
     }
     // 单位交给 GPU 时 2D 这层只画迷雾/选中框；否则照旧在 2D 上画
     if (!scene.glTiles) drawObjects(context, scene.mapPreview, battle, scene.artByUnit, wet)
+    // 弹体与命中闪光（战斗线 combat-step 的 shells）：画在单位之上、迷雾之下——
+    // 纯读 `world.tick/shells`，不在渲染层存任何状态（每帧从世界重算，含末段闪光）
+    drawShells(context, battle)
     drawShroud(context, battle, VIEW, range)
   }
   if (wet) {
@@ -199,9 +205,53 @@ export function drawScene(scene: Scene): void {
   context.setTransform(1, 0, 0, 1, 0, 0)
 }
 
+/**
+ * 弹体与命中闪光（本项目自定画法；数据来自战斗线 combat-step 的 `world.shells`）。
+ *
+ * 飞行段 = 起点→终点 3D 线性插值（与 sim 的"定时插值"一致，渲染不额外加弧线）；
+ * 末段 20% 在终点画一圈炸开的光斑（读 tick 即得，渲染层不存任何状态）。
+ * 高度换算：1 级高度 = 90 lepton、屏幕上 1 级 = TERRAIN_Z_STEP_PX（与地形/覆盖物同一常量）。
+ */
+function drawShells(context: CanvasRenderingContext2D, battle: Battle): void {
+  const world = battle.world
+  const zScale = TERRAIN_Z_STEP_PX / 90
+  for (const shell of world.shells) {
+    const elapsed = world.tick - shell.startTick
+    const progress = shell.duration <= 0 ? 1 : Math.min(1, Math.max(0, elapsed / shell.duration))
+    const mix = (from: number, to: number): number => from + (to - from) * progress
+    const ground = cellToScreen(VIEW, {
+      x: mix(shell.x0, shell.x1) / 256,
+      y: mix(shell.y0, shell.y1) / 256,
+    })
+    const screenX = ground.x
+    const screenY = ground.y - mix(shell.z0, shell.z1) * zScale
+    if (progress >= 0.8) {
+      const age = (progress - 0.8) / 0.2
+      const radius = 5 + age * 18
+      const flash = context.createRadialGradient(screenX, screenY, 0, screenX, screenY, radius)
+      flash.addColorStop(0, `rgba(255, 224, 150, ${(0.9 * (1 - age)).toFixed(3)})`)
+      flash.addColorStop(1, 'rgba(255, 140, 40, 0)')
+      context.fillStyle = flash
+      context.beginPath()
+      context.arc(screenX, screenY, radius, 0, Math.PI * 2)
+      context.fill()
+    } else {
+      // 弹丸：小亮点 + 一格拖尾（画两帧采样点，方向即飞行方向）
+      context.fillStyle = 'rgba(255, 214, 130, 0.95)'
+      context.fillRect(screenX - 2, screenY - 2, 4, 4)
+      const backProgress = Math.max(0, progress - 0.12)
+      const back = cellToScreen(VIEW, {
+        x: (shell.x0 + (shell.x1 - shell.x0) * backProgress) / 256,
+        y: (shell.y0 + (shell.y1 - shell.y0) * backProgress) / 256,
+      })
+      context.fillStyle = 'rgba(255, 190, 90, 0.35)'
+      context.fillRect(back.x - 1, back.y - (shell.z0 + (shell.z1 - shell.z0) * backProgress) * zScale - 1, 3, 3)
+    }
+  }
+}
+
 /** 没探索过的格子铺黑，边界按邻格是否已探索做抖动柔化。只画镜头内的格子。 */
-function drawShroud(
-  context: CanvasRenderingContext2D,
+function drawShroud(  context: CanvasRenderingContext2D,
   battle: Battle,
   view: typeof VIEW,
   range: ReturnType<typeof visibleCellRange>,

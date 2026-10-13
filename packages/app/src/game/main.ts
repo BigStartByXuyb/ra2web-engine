@@ -2,6 +2,7 @@ import { RA2_ISO_VIEW, cellToScreen } from '@ra2web/render'
 import { openTheater, type AssetOverride } from '@ra2web/assets'
 import { readMap, readMixEntry, readMixIndex, type MapFile } from '@ra2web/formats'
 import {
+  ONE,
   SHROUD_EXPLORED,
   TICKS_PER_SECOND,
   dirFromFacing,
@@ -26,6 +27,7 @@ import { openTileLayer } from './tile-layer.js'
 import { loadHdTiles } from './hd-tiles.js'
 import { pickUnit } from './picking.js'
 import { FXAA_FRAGMENT } from './fxaa.js'
+import { createProjectedShadowRenderer, type ProjectedShadowRenderer } from './projected-shadows.js'
 import { createRenderPipeline } from './render-pipeline.js'
 import { TONEMAP_DEFAULTS, TONEMAP_FRAGMENT } from './tonemap.js'
 import { createGlTileLayer, type GlTileLayer } from './webgl-tile-layer.js'
@@ -111,6 +113,8 @@ let bloom = false
 let terrain3dEnabled = false
 /** terrain3d 场景：装地图时按当时的 mapPreview 建（webgl-terrain3d 里按地图 WeakMap 缓存） */
 let terrain3dScene: Terrain3dScene | undefined
+/** 方向性投影阴影（渲染线任务 4，本项目自定）：`?shadowmap=1` 开 */
+let projectedShadowRenderer: ProjectedShadowRenderer | undefined
 /** 地貌细节层开关（车辙/踩痕/污渍，本项目自定）：`?decals=0` 关，默认开 */
 let decalsEnabled = true
 /** 真 3D 单位（B 路，默认关闭）：`?units3d=1`，模型从 `/packs/units3d/<单位>.glb` 取 */
@@ -185,6 +189,18 @@ canvas.addEventListener('contextmenu', (event) => {
   if (!battle || selected === undefined) return
   const unit = battle.world.units[selected]
   if (!unit) return
+  // 右键点中**敌方单位** = 攻击指令（原版口径：右键敌人下达攻击；战斗线 3a25aac 的
+  // `{ kind: 'attack', unitId, targetUnitId }`）。其余情况照旧是移动。
+  const hoveredIndex = pickUnit(battle, artByUnit, VIEW, pointerWorld(event))
+  const hovered = hoveredIndex === undefined ? undefined : battle.world.units[hoveredIndex]
+  if (hovered !== undefined && hovered.id !== unit.id && hovered.owner !== unit.owner) {
+    enqueueCommand(battle.world, battle.world.tick, {
+      kind: 'attack',
+      unitId: unit.id,
+      targetUnitId: hovered.id,
+    })
+    return
+  }
   const target = canvasToCell(camera, VIEW, ...pointerCanvas(event))
   enqueueCommand(battle.world, battle.world.tick, {
     kind: 'move',
@@ -424,6 +440,8 @@ async function startBattleOnMap(): Promise<void> {
       terrainSpeed: setup.terrainSpeed,
       heights: setup.heights,
       ...(spawnHealthPercent !== undefined ? { spawnHealthPercent } : {}),
+      ...(turretAimRate !== undefined ? { turretAimRate } : {}),
+      ...(shellFlightTicks !== undefined ? { shellFlightTicks } : {}),
       spawns: setup.spawns,
       seed: 20261010,
     })
@@ -584,6 +602,9 @@ function frame(now: number): void {
     reflections,
     bloom,
     terrain3d: terrain3dScene,
+    projectedShadows: projectedShadowRenderer
+      ? (units) => projectedShadowRenderer!.draw(camera, units, canvas.width, canvas.height)
+      : undefined,
     unit3d: (typeId) => (units3d ? glTiles?.unit3d(typeId) : undefined),
     waterFrame: waterFrameAt(now, mapPreview?.water, animateWater),
     // 自由视角下的回退精灵直立修正：CSS rotate(az)scale(p) 会把贴图转倒，
@@ -597,10 +618,41 @@ function frame(now: number): void {
     ;(window as unknown as { __battleUnits?: unknown }).__battleUnits = activeBattle.world.units.map((unit, index) => ({
       hull: unit.hull.current,
       turret: unit.turret.current,
+      target: unit.turret.target,
       frame: activeBattle.facingByUnit[index],
       x: unit.x,
       y: unit.y,
+      atk: unit.attackTargetId ?? null,
+      cd: unit.cooldown,
     }))
+    ;(window as unknown as { __battleTick?: unknown }).__battleTick = activeBattle.world.tick
+    ;(window as unknown as { __battleShells?: unknown }).__battleShells = activeBattle.world.shells.map((shell) => ({
+      x0: shell.x0,
+      y0: shell.y0,
+      z0: shell.z0,
+      x1: shell.x1,
+      y1: shell.y1,
+      z1: shell.z1,
+      startTick: shell.startTick,
+      duration: shell.duration,
+    }))
+    ;(window as unknown as { __battleCam?: unknown }).__battleCam = { x: camera.x, y: camera.y, zoom: camera.zoom }
+    // 调试传送（本项目自定调试口，`?debug=1` 才挂上）：把某个单位移到某格中心——
+    // 联跑/录制摆位用（官方地图双方出生点隔 140 格，走位太慢）。只改 x/y，z 由推进逻辑接管。
+    ;(window as unknown as { __debugTeleport?: unknown }).__debugTeleport = (
+      unitIndex: number,
+      cellX: number,
+      cellY: number,
+    ): string => {
+      const unit = activeBattle.world.units[unitIndex]
+      if (!unit) return 'no unit'
+      unit.x = cellX * 256 + 128
+      unit.y = cellY * 256 + 128
+      unit.path = []
+      unit.pathIndex = 0
+      unit.target = undefined
+      return `unit ${unitIndex} → (${cellX}, ${cellY})`
+    }
   }
   requestAnimationFrame(frame)
 }
@@ -700,6 +752,10 @@ if (new URLSearchParams(location.search).get('renderer') === 'webgl') {
   glTiles = createGlTileLayer(glCanvas)
   if (!glTiles) status.textContent = 'WebGL 不可用：仍在用 2D 画布渲染'
   else glTiles.resize(canvas.width, canvas.height)
+  // 方向性投影阴影（任务 4）：只读复用单位模型 VBO，零共用文件改动
+  if (glTiles && new URLSearchParams(location.search).get('shadowmap') === '1') {
+    projectedShadowRenderer = createProjectedShadowRenderer(glTiles.gl)
+  }
 }
 // 渲染现代化管线（渲染线任务 2）：`?pipeline=1` 时场景走离屏 + 合成链（色调映射挂这里）。
 // 缺省关：直绘路径一个分支不动。`?tonemap=0` 关色调映射（管线内），`?exposure=` 调曝光。
@@ -754,9 +810,37 @@ const spawnHealthPercent = (() => {
   const raw = Number(new URLSearchParams(location.search).get('hp'))
   return Number.isFinite(raw) && raw >= 1 && raw <= 100 ? raw : undefined
 })()
+/** `?turretRate=1024`（本项目自定调试开关）：炮塔瞄准转速覆盖（16 位角/tick）。
+ *  演示录制用 1024 放慢转向镜头（90°≈16 tick≈1 秒）；缺省 4096（TURRET_AIM_RATE）。 */
+const turretAimRate = (() => {
+  const raw = Number(new URLSearchParams(location.search).get('turretRate'))
+  return Number.isFinite(raw) && raw >= 1 && raw <= 32768 ? raw : undefined
+})()
+/** `?shellTicks=30`（本项目自定调试开关）：弹体飞行时长覆盖（tick）。演示连拍放慢弹体用；
+ *  缺省 6（SHELL_FLIGHT_TICKS）。 */
+const shellFlightTicks = (() => {
+  const raw = Number(new URLSearchParams(location.search).get('shellTicks'))
+  return Number.isFinite(raw) && raw >= 1 && raw <= 600 ? raw : undefined
+})()
 /** `?reveal=1`（本项目自定调试开关）：战局内迷雾全揭（本地玩家 explored+visible 填满），
  *  只影响本局内存状态 —— 模型/机位验收不再被初始迷雾挡住。 */
 const revealEnabled = new URLSearchParams(location.search).get('reveal') === '1'
+/**
+ * `?expose=1`（本项目自定调试开关，只读句柄）：挂 `window.__demo`，给 UI 测试/演示录制
+ * 精确拿敌我单位与屏幕坐标——替代"偏移搜索盲点"手法。句柄无写操作、不影响任何行为。
+ */
+if (new URLSearchParams(location.search).get('expose') === '1') {
+  ;(window as unknown as Record<string, unknown>).__demo = {
+    get world() {
+      return battle?.world
+    },
+    /** 世界坐标（lepton）→ 画布 CSS 像素（canvasToWorld 的逆：world = canvas/scale + camera.x）。 */
+    canvasOf: (worldX: number, worldY: number) => {
+      const scale = viewScale(camera)
+      return { x: (worldX / ONE - camera.x) * scale, y: (worldY / ONE - camera.y) * scale }
+    },
+  }
+}
 /** `?debug=1`（本项目自定调试口）：每帧把单位朝向状态写进 window.__battleUnits，供验收脚本核对 */
 const debugMirrorEnabled = new URLSearchParams(location.search).get('debug') === '1'
 units3dSelect.value = units3d ? '3d' : '2d'

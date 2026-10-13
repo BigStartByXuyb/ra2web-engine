@@ -71,6 +71,11 @@ export interface GlFrameEffects {
    */
   readonly terrain3d?: { readonly drawGround: () => void; readonly zStep: number } | undefined
   /**
+   * 方向性投影阴影（渲染线任务 4，`?shadowmap=1`，默认关闭）：给了就替代有 3D 模型的
+   * 单位的椭圆 blob 阴影（无模型对象仍走 blob）。次序与 blob 相同（倒影后、物体前）。
+   */
+  readonly projectedShadows?: ((units: readonly GlUnitQuad[]) => void) | undefined
+  /**
    * 回退精灵的直立修正角（本项目自定，`?freecam=1` 用）：自由视角是纯 CSS `rotate+scaleY`，
    * 会把"站着"的回退贴图连地面一起转倒（纸片坦克趴地）。逐顶点给单位精灵绕贴地中点
    * 反转这个角，抵消外层 rotate，贴图保持直立；缺省 0 = 恒等，默认路径逐像素零影响。
@@ -915,7 +920,11 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
         }
         useMainProgram(camera)
       }
-      if (effects.shadows) drawShadows(camera, grounded)
+      // 椭圆 blob 阴影：无 3D 模型的对象（有模型的单位在 ?shadowmap=1 时走方向性投影阴影）
+      if (effects.shadows) drawShadows(camera, grounded.filter((quad) => quad.model === undefined))
+      if (effects.projectedShadows) {
+        effects.projectedShadows(context.units.filter((unit) => unit.model !== undefined))
+      }
       drawOrderedObjects(camera, structures, context.units)
       if (effects.fog) drawFog()
       if (pipeline && pipelineFrame) {

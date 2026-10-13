@@ -389,6 +389,21 @@ export const cases: readonly UiCase[] = [
     },
   },
   {
+    name: 'phase-4 帧：方向性投影阴影（开/关两帧 + 上屏判定 + 确定性）',
+    async run(session) {
+      const scene = 'mix=/pack/RA2.MIX&map=/pack/MULTI.MIX&index=57&battle=1&renderer=webgl&anim=0'
+      const base = `${scene}&units3d=1&terrain3d=1&pipeline=1&tonemap=1&fxaa=1&shadows=0`
+      const on = await session.capture({ name: 'phase-4-shadow-on', query: `${base}&shadowmap=1` })
+      const off = await session.capture({ name: 'phase-4-shadow-off', query: `${base}&shadowmap=0` })
+      const diff = diffImages(on, off)
+      assert.ok(diff.changed >= 800, `投影阴影开/关只差 ${diff.changed} 像素，等于没上屏`)
+      const repeat = await session.capture({ name: 'phase-4-shadow-on-repeat', query: `${base}&shadowmap=1` })
+      const repeatDiff = diffImages(on, repeat)
+      assert.equal(repeatDiff.changed, 0, `投影阴影两次运行差 ${repeatDiff.changed} 像素（必须确定性）`)
+      return `投影阴影改变 ${diff.changed} 像素（单位脚下），确定性 0 像素差`
+    },
+  },
+  {
     name: '雨夜后处理作用在整幅画面上',
     async run(session) {
       const glWet = await session.capture({
@@ -870,6 +885,162 @@ export const cases: readonly UiCase[] = [
         `检视画面中心平均亮度 ${lit.toFixed(1)} 与纯背景 ${background.toFixed(1)} 无差：模型没画出来`,
       )
       return `自转两帧差 ${diff.changed} 像素，中心亮度 ${lit.toFixed(1)}（背景 ${background.toFixed(1)}）`
+    },
+  },
+  {
+    name: 'attack-demo（战斗演示连拍）',
+    /**
+     * 战斗演示全链：选中坦克 → 右键攻击敌方 → **状态驱动连拍**落盘 tests/ui/out/demo-attack-*.png。
+     * 调试参数（本项目自定，均为只读/覆盖值）：`reveal=1` 去雾、`turretRate=1024` 慢转向、
+     * `shellTicks=30` 慢弹体、`expose=1` 精确取坐标与读世界状态。
+     * 连拍按状态变迁取帧（不赌墙钟——headless 下 tick 速率不可靠）：
+     * 瞄准中 → 对齐开火 → 弹体中段 → 弹体后段 → 命中爆炸 → 结算后。
+     */
+    run: async (session) => {
+      const page = session.page
+      await session.capture({
+        name: 'demo-attack-1-deploy',
+        query: 'reveal=1&turretRate=1024&shellTicks=30&expose=1',
+        battle: true,
+        settleMs: 6000,
+      })
+      const info = await page.evaluate(() => {
+        const demo = (
+          window as unknown as {
+            __demo?: {
+              world?: { units: Array<{ id: number; owner: number; x: number; y: number; health: number }> }
+              canvasOf: (x: number, y: number) => { x: number; y: number }
+            }
+          }
+        ).__demo
+        if (!demo?.world) return undefined
+        const units = demo.world.units
+        const own = units.find((unit) => unit.owner === 0)
+        const enemy = units.find((unit) => unit.owner !== 0)
+        if (!own || !enemy) return undefined
+        return {
+          own: demo.canvasOf(own.x, own.y),
+          enemy: demo.canvasOf(enemy.x, enemy.y),
+          ownId: own.id,
+          enemyId: enemy.id,
+          enemyHealth: enemy.health,
+        }
+      })
+      assert.ok(info, 'expose 句柄或敌我单位不可用')
+      // 敌我 spawn 在图两端、初始相机只看得到己方——先滚轮缩小到敌我同框再操作
+      const readCanvasOf = () =>
+        page.evaluate(
+          ({ ownId, enemyId }) => {
+            const demo = (
+              window as unknown as {
+                __demo?: {
+                  world?: { units: Array<{ id: number; x: number; y: number }> }
+                  canvasOf: (x: number, y: number) => { x: number; y: number }
+                }
+              }
+            ).__demo
+            if (!demo?.world) return undefined
+            const own = demo.world.units.find((unit) => unit.id === ownId)
+            const enemy = demo.world.units.find((unit) => unit.id === enemyId)
+            if (!own || !enemy) return undefined
+            return { own: demo.canvasOf(own.x, own.y), enemy: demo.canvasOf(enemy.x, enemy.y) }
+          },
+          { ownId: info.ownId, enemyId: info.enemyId },
+        )
+      const inView = (p: { x: number; y: number }): boolean =>
+        p.x > 24 && p.x < 1250 && p.y > 80 && p.y < 860
+      let zoomAttempts = 0
+      while (zoomAttempts++ < 20) {
+        const coords = await readCanvasOf()
+        if (coords === undefined) break
+        if (inView(coords.own) && inView(coords.enemy)) {
+          info.own = coords.own
+          info.enemy = coords.enemy
+          break
+        }
+        await page.mouse.move(640, 450)
+        await page.mouse.wheel(0, 400)
+        await page.waitForTimeout(120)
+      }
+      await page.mouse.click(info.own.x, info.own.y)
+      await page.waitForTimeout(300)
+      const selected = await page.evaluate(
+        () => document.getElementById('hud-selected')?.textContent ?? '',
+      )
+      assert.ok(selected.trim() !== '' && selected.trim() !== '无', `左键未选中己方单位：${selected}`)
+      await page.mouse.click(info.enemy.x, info.enemy.y, { button: 'right' })
+
+      const readState = () =>
+        page.evaluate(
+          ({ ownId, enemyId }) => {
+            const demo = (
+              window as unknown as {
+                __demo?: {
+                  world?: {
+                    units: Array<{
+                      id: number
+                      attackTargetId?: number
+                      turret: { current: number; target: number }
+                      health: number
+                    }>
+                    shells: Array<{ startTick: number; duration: number }>
+                  }
+                }
+              }
+            ).__demo
+            const world = demo?.world
+            if (!world) return undefined
+            const shooter = world.units.find((unit) => unit.id === ownId)
+            const enemy = world.units.find((unit) => unit.id === enemyId)
+            return {
+              ordered: shooter?.attackTargetId === enemyId,
+              aiming: shooter !== undefined && shooter.turret.current !== shooter.turret.target,
+              aligned: shooter !== undefined && shooter.turret.current === shooter.turret.target,
+              shells: world.shells.length,
+              enemyHealth: enemy?.health,
+            }
+          },
+          { ownId: info.ownId, enemyId: info.enemyId },
+        )
+      const waitFor = async (
+        check: (state: NonNullable<Awaited<ReturnType<typeof readState>>>) => boolean,
+        label: string,
+        timeoutMs = 30000,
+      ): Promise<void> => {
+        const deadline = Date.now() + timeoutMs
+        let last: unknown
+        while (Date.now() < deadline) {
+          const state = await readState()
+          last = state
+          if (state !== undefined && check(state)) return
+          await page.waitForTimeout(150)
+        }
+        throw new Error(`等待「${label}」超时；最后状态 ${JSON.stringify(last)}`)
+      }
+      const shots: string[] = []
+      const grab = async (name: string): Promise<void> => {
+        await session.snapshot(name)
+        shots.push(name)
+      }
+      await waitFor((state) => state.aiming, '炮塔开始转向')
+      await grab('demo-attack-2-aiming')
+      await waitFor((state) => state.shells > 0, '对齐开火（弹体出现）')
+      await grab('demo-attack-3-aligned-fire')
+      await page.waitForTimeout(250)
+      await grab('demo-attack-4-shell-mid')
+      await waitFor(
+        (state) => state.shells === 0 || state.enemyHealth !== info.enemyHealth,
+        '弹体命中（爆炸/敌方掉血）',
+      )
+      await grab('demo-attack-5-explosion')
+      await page.waitForTimeout(600)
+      await grab('demo-attack-6-aftermath')
+      const after = (await readState())?.enemyHealth
+      assert.ok(
+        after !== undefined && after < info.enemyHealth,
+        `爆炸后敌方未掉血：${info.enemyHealth} → ${after}`,
+      )
+      return `选中「${selected.trim()}」，敌方 ${info.enemyId} 血量 ${info.enemyHealth} → ${after}；连拍 ${shots.join('、')}`
     },
   },
 ]
