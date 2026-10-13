@@ -31,6 +31,8 @@ export interface GlTileLayer {
   /** 画布尺寸/比例变化时同步后备缓冲 */
   resize(width: number, height: number): void
   readonly ready: boolean
+  /** 本层的 GL 上下文：terrain3d（地貌线）要在同一帧、同一上下文里先画 PBR 地形 */
+  readonly gl: WebGLRenderingContext
   /** 载入一个单位的 3D 模型（B 路）；同名类型重复载入以最后一次为准 */
   /** 贴图要解码，所以是异步的；await 完模型才算能用 */
   loadUnit3d(typeId: string, bytes: ArrayBuffer): Promise<void>
@@ -46,6 +48,13 @@ export interface GlFrameEffects {
   readonly shadows?: boolean | undefined
   /** 大气雾：按屏幕纵向梯度铺一层冷雾（重制版增强，默认关闭） */
   readonly fog?: boolean | undefined
+  /**
+   * PBR 地形 pass（地貌线，`?terrain3d=1`，默认关闭）：清屏之后、倒影/阴影之前调
+   * `drawGround` 把程序化 PBR 地形画进同一块 GL 画布 —— 它是倒影与阴影的"地面"。
+   * `zStep` 是每级高度的像素数（覆盖物贴抬升后的地面用）。
+   * 缺省 undefined 时本字段相关分支完全不可达，默认路径逐像素零影响。
+   */
+  readonly terrain3d?: { readonly drawGround: () => void; readonly zStep: number } | undefined
 }
 
 /** 一帧要画的静态地图内容：地块/覆盖物/建筑都从 `MapPreview` 取 */
@@ -689,6 +698,7 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
 
   return {
     ready: true,
+    gl,
     resize(width, height) {
       canvas.width = width
       canvas.height = height
@@ -713,6 +723,9 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       // 地块/精灵/倒影/阴影全是覆盖式叠画，一写深度就会把后面的 3D 单位整批挡掉。
       gl.depthMask(false)
       useMainProgram(camera)
+      // terrain3d：程序化 PBR 地形（地貌线，?terrain3d=1）。挂在 effects 上，缺省 undefined 时
+      // 这段完全不可达 —— 默认路径逐像素零影响。必须在倒影/阴影之前：地形是它们的"地面"。
+      if (effects.terrain3d) effects.terrain3d.drawGround()
       // 物体在这一帧的位置只算一次，倒影/阴影/本体三个 pass 共用（锚点与视野裁剪只有这一处）
       const { structures, units } = groundedQuads(context)
       const grounded = [...structures, ...units]
@@ -761,7 +774,13 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
           const overlay = preview.overlayLayer?.canvasAt(cell.overlay)
           const overlayTexture = overlay ? textureFor(overlay) : undefined
           if (overlay && overlayTexture) {
-            const origin = snapSpriteOrigin(centerX - overlay.width / 2, centerY - overlay.height / 2)
+            // terrain3d 模式下地面被抬到 cell.z×zStep，覆盖物贴的是抬升后的地面
+            // （高度源 = MapCell.z，与地形顶面同一口径），缺省 0 与原路径完全一致
+            const overlayLift = effects.terrain3d ? cell.z * effects.terrain3d.zStep : 0
+            const origin = snapSpriteOrigin(
+              centerX - overlay.width / 2,
+              centerY - overlayLift - overlay.height / 2,
+            )
             grouped.push({
               texture: overlayTexture,
               originX: origin.x,

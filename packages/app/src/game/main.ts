@@ -16,6 +16,7 @@ import { openTileLayer } from './tile-layer.js'
 import { loadHdTiles } from './hd-tiles.js'
 import { pickUnit } from './picking.js'
 import { createGlTileLayer, type GlTileLayer } from './webgl-tile-layer.js'
+import { createTerrain3dScene, type Terrain3dScene } from './webgl-terrain3d.js'
 import { buildDemoUnitArt, loadUnitArt, type QualityPreset, type UnitArt } from './unit-art.js'
 
 /**
@@ -92,6 +93,10 @@ let fogEffect = false
 let reflections = false
 /** 泛光开关（重制版增强，默认关闭）：`?bloom=1` */
 let bloom = false
+/** 地貌线 PBR 地形（默认关闭）：`?terrain3d=1`，程序化材质画 3D 地面（docs/TERRAIN-ROADMAP.md） */
+let terrain3dEnabled = false
+/** terrain3d 场景：装地图时按当时的 mapPreview 建（webgl-terrain3d 里按地图 WeakMap 缓存） */
+let terrain3dScene: Terrain3dScene | undefined
 /** 真 3D 单位（B 路，默认关闭）：`?units3d=1`，模型从 `/packs/units3d/<单位>.glb` 取 */
 let units3d = false
 /** 水面动画（原版水面本来就动）；`?anim=0` 关掉，用于逐像素比对 */
@@ -331,6 +336,9 @@ async function showMap(bytes: Uint8Array, fileName: string, entryIndex: number):
       structureLayer,
       theater ? waterTileRange(theater.ini) : undefined,
     )
+    // terrain3d 场景：剧场/档案缺失时返回 undefined，开关自动静默不生效（TERRAIN-ROADMAP 任务 1）
+    terrain3dScene =
+      terrain3dEnabled && glTiles ? createTerrain3dScene(glTiles.gl, mapPreview, gameArchive, map.theater) : undefined
     drawOfficialPreview(previewBox, previewCanvas, map)
     notice.hidden = true
     battle = undefined
@@ -551,6 +559,7 @@ function frame(now: number): void {
     fog: fogEffect,
     reflections,
     bloom,
+    terrain3d: terrain3dScene,
     unit3d: (typeId) => (units3d ? glTiles?.unit3d(typeId) : undefined),
     waterFrame: waterFrameAt(now, mapPreview?.water, animateWater),
   })
@@ -658,6 +667,8 @@ shadows = new URLSearchParams(location.search).get('shadows') === '1'
 fogEffect = new URLSearchParams(location.search).get('fog') === '1'
 reflections = new URLSearchParams(location.search).get('reflect') === '1'
 bloom = new URLSearchParams(location.search).get('bloom') === '1'
+// 地貌线 PBR 地形默认关（原版 TMP 模式是逐像素基准）；`?terrain3d=1` 开
+terrain3dEnabled = new URLSearchParams(location.search).get('terrain3d') === '1'
 // 3D 单位默认开：重制画面就是默认档，模型缺失的类型自动退回 8 朝向贴图。
 // 要比对"原版精灵"那条线（两条绘制路径逐像素一致、逐帧位置判据）时用 `?units3d=0`。
 units3d = new URLSearchParams(location.search).get('units3d') !== '0'

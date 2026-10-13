@@ -9,6 +9,8 @@ import { BLOOM, applyBloom, applyWetNightGrade, drawWetReflection } from './post
 import type { GlTileLayer } from './webgl-tile-layer.js'
 import type { GlUnitQuad } from './webgl-tile-layer.js'
 import type { Unit3dModel } from './webgl-unit3d.js'
+import type { Terrain3dScene } from './webgl-terrain3d.js'
+import { TERRAIN_Z_STEP_PX } from './terrain3d-zstep.js'
 import { isWetNight, type QualityPreset, type UnitArt } from './unit-art.js'
 
 /**
@@ -49,6 +51,8 @@ export interface Scene {
   readonly bloom?: boolean
   /** 单位有 3D 模型时用实时 3D 画（B 路）；没有的类型照旧走精灵 */
   readonly unit3d?: ((typeId: string) => Unit3dModel | undefined) | undefined
+  /** 地貌线 terrain3d 场景（`?terrain3d=1`）：给了就由 PBR 地形画地面，地块 quads 交空 */
+  readonly terrain3d?: Terrain3dScene | undefined
   /** 水面动画当前帧（`MapPreview.water` 给范围；两条绘制路径共用同一个帧号） */
   readonly waterFrame?: number | undefined
 }
@@ -86,16 +90,25 @@ export function drawScene(scene: Scene): void {
       camera: scene.camera,
       range,
       view: VIEW,
-      tileCanvasAt: (tileIndex: number, subTile: number) => preview.tileLayer?.canvasAt(tileIndex, subTile),
-      groundCanvas: preview.tileLayer?.groundCanvas(),
+      // terrain3d 模式下地块/地面交给 PBR 地形 pass 画：这里交空图，tile 层自然一个 quad 都不产生
+      tileCanvasAt: scene.terrain3d
+        ? () => undefined
+        : (tileIndex: number, subTile: number) => preview.tileLayer?.canvasAt(tileIndex, subTile),
+      groundCanvas: scene.terrain3d ? undefined : preview.tileLayer?.groundCanvas(),
       units: scene.battle ? collectUnits(scene.battle, scene.artByUnit, scene.unit3d) : [],
       waterFrame: scene.waterFrame,
     }
-    // 图层次序由 GL 层排定：清屏 → 地面 → 倒影 → 阴影 → 物体 → 雾
+    // 图层次序由 GL 层排定：清屏 → [terrain3d 地面] → 地面 → 倒影 → 阴影 → 物体 → 雾
     scene.glTiles.render(glContext, {
       reflections: scene.reflections,
       shadows: scene.shadows,
       fog: scene.fog,
+      terrain3d: scene.terrain3d
+        ? {
+            drawGround: () => scene.terrain3d!.render(scene.camera, scene.canvas.width, scene.canvas.height),
+            zStep: TERRAIN_Z_STEP_PX,
+          }
+        : undefined,
     })
   }
   // 2D 后处理（泛光、雨夜那套调色/雨丝/暗角）画在 2D 画布上，而 GPU 层是另一块画布：
