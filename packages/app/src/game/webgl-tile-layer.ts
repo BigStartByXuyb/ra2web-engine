@@ -55,6 +55,12 @@ export interface GlFrameEffects {
    * 缺省 undefined 时本字段相关分支完全不可达，默认路径逐像素零影响。
    */
   readonly terrain3d?: { readonly drawGround: () => void; readonly zStep: number } | undefined
+  /**
+   * 回退精灵的直立修正角（本项目自定，`?freecam=1` 用）：自由视角是纯 CSS `rotate+scaleY`，
+   * 会把"站着"的回退贴图连地面一起转倒（纸片坦克趴地）。逐顶点给单位精灵绕贴地中点
+   * 反转这个角，抵消外层 rotate，贴图保持直立；缺省 0 = 恒等，默认路径逐像素零影响。
+   */
+  readonly spriteYaw?: number | undefined
 }
 
 /** 一帧要画的静态地图内容：地块/覆盖物/建筑都从 `MapPreview` 取 */
@@ -108,12 +114,22 @@ const VERTEX_SHADER = `
 attribute vec2 a_corner;
 attribute vec2 a_origin;
 attribute vec2 a_size;
+attribute float a_upright;
+uniform vec2 u_yaw;
 uniform vec2 u_camera;
 uniform float u_scale;
 uniform vec2 u_viewport;
 varying vec2 v_uv;
 void main() {
   vec2 world = a_origin + a_corner * a_size;
+  // 回退精灵的直立修正（本项目自定）：绕贴地中点反转 u_yaw，抵消外层 CSS rotate ——
+  // 自由视角是纯 CSS rotate+scaleY，会把"站着"的回退顶点连地面一起转倒（纸片坦克趴地）。
+  // 逐顶点开关 a_upright：只有单位回退精灵为 1，地块/建筑/倒影/阴影保持贴地。
+  if (a_upright > 0.5) {
+    vec2 pivot = a_origin + vec2(a_size.x * 0.5, a_size.y);
+    vec2 rel = world - pivot;
+    world = pivot + vec2(rel.x * u_yaw.x - rel.y * u_yaw.y, rel.x * u_yaw.y + rel.y * u_yaw.x);
+  }
   vec2 pixel = (world - u_camera) * u_scale;
   vec2 clip = vec2(pixel.x / u_viewport.x * 2.0 - 1.0, 1.0 - pixel.y / u_viewport.y * 2.0);
   gl_Position = vec4(clip, 0.0, 1.0);
@@ -389,6 +405,7 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
   const cornerLocation = gl.getAttribLocation(program, 'a_corner')
   const originLocation = gl.getAttribLocation(program, 'a_origin')
   const sizeLocation = gl.getAttribLocation(program, 'a_size')
+  const uprightLocation = gl.getAttribLocation(program, 'a_upright')
   // 阴影另起一个程序：顶点变换与主程序一致，片元只输出黑色遮罩
   const shadowFragment = compile(gl, gl.FRAGMENT_SHADER, SHADOW_FRAGMENT_SHADER)
   const shadowProgram = shadowFragment ? gl.createProgram() : undefined
@@ -403,6 +420,7 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
   const textureLocation = gl.getUniformLocation(program, 'u_texture')
   const alphaLocation = gl.getUniformLocation(program, 'u_alpha')
   const fadeLocation = gl.getUniformLocation(program, 'u_fade')
+  const yawLocation = gl.getUniformLocation(program, 'u_yaw')
   const shadowCameraLocation = shadowProgram ? gl.getUniformLocation(shadowProgram, 'u_camera') : undefined
   const shadowScaleLocation = shadowProgram ? gl.getUniformLocation(shadowProgram, 'u_scale') : undefined
   const shadowViewportLocation = shadowProgram ? gl.getUniformLocation(shadowProgram, 'u_viewport') : undefined
@@ -411,6 +429,7 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
   const shadowCornerLocation = shadowProgram ? gl.getAttribLocation(shadowProgram, 'a_corner') : -1
   const shadowOriginLocation = shadowProgram ? gl.getAttribLocation(shadowProgram, 'a_origin') : -1
   const shadowSizeLocation = shadowProgram ? gl.getAttribLocation(shadowProgram, 'a_size') : -1
+  const shadowUprightLocation = shadowProgram ? gl.getAttribLocation(shadowProgram, 'a_upright') : -1
   // 雾：全屏四边形（两三角形覆盖 −1..1），顶点只传 clip 坐标
   const fogVertex = compile(gl, gl.VERTEX_SHADER, FOG_VERTEX_SHADER)
   const fogFragment = compile(gl, gl.FRAGMENT_SHADER, FOG_FRAGMENT_SHADER)
@@ -440,7 +459,9 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
    * （实测开阴影+雾 12 fps）。批处理**不改变绘制顺序**，所以画面与逐次上传完全一致。
    * 属性步长 24 字节：角(8) + 左上角(8) + 尺寸(8)，一次设置多次复用。
    */
-  let batchData = new Float32Array(4096 * 6)
+  /** 每顶点 7 个 float：corner(2)+origin(2)+size(2)+upright(1)；初始化即用，必须先声明 */
+  const FLOATS_PER_VERTEX = 7
+  let batchData = new Float32Array(4096 * FLOATS_PER_VERTEX)
   let batchCursor = 0
   /** 一次 draw 的顶点区间：同纹理且连续的四边形会自动并成一段 */
   const batchRuns: Array<{ texture: WebGLTexture; start: number; count: number }> = []
@@ -450,23 +471,31 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
     batchRuns.length = 0
   }
 
-  const pushQuad = (texture: WebGLTexture, originX: number, originY: number, sizeX: number, sizeY: number): void => {
-    const needed = batchCursor + CORNERS.length * 3
+  const pushQuad = (
+    texture: WebGLTexture,
+    originX: number,
+    originY: number,
+    sizeX: number,
+    sizeY: number,
+    upright = false,
+  ): void => {
+    const needed = batchCursor + FLOATS_PER_VERTEX * 6
     if (batchData.length < needed) {
       const grown = new Float32Array(Math.max(needed, batchData.length * 2))
       grown.set(batchData.subarray(0, batchCursor))
       batchData = grown
     }
     for (let index = 0; index < CORNERS.length / 2; index++) {
-      const at = batchCursor + index * 6
+      const at = batchCursor + index * FLOATS_PER_VERTEX
       batchData[at] = CORNERS[index * 2]!
       batchData[at + 1] = CORNERS[index * 2 + 1]!
       batchData[at + 2] = originX
       batchData[at + 3] = originY
       batchData[at + 4] = sizeX
       batchData[at + 5] = sizeY
+      batchData[at + 6] = upright ? 1 : 0
     }
-    const start = batchCursor / 6
+    const start = batchCursor / FLOATS_PER_VERTEX
     const previous = batchRuns[batchRuns.length - 1]
     // 与上一段同纹理且紧邻 → 直接延长那一段（地块按纹理分组后就是靠这条合并的）
     if (previous && previous.texture === texture && previous.start + previous.count === start) {
@@ -474,19 +503,23 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
     } else {
       batchRuns.push({ texture, start, count: 6 })
     }
-    batchCursor += CORNERS.length * 3
+    batchCursor += FLOATS_PER_VERTEX * 6
   }
 
-  const flushBatch = (corner: number, origin: number, size: number): void => {
+  const flushBatch = (corner: number, origin: number, size: number, upright: number): void => {
     if (batchRuns.length === 0) return
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
     gl.bufferData(gl.ARRAY_BUFFER, batchData.subarray(0, batchCursor), gl.STREAM_DRAW)
     gl.enableVertexAttribArray(corner)
-    gl.vertexAttribPointer(corner, 2, gl.FLOAT, false, 24, 0)
+    gl.vertexAttribPointer(corner, 2, gl.FLOAT, false, 28, 0)
     gl.enableVertexAttribArray(origin)
-    gl.vertexAttribPointer(origin, 2, gl.FLOAT, false, 24, 8)
+    gl.vertexAttribPointer(origin, 2, gl.FLOAT, false, 28, 8)
     gl.enableVertexAttribArray(size)
-    gl.vertexAttribPointer(size, 2, gl.FLOAT, false, 24, 16)
+    gl.vertexAttribPointer(size, 2, gl.FLOAT, false, 28, 16)
+    if (upright >= 0) {
+      gl.enableVertexAttribArray(upright)
+      gl.vertexAttribPointer(upright, 1, gl.FLOAT, false, 28, 24)
+    }
     for (const run of batchRuns) {
       gl.bindTexture(gl.TEXTURE_2D, run.texture)
       gl.drawArrays(gl.TRIANGLES, run.start, run.count)
@@ -525,11 +558,16 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
   const CORNERS = [0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1]
 
   /** 主程序（地块/覆盖物/物体/倒影共用）的相机与采样设置；倒影在它之后自己改 `u_alpha`。 */
+  /** 本帧直立修正角 cos/sin；render() 开头从 effects.spriteYaw 刷新 */
+  let frameYawX = 1
+  let frameYawY = 0
+
   const useMainProgram = (camera: Camera): void => {
     gl.useProgram(program!)
     gl.uniform2f(cameraLocation, camera.x, camera.y)
     gl.uniform1f(scaleLocation, viewScale(camera))
     gl.uniform2f(viewportLocation, canvas.width, canvas.height)
+    gl.uniform2f(yawLocation, frameYawX, frameYawY)
     gl.uniform1i(textureLocation, 0)
     gl.uniform1f(alphaLocation!, 1)
     gl.uniform1f(fadeLocation!, 0)
@@ -579,7 +617,7 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
     }[] = []
     const flushSprites = (): void => {
       if (!batchDirty) return
-      flushBatch(cornerLocation, originLocation, sizeLocation)
+      flushBatch(cornerLocation, originLocation, sizeLocation, uprightLocation)
       resetBatch()
       batchDirty = false
     }
@@ -611,7 +649,7 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       if (!texture) continue
       const originX = item.structure ? item.structure.originX : item.unit!.worldX - item.unit!.anchorX
       const originY = item.structure ? item.structure.originY : item.unit!.worldY - item.unit!.anchorY
-      pushQuad(texture, originX, originY, quad.source.width, quad.source.height)
+      pushQuad(texture, originX, originY, quad.source.width, quad.source.height, item.isUnit)
       batchDirty = true
     }
     flushSprites()
@@ -648,7 +686,7 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
         height,
       )
     }
-    flushBatch(shadowCornerLocation, shadowOriginLocation, shadowSizeLocation)
+    flushBatch(shadowCornerLocation, shadowOriginLocation, shadowSizeLocation, shadowUprightLocation)
   }
 
   /**
@@ -675,7 +713,7 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       )
       pushQuad(texture, quad.originX, mirrored.top, quad.source.width, mirrored.height)
     }
-    flushBatch(cornerLocation, originLocation, sizeLocation)
+    flushBatch(cornerLocation, originLocation, sizeLocation, uprightLocation)
     gl.uniform1f(fadeLocation!, 0)
     gl.uniform1f(alphaLocation!, 1)
   }
@@ -717,6 +755,9 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
      */
     render(context, effects) {
       const { preview, camera, range, view, tileCanvasAt } = context
+      // 直立修正角来自本帧 effects.spriteYaw（自由视角时 = -atan(pitch*tan az)，缺省 0 = 恒等）
+      frameYawX = Math.cos(effects.spriteYaw ?? 0)
+      frameYawY = Math.sin(effects.spriteYaw ?? 0)
       gl.clearColor(0, 0, 0, 0)
       gl.clear(gl.COLOR_BUFFER_BIT)
       // 这一帧的深度缓冲只由 3D 单位那一段用（自己清、自己写、画完关掉写入）：
@@ -777,10 +818,7 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
             // terrain3d 模式下地面被抬到 cell.z×zStep，覆盖物贴的是抬升后的地面
             // （高度源 = MapCell.z，与地形顶面同一口径），缺省 0 与原路径完全一致
             const overlayLift = effects.terrain3d ? cell.z * effects.terrain3d.zStep : 0
-            const origin = snapSpriteOrigin(
-              centerX - overlay.width / 2,
-              centerY - overlayLift - overlay.height / 2,
-            )
+            const origin = snapSpriteOrigin(centerX - overlay.width / 2, centerY - overlayLift - overlay.height / 2)
             grouped.push({
               texture: overlayTexture,
               originX: origin.x,
@@ -801,7 +839,7 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
         pushQuad(quad.texture, quad.originX, quad.originY, quad.sizeX, quad.sizeY)
       }
       // 地面先落地：倒影与阴影压在地面之上、物体之下，所以地面这一批必须先画掉
-      flushBatch(cornerLocation, originLocation, sizeLocation)
+      flushBatch(cornerLocation, originLocation, sizeLocation, uprightLocation)
       if (effects.reflections) {
         // 精灵倒影：建筑，以及没有 3D 模型的单位
         drawReflections(

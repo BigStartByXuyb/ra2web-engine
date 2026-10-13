@@ -1,7 +1,17 @@
 import { RA2_ISO_VIEW, cellToScreen } from '@ra2web/render'
 import { openTheater, type AssetOverride } from '@ra2web/assets'
 import { readMap, readMixEntry, readMixIndex, type MapFile } from '@ra2web/formats'
-import { TICKS_PER_SECOND, dirFromFacing, enqueueCommand, fromFixed, step, unitCell, type Cell } from '@ra2web/sim'
+import {
+  SHROUD_EXPLORED,
+  TICKS_PER_SECOND,
+  dirFromFacing,
+  enqueueCommand,
+  fromFixed,
+  step,
+  unitCell,
+  type Cell,
+} from '@ra2web/sim'
+import { LOCAL_OWNER } from './draw.js'
 import { createBattle, createDemoBattle, type Battle } from './battle.js'
 import { planMapBattle } from './map-battle.js'
 import { MIN_ZOOM, canvasToCell, canvasToWorld, createCamera, viewScale, zoomAt, type Camera } from './camera.js'
@@ -18,6 +28,7 @@ import { pickUnit } from './picking.js'
 import { createGlTileLayer, type GlTileLayer } from './webgl-tile-layer.js'
 import { createTerrain3dScene, type Terrain3dScene } from './webgl-terrain3d.js'
 import { buildDemoUnitArt, loadUnitArt, type QualityPreset, type UnitArt } from './unit-art.js'
+import { startUnitView } from './unit-view.js'
 
 /**
  * 战场入口：一局可玩的切片。
@@ -543,6 +554,12 @@ function frame(now: number): void {
       step(battle.world)
       accumulator -= TICK_MS
     }
+    if (revealEnabled) {
+      // ?reveal=1（本项目自定调试开关）：迷雾全揭只改本局内存状态 —— explored 填满即永久可见，
+      // visible 每帧补满让敌方单位也显示（updateShroud 每 tick 重算 visible，填一次会被冲掉）。
+      battle.world.shroud.explored[LOCAL_OWNER]?.fill(SHROUD_EXPLORED)
+      battle.world.shroud.visible[LOCAL_OWNER]?.fill(1)
+    }
   }
   drawScene({
     canvas,
@@ -562,6 +579,9 @@ function frame(now: number): void {
     terrain3d: terrain3dScene,
     unit3d: (typeId) => (units3d ? glTiles?.unit3d(typeId) : undefined),
     waterFrame: waterFrameAt(now, mapPreview?.water, animateWater),
+    // 自由视角下的回退精灵直立修正：CSS rotate(az)scale(p) 会把贴图转倒，
+    // 反转 -atan(p·tan az) 后再被外层变换，贴图保持屏幕直立（见 webgl-tile-layer a_upright）。
+    spriteYaw: freecamEnabled ? -Math.atan(freeCam.pitch * Math.tan(freeCam.azimuth)) : 0,
   })
   hud.update(now, { battle, mapPreview, camera, hoverCell })
   requestAnimationFrame(frame)
@@ -681,8 +701,13 @@ const spawnHealthPercent = (() => {
   const raw = Number(new URLSearchParams(location.search).get('hp'))
   return Number.isFinite(raw) && raw >= 1 && raw <= 100 ? raw : undefined
 })()
+/** `?reveal=1`（本项目自定调试开关）：战局内迷雾全揭（本地玩家 explored+visible 填满），
+ *  只影响本局内存状态 —— 模型/机位验收不再被初始迷雾挡住。 */
+const revealEnabled = new URLSearchParams(location.search).get('reveal') === '1'
 units3dSelect.value = units3d ? '3d' : '2d'
-void autoLoadFromQuery()
+// ?unitview=<单位名>：模型检视模式（本项目自定调试入口）。接管时不自动开战 ——
+// 一条 URL 只干一件事，模型验收不依赖战场装载。
+if (!startUnitView()) void autoLoadFromQuery()
 
 /**
  * 3D 单位的模型槽位：`/packs/units3d/<单位>.glb` 是"最好的一版"，

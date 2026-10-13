@@ -16,6 +16,7 @@ const RULES = loadRules([
       'Armor=heavy',
       'Speed=6',
       'ROT=5',
+      'SpeedType=Track',
       'Sight=8',
       'Cost=900',
       'TechLevel=2',
@@ -40,6 +41,7 @@ test('核心字段被解析为强类型', () => {
   assert.equal(unit.strength, 400)
   assert.equal(unit.speed, 6)
   assert.equal(unit.rot, 5)
+  assert.equal(unit.speedType, 'Track')
   assert.equal(unit.sight, 8)
   assert.equal(unit.cost, 900)
   assert.equal(unit.techLevel, 2)

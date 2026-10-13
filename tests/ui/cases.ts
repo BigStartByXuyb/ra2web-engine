@@ -652,6 +652,57 @@ export const cases: readonly UiCase[] = [
       return `Alt+拖拽与普通拖拽逐像素一致（差异 ${diff.changed} 像素），相机行隐藏`
     },
   },
+  {
+    name: '?reveal=1 迷雾全揭（调试开关：迷雾不再挡模型/机位验收）',
+    async run(session) {
+      const base = await session.capture(GL_BASE)
+      const revealed = await session.capture({ name: 'reveal-on', query: 'renderer=webgl&units3d=0&anim=0&reveal=1' })
+      // 迷雾是近黑的一层：全揭后整帧平均亮度必须明显抬起来（背景地形是亮的雪地）。
+      // 实测 35.3 → 77.7（画面里还有地图菱形外的暗底与 HUD 面板，达不到纯地形亮度）
+      const rect = { x: 0, y: 0, w: VIEWPORT.width, h: VIEWPORT.height }
+      const dark = meanColor(base, rect)
+      const lit = meanColor(revealed, rect)
+      assert.ok(
+        lit > dark * 1.5,
+        `reveal=1 后整帧平均亮度 ${lit.toFixed(1)}，未明显高于未揭图的 ${dark.toFixed(1)}：迷雾没揭`,
+      )
+      return `平均亮度 ${dark.toFixed(1)} → ${lit.toFixed(1)}`
+    },
+  },
+  {
+    name: '?unitview= 模型检视模式：模型在画、且在自转',
+    async run(session) {
+      const page = session.page
+      await page.goto(`${session.origin}/game.html?unitview=htnk`, { waitUntil: 'load' })
+      await page.waitForFunction(
+        () => /模型检视/.test(document.getElementById('status')?.textContent ?? ''),
+        undefined,
+        {
+          timeout: 120000,
+        },
+      )
+      const status = await page.evaluate(() => document.getElementById('status')?.textContent ?? '')
+      assert.ok(!/找不到模型/.test(status), `检视模式没装到模型（状态：${status}）`)
+      // 静置 1.5 秒后自动开始自转：抓两块画面必须明显不同
+      await page.waitForTimeout(2500)
+      const center = { x: 500, y: 220, w: 600, h: 420 }
+      const first = await session.sampleRegion(center)
+      await page.waitForTimeout(700)
+      const second = await session.sampleRegion(center)
+      const diff = diffImages(first, second)
+      assert.ok(diff.changed >= 500, `静置后画布应自转，实际只变 ${diff.changed} 像素`)
+      // 中心区域必须真有东西：与角落（纯背景 #0a0d13，R+G+B≈42）比 —— 自校准，不赌绝对亮度。
+      // 实测中心 ≈57、角落 ≈42：整机在画面里偏右，采样框只吃到大半模型，绝对亮度上不去。
+      const lit = meanColor(second, { x: 0, y: 0, w: center.w, h: center.h })
+      const corner = await session.sampleRegion({ x: 30, y: 30, w: 240, h: 240 })
+      const background = meanColor(corner, { x: 0, y: 0, w: 240, h: 240 })
+      assert.ok(
+        lit > background + 8,
+        `检视画面中心平均亮度 ${lit.toFixed(1)} 与纯背景 ${background.toFixed(1)} 无差：模型没画出来`,
+      )
+      return `自转两帧差 ${diff.changed} 像素，中心亮度 ${lit.toFixed(1)}（背景 ${background.toFixed(1)}）`
+    },
+  },
 ]
 
 export { UI_PANELS }

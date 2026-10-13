@@ -102,6 +102,8 @@ void main() {
     position = vec3(position.x * ct - position.y * st, position.x * st + position.y * ct, position.z);
     position.x += u_nodeOffset.x - u_pivotOffset.x;
     position.y += u_nodeOffset.y - u_pivotOffset.y;
+    // z 是**竖直落位**：漏掉它炮塔/炮管会沉在车体里（组的空间变换三轴都要补，x/y 只决定水平落位）
+    position.z += u_nodeOffset.z - u_pivotOffset.z;
     normal = vec3(normal.x * ct - normal.y * st, normal.x * st + normal.y * ct, normal.z);
     if (u_group > 1.5) {
       // 炮管俯仰：绕耳轴（本组原点）在炮管指向平面内抬/压
@@ -204,6 +206,8 @@ interface GltfPrimitive {
   readonly group: 0 | 1 | 2
   /** 绕炮塔枢轴的刚体偏移（体素轴）：车体 = 0，炮塔 = 0，炮管 = 耳轴相对平移 */
   readonly pivotOffset: readonly [number, number, number]
+  /** 本组节点在模型空间的静止平移（体素轴）：渲染时用它把件局部顶点放回模型空间 */
+  readonly nodeOffset: readonly [number, number, number]
 }
 
 /** GLB 里的一张图（内嵌 bufferView 或 data URI）与它的采样参数。 */
@@ -237,7 +241,10 @@ function readGlb(bytes: ArrayBuffer): {
       children?: number[]
       translation?: number[]
     }[]
-    meshes?: { name?: string; primitives: { attributes: Record<string, number>; indices?: number; material?: number }[] }[]
+    meshes?: {
+      name?: string
+      primitives: { attributes: Record<string, number>; indices?: number; material?: number }[]
+    }[]
     materials?: {
       pbrMetallicRoughness?: {
         baseColorFactor?: number[]
@@ -349,13 +356,18 @@ function readGlb(bytes: ArrayBuffer): {
     const pivotOffset: [number, number, number] =
       info.group === 0
         ? [0, 0, 0]
-        : [info.nodeOffset[0] - turretPivot[0], info.nodeOffset[1] - turretPivot[1], info.nodeOffset[2] - turretPivot[2]]
+        : [
+            info.nodeOffset[0] - turretPivot[0],
+            info.nodeOffset[1] - turretPivot[1],
+            info.nodeOffset[2] - turretPivot[2],
+          ]
     for (const primitive of mesh.primitives) {
       const material = json.materials?.[primitive.material ?? 0]?.pbrMetallicRoughness ?? {}
       const color = material.baseColorFactor ?? [1, 1, 1, 1]
       primitives.push({
         group: info.group,
         pivotOffset,
+        nodeOffset: info.nodeOffset,
         position: accessor(primitive.attributes.POSITION!, 3),
         normal: accessor(primitive.attributes.NORMAL!, 3),
         uv: uvAccessor(primitive.attributes.TEXCOORD_0),
@@ -437,6 +449,7 @@ export function createUnit3dRenderer(gl: WebGLRenderingContext): Unit3dRenderer 
   const roughnessLocation = gl.getUniformLocation(program, 'u_roughness')
   const groupLocation = gl.getUniformLocation(program, 'u_group')
   const pivotOffsetLocation = gl.getUniformLocation(program, 'u_pivotOffset')
+  const nodeOffsetLocation = gl.getUniformLocation(program, 'u_nodeOffset')
   const turretYawLocation = gl.getUniformLocation(program, 'u_turretYaw')
   const barrelPitchLocation = gl.getUniformLocation(program, 'u_barrelPitch')
 
@@ -476,6 +489,8 @@ export function createUnit3dRenderer(gl: WebGLRenderingContext): Unit3dRenderer 
             primitive.pivotOffset[1],
             primitive.pivotOffset[2],
           )
+          // 本组节点在模型空间的静止平移：不传的话炮塔/炮管会留在件局部原点（藏进车体）
+          gl.uniform3f(nodeOffsetLocation, primitive.nodeOffset[0], primitive.nodeOffset[1], primitive.nodeOffset[2])
           gl.uniform3f(baseColorLocation, primitive.baseColor[0], primitive.baseColor[1], primitive.baseColor[2])
           gl.uniform1f(metallicLocation, primitive.metallic)
           gl.uniform1f(roughnessLocation, primitive.roughness)

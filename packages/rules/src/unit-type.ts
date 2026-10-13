@@ -25,6 +25,8 @@ export interface UnitType {
   readonly techLevel: number | undefined
   readonly primary: string | undefined
   readonly secondary: string | undefined
+  /** 移动方式（rules.ini `SpeedType=`：Track/Wheel/Foot/Hover/Float/…），坡度乘数选组用 */
+  readonly speedType: string | undefined
   readonly turret: boolean
   readonly owners: readonly string[]
   readonly prerequisites: readonly string[]
@@ -76,6 +78,7 @@ export function parseUnitType(rules: RawRules, id: string): UnitType | undefined
     techLevel: integer('TechLevel', lookup('techlevel'), issues),
     primary: optional('Primary', lookup('primary'), issues),
     secondary: optional('Secondary', lookup('secondary'), issues),
+    speedType: optional('SpeedType', lookup('speedtype'), issues),
     turret,
     owners: parseList(lookup('owner')),
     prerequisites: parseList(lookup('prerequisite')),
