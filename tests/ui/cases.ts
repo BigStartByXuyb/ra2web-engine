@@ -302,6 +302,48 @@ export const cases: readonly UiCase[] = [
     },
   },
   {
+    name: 'terrain3d 贴脸放大：滚轮放大生效且细节层逐像素确定（任务 7 防块状糊）',
+    async run(session) {
+      const page = session.page
+      const params = new URLSearchParams({
+        mix: '/pack/RA2.MIX',
+        map: '/pack/Maps01.mix',
+        index: '0',
+        battle: '1',
+        renderer: 'webgl',
+        terrain3d: '1',
+        units3d: '0',
+        anim: '0',
+      })
+      await page.goto(`${session.origin}/game.html?${params.toString()}`, { waitUntil: 'load' })
+      await page.waitForFunction(
+        () => /单位 \d+ 辆/.test(document.getElementById('status')?.textContent ?? ''),
+        undefined,
+        { timeout: 300000 },
+      )
+      await page.waitForTimeout(3000)
+      const box = await page.locator('#stage').boundingBox()
+      assert.ok(box, '找不到战场画布')
+      const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+      // 滚轮贴脸放大（5 档 ×1.15），放大后细节层三档全开
+      for (let step = 0; step < 5; step++) {
+        await page.mouse.move(center.x, center.y)
+        await page.mouse.wheel(0, -400)
+        await page.waitForTimeout(150)
+      }
+      const zoomText = await page.evaluate(() => document.getElementById('hud-zoom')?.textContent ?? '')
+      const zoom = Number.parseFloat(zoomText)
+      assert.ok(Number.isFinite(zoom) && zoom > 1.5, `滚轮放大没生效：zoom=${zoomText}`)
+      await page.waitForTimeout(1000)
+      const first = await session.snapshot('terrain3d-zoom-a')
+      await page.waitForTimeout(400)
+      const second = await session.snapshot('terrain3d-zoom-b')
+      const diff = diffImages(first, second)
+      assert.equal(diff.changed, 0, `贴脸放大后两次截图差 ${diff.changed} 像素（细节层必须逐像素确定）`)
+      return `贴脸放大 zoom=${zoom.toFixed(2)}，细节层确定性 0 像素差`
+    },
+  },
+  {
     name: '雨夜后处理作用在整幅画面上',
     async run(session) {
       const glWet = await session.capture({

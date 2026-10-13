@@ -12,6 +12,7 @@ import type { MapCell } from '@ra2web/formats'
 import { createDecalBuffer, type DecalBuffer } from './terrain3d-decals.js'
 import { buildTerrain3dGeometry, type Terrain3dVertexData } from './terrain3d-geometry.js'
 import {
+  detailOctaveWeights,
   fallbackMaterial,
   sampleTerrainMaterials,
   waterFrameAlbedos,
@@ -238,6 +239,7 @@ uniform sampler2D u_decals;
 uniform vec2 u_decalOrigin;
 uniform vec2 u_decalScale;
 uniform float u_decalsOn;
+uniform vec3 u_detailWeights;
 float hash(vec2 p) {
   return fract(sin(dot(p + u_noiseSeed, vec2(127.1, 311.7))) * 43758.5453);
 }
@@ -260,6 +262,12 @@ void main() {
   albedo *= mix(1.0, 0.8 + 0.3 * stripe, wallMask);
   float dropBelowTop = v_topZ - v_z;
   albedo *= mix(1.0, mix(0.72, 1.0, smoothstep(0.0, 10.0, dropBelowTop)), wallMask);
+  // 近距细节层（任务 7，本项目自定）：三档高频噪声按 Nyquist 权重混入 —— 修复"贴脸放大块状糊"；
+  // 权重由 JS 侧按相机缩放算好（detailOctaveWeights），缩小时逐档关闭防闪烁；水面不叠（走波纹分支）
+  float detail = valueNoise(v_world * 0.25) * u_detailWeights.x
+               + valueNoise(v_world * 0.5) * u_detailWeights.y
+               + valueNoise(v_world * 1.0) * u_detailWeights.z;
+  albedo *= 1.0 + (detail - 0.5) * 0.25 * (1.0 - v_water);
   // 地貌细节（任务 4，本项目自定）：静态低频污渍 + 车辙/雪地踩痕贴花（痕迹由单位位置流盖章）
   float stain = valueNoise(v_world * 0.013);
   albedo *= mix(1.0, 0.90 + 0.10 * stain, u_decalsOn);
@@ -339,6 +347,7 @@ function createTerrain3dRenderer(
   const decalOriginUniform = gl.getUniformLocation(program, 'u_decalOrigin')
   const decalScaleUniform = gl.getUniformLocation(program, 'u_decalScale')
   const decalsOnUniform = gl.getUniformLocation(program, 'u_decalsOn')
+  const detailWeightsUniform = gl.getUniformLocation(program, 'u_detailWeights')
   // 痕迹纹理：1×1 空白兜底（decals 关或无层时采样恒 0）
   const blankTexture = gl.createTexture()
   if (blankTexture) {
@@ -395,6 +404,9 @@ function createTerrain3dRenderer(
     gl.uniform2f(decalOriginUniform, decal?.originX ?? 0, decal?.originY ?? 0)
     gl.uniform2f(decalScaleUniform, decal?.scaleX ?? 1, decal?.scaleY ?? 1)
     gl.uniform1f(decalsOnUniform, decal ? 1 : 0)
+    // 近距细节层权重（任务 7）：worldPerPixel = 1/缩放，放大全开、缩小逐档关
+    const detail = detailOctaveWeights(1 / Math.max(1e-6, viewScale(camera)))
+    gl.uniform3f(detailWeightsUniform, detail[0], detail[1], detail[2])
     gl.activeTexture(gl.TEXTURE0)
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
     gl.enableVertexAttribArray(positionLocation)

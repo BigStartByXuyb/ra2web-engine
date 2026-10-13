@@ -133,3 +133,20 @@ export function waterFrameAlbedos(
     return count === 0 ? undefined : ([r / count, g / count, b / count] as const)
   })
 }
+
+/**
+ * 近距细节层倍频权重（任务 7，本项目自定）：修复"贴脸放大块状糊"。
+ *
+ * 根因：地表噪声原为固定世界尺度的两倍频（周期 20/4.8 世界像素），放大后色块同比放大且无更细层次。
+ * 三档细节参考频率 0.25/0.5/1.0（周期 4/2/1 世界像素），权重按 **Nyquist** 随
+ * `worldPerPixel`（每屏幕像素占多少世界像素，= 1/viewScale）衰减：
+ * 周期 ≥2 屏幕像素才全权重，周期 ≤1 屏幕像素关到 0 —— 放大时细节全开、缩小时逐档关闭防闪烁。
+ */
+export const DETAIL_OCTAVE_FREQUENCIES: readonly [number, number, number] = [0.25, 0.5, 1.0]
+
+export function detailOctaveWeights(worldPerPixel: number): readonly [number, number, number] {
+  const weights = DETAIL_OCTAVE_FREQUENCIES.map((frequency) =>
+    Math.min(1, Math.max(0, 2 - 2 * worldPerPixel * frequency)),
+  ) as [number, number, number]
+  return weights
+}

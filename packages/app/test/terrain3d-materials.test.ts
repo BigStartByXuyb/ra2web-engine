@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { paletteColor, type Palette } from '@ra2web/formats'
 import {
   fallbackMaterial,
+  detailOctaveWeights,
   sampleTerrainMaterials,
   waterFrameAlbedos,
   TERRAIN_PBR_STYLE,
@@ -112,4 +113,22 @@ test('水面帧色表：空像素帧给 undefined 占位（调用方回落前一
 
 test('水面帧色表：全空返回空表（缺 WaterSet 图时调用方走静态 Water 采样）', () => {
   assert.equal(waterFrameAlbedos([], TEST_PALETTE).length, 0)
+})
+
+test('细节层倍频权重：放大时三档全开，缩小时按 Nyquist 逐档关闭（防走样）', () => {
+  // worldPerPixel = 每屏幕像素占多少世界像素；scale=1 → 1.0；zoom 放大 4 倍 → 0.25
+  // 设计：三档参考频率 0.25/0.5/1.0（周期 4/2/1 世界像素）；权重 = clamp(2 − 2·wpp·f, 0, 1)
+  // —— 周期 ≥2 屏幕像素才全权重（Nyquist），周期 ≤1 屏幕像素关到 0
+  assert.deepEqual(detailOctaveWeights(0.25), [1, 1, 1], '放大 4 倍时三档全开（周期换算后全部 ≥2 屏幕像素）')
+  assert.deepEqual(detailOctaveWeights(0.5), [1, 1, 1], '2 倍放大仍三档全开（1 世界像素=2 屏幕像素）')
+  assert.deepEqual(detailOctaveWeights(1), [1, 1, 0], '100% 时 1 世界像素档（=1 屏幕像素）关闭')
+  assert.deepEqual(detailOctaveWeights(2), [1, 0, 0], '缩小时逐档关闭')
+  assert.deepEqual(detailOctaveWeights(4), [0, 0, 0], '2 倍缩小时细节全关（防闪烁）')
+  assert.deepEqual(detailOctaveWeights(16), [0, 0, 0])
+  let previous = 1
+  for (const wpp of [0.1, 0.25, 0.5, 1, 2, 4, 8, 16]) {
+    const weight = detailOctaveWeights(wpp)[2]!
+    assert.ok(weight <= previous + 1e-9, `wpp=${wpp} 权重应单调不增`)
+    previous = weight
+  }
 })
