@@ -156,6 +156,42 @@ export const cases: readonly UiCase[] = [
     },
   },
   {
+    name: '地貌 3D 开关必须落在画面上，且两次运行逐像素一致',
+    async run(session) {
+      const base = await session.capture(GL_BASE)
+      const terrain = await session.capture({
+        name: 'terrain3d',
+        query: 'renderer=webgl&terrain3d=1&units3d=0&anim=0',
+      })
+      const diff = diffImages(base, terrain)
+      assert.ok(diff.changed >= 500, `开 terrain3d 只改了 ${diff.changed} 像素，等于没上屏`)
+      const repeat = await session.capture({
+        name: 'terrain3d-repeat',
+        query: 'renderer=webgl&terrain3d=1&units3d=0&anim=0',
+      })
+      const repeatDiff = diffImages(terrain, repeat)
+      assert.ok(repeatDiff.changed === 0, `terrain3d 两次运行差 ${repeatDiff.changed} 像素（材质/几何必须确定性）`)
+      return `terrain3d 改变 ${diff.changed} 像素`
+    },
+  },
+  {
+    name: '地貌 3D 与倒影/雾/阴影组合不花屏（混合状态不串）',
+    async run(session) {
+      const combo = await session.capture({
+        name: 'terrain3d-reflect-fog',
+        query: 'renderer=webgl&terrain3d=1&reflect=1&fog=1&shadows=1&units3d=0&anim=0',
+      })
+      const plain = await session.capture({
+        name: 'terrain3d-plain',
+        query: 'renderer=webgl&terrain3d=1&units3d=0&anim=0',
+      })
+      const diff = diffImages(combo, plain)
+      assert.ok(diff.changed > 0, '组合开关毫无变化，效果没上屏')
+      assert.ok(diff.changed < 1_500_000, `组合开关改了 ${diff.changed} 像素，疑似花屏`)
+      return `组合改变 ${diff.changed} 像素`
+    },
+  },
+  {
     name: '雨夜后处理作用在整幅画面上',
     async run(session) {
       const glWet = await session.capture({

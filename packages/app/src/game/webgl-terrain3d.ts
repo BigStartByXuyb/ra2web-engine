@@ -60,7 +60,9 @@ function* theaterSubTiles(theater: TheaterAssets): Iterable<MaterialSampleInput>
   }
 }
 
-/** 一格的地块类型：缺图/子块越界/未认识编号一律 'Unknown'（走回退档），不猜。 */
+/** 一格的地块类型。缺图（地块集加载失败/子块越界）按 Clear 走 —— 与 2D 路径的 groundCanvas
+ * 垫底同一口径（原版客户端对缺图格是硬错误，这里按垫底雪面画，不让画面长出异色补丁；
+ * 本项目自定取舍）。art 装上了但 terrainType 未认识才是 'Unknown'（走回退档），不猜。 */
 function landTypeAt(
   preview: MapPreview,
   theater: TheaterAssets,
@@ -68,9 +70,9 @@ function landTypeAt(
   cellY: number,
 ): LandTypeName | 'Unknown' {
   const cell = preview.cellByIndex.get(cellY * preview.width + cellX)
-  if (!cell) return 'Unknown'
+  if (!cell) return 'Clear'
   const sub = theater.loadTile((cell as MapCell).tileIndex)?.subTiles[(cell as MapCell).subTile]
-  if (!sub) return 'Unknown'
+  if (!sub) return 'Clear'
   return landTypeOfTerrainType(sub.terrainType) ?? 'Unknown'
 }
 
@@ -89,8 +91,10 @@ varying float v_roughness;
 varying float v_variance;
 varying vec2 v_world;
 void main() {
-  // 与 webgl-unit3d.ts 同一套仿射投影：screenX = x − y，screenY = (x + y)/2 − z
-  vec2 world = vec2(a_position.x - a_position.y, (a_position.x + a_position.y) * 0.5 - a_position.z);
+  // 地形顶点已经是**世界系**（worldX、真实 worldY、抬升 z）—— 与 buildTerrainMesh 的等距
+  // 世界坐标同源，直接 (x, y − z) 落屏。不能照抄 webgl-unit3d 的格空间变换 (x−y, (x+y)/2−z)：
+  // 那套的输入是"格坐标"，套在世界系顶点上会把整片地形投散（实测除一小块水外全黑）。
+  vec2 world = vec2(a_position.x, a_position.y - a_position.z);
   vec2 pixel = (world - u_camera) * u_scale;
   gl_Position = vec4(pixel.x / u_viewport.x * 2.0 - 1.0, 1.0 - pixel.y / u_viewport.y * 2.0, 0.0, 1.0);
   v_normal = a_normal;
