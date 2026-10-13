@@ -109,6 +109,15 @@ export interface TheaterAssets {
   readonly name: string
   readonly ini: TheaterIni
   /**
+   * 地貌线任务 2：该地块号命中的崖集档位（`CliffSet`→'cliff'、`WaterCliffs`→'waterCliff'、
+   * `DestroyableCliffs`→'destroyableCliff'），都不命中或越界为 undefined。
+   *
+   * 客户端 `isCliffTile = cliffSetNums.includes(getSetNum(tile))`（参考实现
+   * `work/decompiled/ra2web-client/app.readable.js:6047`，集合键见 :5887）；崖块判定是"或"：
+   * `terrainType=15` **或**集合归属都算崖（app.readable.js:20061）。三档分开返回供材质分档用。
+   */
+  readonly isCliffSetTile: (tileIndex: number) => CliffSetKind | undefined
+  /**
    * 地面块：`Clear` 段的第一块。地块美术不满一块菱形时（坡道、坡角）垫在它下面 ——
    * 原版就是这么补的，判定见 `docs/ENGINE-MAP.md` 的"地块合成"。
    */
@@ -136,6 +145,30 @@ export interface TheaterAssets {
 export interface ImageOptions {
   /** art.ini 的 `Theater=yes` */
   readonly theaterExtension: boolean
+}
+
+/** 崖集档位：剧场 INI `[General]` 三键，见 `TheaterAssets.isCliffSetTile` 的注释。 */
+export type CliffSetKind = 'cliff' | 'waterCliff' | 'destroyableCliff'
+
+const CLIFF_SET_KEYS: ReadonlyArray<readonly [CliffSetKind, string]> = [
+  ['cliff', 'cliffset'],
+  ['waterCliff', 'watercliffs'],
+  ['destroyableCliff', 'destroyablecliffs'],
+]
+
+/**
+ * 剧场 INI → 崖集档位表。缺键或键值不是数字 → 该档缺席（MOD 剧场可能没有），不猜、不抛错。
+ * 实测三剧场三键齐全：CliffSet=10 / WaterCliffs=15 / DestroyableCliffs=61|56（见 ENGINE-MAP「崖块集合与坡道语义」）。
+ */
+export function cliffSetIndexesOf(ini: TheaterIni): ReadonlyMap<CliffSetKind, number> {
+  const sets = new Map<CliffSetKind, number>()
+  for (const [kind, key] of CLIFF_SET_KEYS) {
+    const value = ini.general.get(key)
+    if (value === undefined) continue
+    const parsed = Number.parseInt(value, 10)
+    if (Number.isFinite(parsed)) sets.set(kind, parsed)
+  }
+  return sets
 }
 
 export function openTheater(
@@ -170,11 +203,20 @@ export function openTheater(
   const clearSet = ini.sets.find((set) => set.fileName.toLowerCase() === 'clear')
   const clearTile = clearSet === undefined ? -1 : ini.tiles.findIndex((tile) => tile.setIndex === clearSet.index)
   const groundTileIndex = clearTile >= 0 && readTile(clearTile) ? clearTile : undefined
+  const cliffSetIndexes = cliffSetIndexesOf(ini)
 
   return {
     name: theaterName,
     ini,
     groundTileIndex,
+    isCliffSetTile(tileIndex) {
+      const tile = ini.tiles[tileIndex]
+      if (!tile) return undefined
+      for (const [kind, setIndex] of cliffSetIndexes) {
+        if (setIndex === tile.setIndex) return kind
+      }
+      return undefined
+    },
     loadTile(tileIndex) {
       const cached = cache.get(tileIndex)
       if (cached !== undefined || cache.has(tileIndex)) return cached

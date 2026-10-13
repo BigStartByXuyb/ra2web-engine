@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { test } from 'node:test'
-import { crc32, findMixEntry, hashFileName, paletteColor, readMixEntry, readMixIndex } from '@ra2web/formats'
-import { loadTheaterPalette, openTheater } from '../src/theater.js'
+import { crc32, findMixEntry, hashFileName, paletteColor, readMixEntry, readMixIndex, readTheaterIni } from '@ra2web/formats'
+import { cliffSetIndexesOf, loadTheaterPalette, openTheater } from '../src/theater.js'
 
 /** 拼一个明文头 MIX（无加密、无校验位），仅供测试使用。 */
 function buildMix(entries: ReadonlyArray<{ name: string; data: Uint8Array }>): Uint8Array {
@@ -90,4 +90,52 @@ test('原版剧场地块表能打开', { skip }, () => {
   assert.ok(theater)
   assert.equal(theater.ini.tiles.length, 798)
   assert.ok(theater.loadTile(0), '首块 Clear 应当有图形')
+})
+
+/** 地貌线任务 2：崖集解析的最小剧场 INI 文本（windows-1252）。 */
+function theaterIniBytes(general: ReadonlyArray<readonly [string, string]>): Uint8Array {
+  const lines = ['[General]', ...general.map(([k, v]) => `${k}=${v}`), '[TileSet0000]', 'SetName=Clear', 'FileName=Clear', 'TilesInSet=1']
+  return new TextEncoder().encode(lines.join('\r\n'))
+}
+
+test('崖集解析：三键齐全时给出三个档位的集合号', () => {
+  const ini = readTheaterIni(
+    theaterIniBytes([
+      ['CliffSet', '10'],
+      ['WaterCliffs', '15'],
+      ['DestroyableCliffs', '61'],
+    ]),
+  )
+  const sets = cliffSetIndexesOf(ini)
+  assert.equal(sets.get('cliff'), 10)
+  assert.equal(sets.get('waterCliff'), 15)
+  assert.equal(sets.get('destroyableCliff'), 61)
+})
+
+test('崖集解析：缺键不抛错，该档缺席（MOD 剧场可能没有）', () => {
+  const ini = readTheaterIni(theaterIniBytes([['CliffSet', '10']]))
+  const sets = cliffSetIndexesOf(ini)
+  assert.equal(sets.get('cliff'), 10)
+  assert.equal(sets.get('waterCliff'), undefined)
+  assert.equal(sets.get('destroyableCliff'), undefined)
+})
+
+test('崖集解析：键值不是数字时按缺席处理，不猜', () => {
+  const ini = readTheaterIni(theaterIniBytes([['CliffSet', 'abc'], ['WaterCliffs', '15']]))
+  const sets = cliffSetIndexesOf(ini)
+  assert.equal(sets.get('cliff'), undefined)
+  assert.equal(sets.get('waterCliff'), 15)
+})
+
+test('isCliffSetTile：地块号落在崖集里给出档位，越界/非崖集为 undefined', () => {
+  const ini = theaterIniBytes([
+    ['CliffSet', '0'],
+    ['WaterCliffs', '15'],
+  ])
+  const local = buildMix([{ name: 'snow.ini', data: ini }])
+  const root = buildMix([{ name: 'local.mix', data: local }])
+  const theater = openTheater(root, 'snow')
+  assert.ok(theater, '合成档案应能打开剧场')
+  assert.equal(theater.isCliffSetTile(0), 'cliff')
+  assert.equal(theater.isCliffSetTile(999), undefined)
 })
