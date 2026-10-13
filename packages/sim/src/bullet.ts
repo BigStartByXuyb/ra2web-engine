@@ -78,3 +78,44 @@ export function solveArcAngleRomTranscription(
   const theta = Math.atan(Math.sqrt(root) / p2)
   return Number.isFinite(theta) ? theta : null
 }
+
+/** 16 位角 → 弧度换算（原版 _DAT_0079b620 = −9.587672516830327e-05，负号=顺时针约定）。 */
+export const ANGLE16_TO_RADIANS = -9.587672516830327e-05
+
+/**
+ * 弹道散布：按 BallisticScatter 随机偏移落点（**原版口径，fn-6ca890:191-234 解码**）。
+ *
+ * 原版机制（分支 B，随距离加权）：
+ * - 偏移半径 `r = RNG(0, BallisticScatter) × 距离 / 射程`（**越远越不准**，ptol 取整）；
+ * - 随机角 `θ = (RNG(0, 0x7ffffffe) − 0x3fff) × |0x79b620|`（16 位角中心化 → 弧度）；
+ * - 落点 = 目标点 + r·(cosθ, sinθ)（fn-6ca890 尾部的分量合成）。
+ * 相关门控（原版 fn-6ca890:191-194）：`BulletType+0x272`（可散布标志）且 `+0x26b`，
+ * 且（`+0x273 == 0` 或 `+0x26e != 0`）——**精确分流条件与分支 A（`RNG(scatter/2,scatter)`
+ * 变体）的适用语义待核（record_unknown）**；本函数落分支 B。
+ *
+ * `rand` 为注入的 [0,1) 确定性随机源（world.rng 惯例，禁 Math.random 照 sim 规范）。
+ * 三角函数用 Math（**原版走 500 项 sin 查表，步长 0.125 rad，表值=ftol(sin)——本项目
+ * 自定直算，潜在末位差异已标注**）。
+ *
+ * @param targetX 目标点 X（lepton）
+ * @param targetY 目标点 Y（lepton）
+ * @param dist 发射点到目标的 3D 距离
+ * @param range 当前武器射程（原版虚 +0x154）
+ * @param ballisticScatter rules+0x139c（BallisticScatter，int）
+ */
+export function scatterShot(
+  targetX: number,
+  targetY: number,
+  dist: number,
+  range: number,
+  ballisticScatter: number,
+  rand: () => number,
+): { readonly x: number; readonly y: number } {
+  if (ballisticScatter <= 0 || range <= 0) return { x: targetX, y: targetY }
+  const r = Math.trunc((rand() * ballisticScatter * dist) / range)
+  const theta = (rand() * 2 - 1) * Math.PI // 中心化 [−π, π)
+  return {
+    x: targetX + Math.trunc(r * Math.cos(theta)),
+    y: targetY + Math.trunc(r * Math.sin(theta)),
+  }
+}

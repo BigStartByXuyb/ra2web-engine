@@ -1082,3 +1082,18 @@ special_2(0x7d3974)。特判 +0xc0/+0xd0 即 Verses[4]=medium、Verses[6]=wood�
 
 sim 落地对照（packages/sim）：`combat.ts`（Verses/射程/爆炸承载）、`bullet.ts`（抛射角
 双解，标准式建模=自定，原版参数化 record_unknown）。**tick 集成等合龙窗口**（总工排期）。
+
+### 散布真相勘误（2026-10-13 深夜，终十三）
+
+- **"散布表"翻案**：构造器烧制的 300×300 表实为**整数平方根查找表**（`T[i][j]=⌊√(i²+j²)⌋`，
+  isqrt 性能优化）+ 500 项 sin 表（步长 **0.125 rad**）+ 相位偏移表（110,+8 步进）——
+  **是通用查表工具，不是散布半径表**；已知使用者含**颜色调制**（fn-7219c0：5:6:5 通道按
+  `[0x852fbc..0x852fcc]` 移位量重打包 + sin 明暗相位）——表被渲染族复用。
+- **真散布 = BallisticScatter（rules+0x139c，int，2026-10-13 静态解码核名）+ 随机偏移**，
+  机制在 fn-6ca890:191-234 完全解码：
+  - 门控：`BulletType+0x272/0x26b/0x273/0x26e` 四 flag（精确分流与分支 A 语义 record_unknown）；
+  - **分支 B（已落 sim）**：偏移半径 `r = RNG(0,scatter) × 距离 / 射程`（越远越不准）+ 随机角
+    `θ = (RNG(0,0x7ffffffe) − 0x3fff) × |_DAT_0079b620|`（16 位角中心化，常量
+    −9.587672516830327e-05，负号=顺时针）→ 落点 = 目标 + r·(cosθ, sinθ)；
+  - 分支 A：`RNG(scatter/2, scatter)` 变体（适用语义待核）。
+- sim 落地：`bullet.ts scatterShot`（RNG 注入保确定性；三角函数直算=自定，原版走 sin 查表）。

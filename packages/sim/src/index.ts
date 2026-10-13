@@ -54,4 +54,10 @@ export type { Shroud } from './shroud.js'
 export { hashWorld } from './hash.js'
 export { LEPTONS_PER_CELL, TICKS_PER_SECOND, speedToMovementPerTick } from './movement-scale.js'
 export { applyVerses, canDamage, versesMultiplier, VERSES_COUNT } from './combat.js'
-export { ARC_FIXED_ANGLE, solveArcAngle, solveArcAngleRomTranscription } from './bullet.js'
+export {
+  ANGLE16_TO_RADIANS,
+  ARC_FIXED_ANGLE,
+  scatterShot,
+  solveArcAngle,
+  solveArcAngleRomTranscription,
+} from './bullet.js'

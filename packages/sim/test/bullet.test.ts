@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  ANGLE16_TO_RADIANS,
   ARC_FIXED_ANGLE,
+  scatterShot,
   solveArcAngle,
   solveArcAngleRomTranscription,
 } from '../src/bullet.js'
@@ -56,4 +58,35 @@ test('ROM 转写形态：零距离/退化返回 null，不抛异常（防御为�
   assert.equal(solveArcAngleRomTranscription(0, 0, -10, 50, true), null)
   assert.equal(solveArcAngleRomTranscription(1000, 0, -10, 50, true), null) // h=0 → denom 防御
   assert.equal(solveArcAngleRomTranscription(1, 1, 0.1, 1, false), ARC_FIXED_ANGLE)
+})
+
+// ---- 散布（fn-6ca890 分支 B 口径）----
+
+function seqRng(values: number[]): () => number {
+  let i = 0
+  return () => values[i++ % values.length]!
+}
+
+test('散布：scatter=0 或 range=0 不偏移（防御，本项目自定）', () => {
+  assert.deepEqual(scatterShot(1000, 2000, 500, 800, 0, seqRng([0.5, 0.5])), { x: 1000, y: 2000 })
+  assert.deepEqual(scatterShot(1000, 2000, 500, 0, 50, seqRng([0.5, 0.5])), { x: 1000, y: 2000 })
+})
+
+test('散布半径随距离线性（r = RNG(0,scatter)×dist/range）', () => {
+  // rand 序列 [半径比 1.0, 角度中心 0.5 → θ=0] → 偏移 = (scatter×dist/range, 0)
+  const near = scatterShot(0, 0, 100, 400, 400, seqRng([1.0, 0.5]))
+  const far = scatterShot(0, 0, 400, 400, 400, seqRng([1.0, 0.5]))
+  assert.deepEqual(near, { x: 100, y: 0 })
+  assert.deepEqual(far, { x: 400, y: 0 })
+})
+
+test('散布角：θ=−π 与 θ=+π 落点重合于 −x 方向（中心化范围）', () => {
+  const negPi = scatterShot(0, 0, 100, 100, 100, seqRng([1.0, 0.0]))
+  const posPi = scatterShot(0, 0, 100, 100, 100, seqRng([1.0, 1.0]))
+  assert.equal(negPi.x, posPi.x)
+  assert.equal(negPi.y, posPi.y)
+})
+
+test('16 位角换算常量 = 原版字节值（负号=顺时针约定）', () => {
+  assert.equal(ANGLE16_TO_RADIANS, -9.587672516830327e-05)
 })
