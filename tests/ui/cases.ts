@@ -374,6 +374,21 @@ export const cases: readonly UiCase[] = [
     },
   },
   {
+    name: 'phase-3 帧：FXAA 抗锯齿（开/关两帧 + 上屏判定 + 确定性）',
+    async run(session) {
+      const scene = 'mix=/pack/RA2.MIX&map=/pack/MULTI.MIX&index=57&battle=1&renderer=webgl&anim=0'
+      const base = `${scene}&units3d=1&terrain3d=1&pipeline=1&tonemap=1`
+      const on = await session.capture({ name: 'phase-3-aa-on', query: `${base}&fxaa=1` })
+      const off = await session.capture({ name: 'phase-3-aa-off', query: `${base}&fxaa=0` })
+      const diff = diffImages(on, off)
+      assert.ok(diff.changed >= 1500, `FXAA 开/关只差 ${diff.changed} 像素，等于没上屏`)
+      const repeat = await session.capture({ name: 'phase-3-aa-on-repeat', query: `${base}&fxaa=1` })
+      const repeatDiff = diffImages(on, repeat)
+      assert.equal(repeatDiff.changed, 0, `FXAA 两次运行差 ${repeatDiff.changed} 像素（必须确定性）`)
+      return `FXAA 改变 ${diff.changed} 像素（边缘区），确定性 0 像素差`
+    },
+  },
+  {
     name: '雨夜后处理作用在整幅画面上',
     async run(session) {
       const glWet = await session.capture({

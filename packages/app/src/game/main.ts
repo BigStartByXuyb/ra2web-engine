@@ -25,6 +25,7 @@ import { openStructureLayer } from './structure-layer.js'
 import { openTileLayer } from './tile-layer.js'
 import { loadHdTiles } from './hd-tiles.js'
 import { pickUnit } from './picking.js'
+import { FXAA_FRAGMENT } from './fxaa.js'
 import { createRenderPipeline } from './render-pipeline.js'
 import { TONEMAP_DEFAULTS, TONEMAP_FRAGMENT } from './tonemap.js'
 import { createGlTileLayer, type GlTileLayer } from './webgl-tile-layer.js'
@@ -705,13 +706,30 @@ if (new URLSearchParams(location.search).get('renderer') === 'webgl') {
 if (glTiles && new URLSearchParams(location.search).get('pipeline') === '1') {
   const params = new URLSearchParams(location.search)
   const exposure = Number(params.get('exposure'))
+  const fxaaOn = params.get('fxaa') !== '0'
   const pipeline = createRenderPipeline(glTiles.gl, 2, { width: canvas.width, height: canvas.height }, 1)
   if (pipeline) {
     glTiles.setPipeline(pipeline, {
-      fragment: TONEMAP_FRAGMENT,
-      uniforms: {
-        u_exposure: Number.isFinite(exposure) && exposure > 0 ? exposure : TONEMAP_DEFAULTS.exposure,
-        u_tonemapOn: params.get('tonemap') === '0' ? 0 : 1,
+      // 任务 3：FXAA pass（离屏模式无画布 MSAA，FXAA 补位）；texelSize 惰性求值随 resize 自适应
+      passes: fxaaOn
+        ? [
+            {
+              fragment: FXAA_FRAGMENT,
+              uniforms: {
+                u_texelSize: () => [1 / Math.max(1, canvas.width), 1 / Math.max(1, canvas.height)],
+              },
+              from: 0,
+              to: 1,
+            },
+          ]
+        : [],
+      compositeFrom: fxaaOn ? 1 : 0,
+      composite: {
+        fragment: TONEMAP_FRAGMENT,
+        uniforms: {
+          u_exposure: Number.isFinite(exposure) && exposure > 0 ? exposure : TONEMAP_DEFAULTS.exposure,
+          u_tonemapOn: params.get('tonemap') === '0' ? 0 : 1,
+        },
       },
     })
   }

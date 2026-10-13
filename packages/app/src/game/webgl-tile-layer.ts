@@ -3,7 +3,7 @@ import type { Camera, CellRange } from './camera.js'
 import { viewScale } from './camera.js'
 import { sortedStructures, structureDepth, structureOrigin, type MapPreview } from './map-preview.js'
 import { WET_REFLECTION } from './post-process.js'
-import type { CompositeSpec, RenderPipeline } from './render-pipeline.js'
+import type { CompositeSpec, PipelinePass, RenderPipeline } from './render-pipeline.js'
 import { createUnit3dModel, createUnit3dRenderer, type Unit3dModel } from './webgl-unit3d.js'
 import { animatedTileIndex } from './water-animation.js'
 
@@ -41,10 +41,18 @@ export interface GlTileLayer {
   unit3d(typeId: string): Unit3dModel | undefined
   /**
    * 渲染现代化管线（渲染线任务 2，接缝经总工批准）：设置后本层场景绘进离屏 RT、
-   * 帧末用 `composite` 描述合成回画布（色调映射等挂这里）；缺省 undefined 保持直绘，
-   * 默认路径一个分支不动。可在运行期更换/清除。
+   * 依序跑 `frame.passes`（FXAA 等）、最后按 `frame.composite` 合成回画布（色调映射挂这里）；
+   * 缺省 undefined 保持直绘，默认路径一个分支不动。可在运行期更换/清除。
    */
-  setPipeline(pipeline: RenderPipeline | undefined, composite?: CompositeSpec | undefined): void
+  setPipeline(pipeline: RenderPipeline | undefined, frame?: PipelineFrame | undefined): void
+}
+
+/** 一帧的管线编排（显式 RT 下标，调用方管链序）。 */
+export interface PipelineFrame {
+  readonly passes: readonly PipelinePass[]
+  /** 合成取样自哪张 RT（通常=最后一段 pass 的 to） */
+  readonly compositeFrom: number
+  readonly composite: CompositeSpec
 }
 
 /** 一帧要叠的增强：都不开就是纯原版画面（与 2D 路径逐像素一致）。 */
@@ -460,9 +468,9 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
   const fogVignetteLocation = fogProgram ? gl.getUniformLocation(fogProgram, 'u_vignette') : undefined
   const fogBuffer = fogProgram ? gl.createBuffer() : undefined
   const buffer = gl.createBuffer()
-  /** 渲染现代化管线（任务 2）：非空时 render() 走离屏 + 合成 */
+  /** 渲染现代化管线（任务 2/3）：非空时 render() 走离屏 + pass 链 + 合成 */
   let pipeline: RenderPipeline | undefined
-  let pipelineComposite: CompositeSpec | undefined
+  let pipelineFrame: PipelineFrame | undefined
   const textures = new WeakMap<HTMLCanvasElement, WebGLTexture>()
   /** B 路：单位的实时 3D 模型（按单位类型注册），没有就退回精灵 */
   const unitModels = new Map<string, Unit3dModel>()
@@ -759,9 +767,9 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
   return {
     ready: true,
     gl,
-    setPipeline(next, composite) {
+    setPipeline(next, frame) {
       pipeline = next
-      pipelineComposite = composite
+      pipelineFrame = frame
     },
     resize(width, height) {
       canvas.width = width
@@ -910,7 +918,10 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       if (effects.shadows) drawShadows(camera, grounded)
       drawOrderedObjects(camera, structures, context.units)
       if (effects.fog) drawFog()
-      if (pipeline) pipeline.composite(0, pipelineComposite)
+      if (pipeline && pipelineFrame) {
+        pipeline.runPasses(pipelineFrame.passes)
+        pipeline.composite(pipelineFrame.compositeFrom, pipelineFrame.composite)
+      }
     },
   }
 }

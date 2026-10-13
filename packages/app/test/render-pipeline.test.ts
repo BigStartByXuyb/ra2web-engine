@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { computeRenderTargetSize, createBufferChain, resolvePrecision } from '../src/game/render-pipeline.js'
+import {
+  computeRenderTargetSize,
+  createBufferChain,
+  resolvePrecision,
+  resolveUniformValue,
+} from '../src/game/render-pipeline.js'
 
 test('RT 尺寸：按 pixelRatio 放大 + 下限 1 + 上限截断到 maxTextureSize', () => {
   assert.deepEqual(computeRenderTargetSize({ width: 1600, height: 900 }, 1, 8192), { width: 1600, height: 900 })
@@ -26,4 +31,16 @@ test('精度决策表：WebGL2+half-float 可渲染 → half；任一缺失 → 
   assert.equal(resolvePrecision({ isWebGL2: true, halfFloatRenderable: false }), 'byte')
   assert.equal(resolvePrecision({ isWebGL2: false, halfFloatRenderable: true }), 'byte')
   assert.equal(resolvePrecision({ isWebGL2: false, halfFloatRenderable: false }), 'byte')
+})
+
+test('uniform 惰性求值：数值/数组原样，函数在施加时调用（texelSize 随 resize 自适应用）', () => {
+  assert.deepEqual(resolveUniformValue(1.5), [1.5])
+  assert.deepEqual(resolveUniformValue([0.1, 0.2]), [0.1, 0.2])
+  let calls = 0
+  const lazy = () => {
+    calls++
+    return [1 / 1600, 1 / 900] as const
+  }
+  assert.deepEqual(resolveUniformValue(lazy), [1 / 1600, 1 / 900])
+  assert.equal(calls, 1, '函数值应在求值时调用一次')
 })

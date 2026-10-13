@@ -93,11 +93,25 @@ void main() {
   gl_FragColor = texture2D(u_texture, v_uv);
 }`
 
-/** 自定义合成描述（任务 2：色调映射等直接合成到屏；uniform 值按名施加）。 */
+/** uniform 值：直接量或惰性函数（每帧求值——texelSize 这类随 resize 变化的值用函数）。 */
+export type UniformValue = number | readonly number[] | (() => number | readonly number[])
+
+/** 惰性 uniform 求值（任务 3 抽出的纯逻辑）：函数每次调用求值一次。 */
+export function resolveUniformValue(value: UniformValue): readonly number[] {
+  const resolved = typeof value === 'function' ? value() : value
+  return typeof resolved === 'number' ? [resolved] : resolved
+}
+
+/** 自定义合成/pass 描述（uniform 值按名施加）。 */
 export interface CompositeSpec {
   readonly fragment: string
-  /** uniform 名 → 值：number=1f、长度 2/3/4 的数组=2f/3f/4f */
-  readonly uniforms?: Readonly<Record<string, number | readonly number[]>>
+  readonly uniforms?: Readonly<Record<string, UniformValue>>
+}
+
+/** 链上显式 pass：从 from RT 取样、画进 to RT（调用方自己管下标，ping-pong 可选）。 */
+export interface PipelinePass extends CompositeSpec {
+  readonly from: number
+  readonly to: number
 }
 
 export interface RenderPipeline {
@@ -110,6 +124,8 @@ export interface RenderPipeline {
   drawFullscreen(fragmentSource: string, sourceTextureIndex: number, targetIndex: number): void
   /** 把链上某张 RT 画回画布后端缓冲（含视口重置）；给了 spec 则用自定义着色器合成（任务 2 起）。 */
   composite(textureIndex: number, spec?: CompositeSpec): void
+  /** 依序跑帧内 pass（任务 3 起：FXAA 等挂这里），每项显式指定 from/to RT。 */
+  runPasses(passes: readonly PipelinePass[]): void
   /** 建链时得到的 pass 数（RT 张数） */
   readonly length: number
   /** 取第 i 张 RT 的纹理（接线方把场景画进它 / 交给下一个 pass） */
@@ -213,6 +229,20 @@ export function createRenderPipeline(
     return entry
   }
 
+  const applyUniforms = (entry: PassProgram, uniforms: Readonly<Record<string, UniformValue>> | undefined): void => {
+    if (!uniforms) return
+    for (const [name, value] of Object.entries(uniforms)) {
+      if (!entry.uniforms.has(name)) entry.uniforms.set(name, gl.getUniformLocation(entry.program, name))
+      const location = entry.uniforms.get(name) ?? null
+      if (location === null) continue
+      const resolved = resolveUniformValue(value)
+      if (resolved.length === 1) gl.uniform1f(location, resolved[0]!)
+      else if (resolved.length === 2) gl.uniform2f(location, resolved[0]!, resolved[1]!)
+      else if (resolved.length === 3) gl.uniform3f(location, resolved[0]!, resolved[1]!, resolved[2]!)
+      else if (resolved.length === 4) gl.uniform4f(location, resolved[0]!, resolved[1]!, resolved[2]!, resolved[3]!)
+    }
+  }
+
   const drawQuad = (entry: PassProgram, source: WebGLTexture): void => {
     gl.useProgram(entry.program)
     gl.activeTexture(gl.TEXTURE0)
@@ -261,19 +291,24 @@ export function createRenderPipeline(
       gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight)
       gl.disable(gl.BLEND)
       gl.useProgram(entry.program)
-      if (spec?.uniforms) {
-        for (const [name, value] of Object.entries(spec.uniforms)) {
-          if (!entry.uniforms.has(name)) entry.uniforms.set(name, gl.getUniformLocation(entry.program, name))
-          const location = entry.uniforms.get(name) ?? null
-          if (location === null) continue
-          if (typeof value === 'number') gl.uniform1f(location, value)
-          else if (value.length === 2) gl.uniform2f(location, value[0]!, value[1]!)
-          else if (value.length === 3) gl.uniform3f(location, value[0]!, value[1]!, value[2]!)
-          else if (value.length === 4) gl.uniform4f(location, value[0]!, value[1]!, value[2]!, value[3]!)
-        }
-      }
+      applyUniforms(entry, spec?.uniforms)
       drawQuad(entry, source)
       gl.enable(gl.BLEND)
+    },
+    runPasses(passes) {
+      for (const pass of passes) {
+        const entry = programFor(pass.fragment)
+        const source = targets[pass.from]?.texture
+        const target = targets[pass.to]
+        if (!entry || !source || !target) continue
+        gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer)
+        gl.viewport(0, 0, size.width, size.height)
+        gl.disable(gl.BLEND)
+        gl.useProgram(entry.program)
+        applyUniforms(entry, pass.uniforms)
+        drawQuad(entry, source)
+        gl.enable(gl.BLEND)
+      }
     },
     resize(canvasWidth, canvasHeight) {
       const next = computeRenderTargetSize({ width: canvasWidth, height: canvasHeight }, pixelRatio, maxTextureSize)
