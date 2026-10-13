@@ -80,7 +80,7 @@ test('上限比较含等号（本项目自定口径，原版相等分支未逐�
 
 // ---- 爆炸承载（fn-421710/fn-70e470）----
 
-test('DamageRadius=0 的爆炸动画不造成伤害（fn-421710 的 !=0 门控）', () => {
+test('DamageRadius=0 的爆炸动画不造成伤害（本项目自定口径，原版运行时门控为 ExpireAnim!=0，见 combat.ts 注释）', () => {
   const an = { verses: FULL_ONES, damageRadius: 0 }
   assert.equal(hasDamage(an), false)
   assert.deepEqual(applyExplosion(an, 100, [{ armorIndex: 5 }]), [100])

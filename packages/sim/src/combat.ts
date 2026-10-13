@@ -94,24 +94,34 @@ export function isInRange(
 /**
  * 爆炸承载（Anim 系统，阶段 3）。
  *
- * 原版证据（fn-421710.c AnimClass::AI 爆炸分支 + fn-70e470.c AnimTypeClass::Read_INI）：
- * - **AnimType+0x2c8 ← Warhead=**（按名 → WarheadType\*，Warhead 真身）；
- * - **AnimType+0x2c4 ← DamageRadius（int）**；爆炸分支门控 = `DamageRadius != 0`
- *   （0x4219fc-0x421a04 TEST/JZ，与 Read_INI 双源印证）；
- * - 引爆走 FUN_0047e2c0（AoE：CellSpread 半径收集目标 → 逐目标伤害）。
+ * 原版证据（fn-4258d3.c = AnimTypeClass 键解析段 + fn-421710.c AnimClass::AI 爆炸分支，
+ * 双源印证）：
+ * - **AnimType+0x2f0 ← Warhead=**（按名 → WarheadType\*）；**+0x2f4 ← DamageRadius（int）**；
+ *   **+0x270 ← Damage（double）**（fn-4258d3:30-32/214-221）；
+ * - 爆炸分支门控 = `AnimType+0x2c4（ExpireAnim 指针）!= 0` → 到期时生成 ExpireAnim
+ *   子动画（0x4219fc-0x421a04 TEST/JZ + 0x420110 工厂传 +0x2c4，fn-4258d3:161-186 键证实）；
+ * - 引爆走 FUN_0047e2c0（AoE：CellSpread 半径收集目标 → 逐目标伤害），运行时压栈的
+ *   warhead 即 `[Anim+0xb0]+0x2f0`（0x421a90 汇编铁证）。
  * 伤害计算 = 本模块 `applyVerses`（Warhead 的 Verses 表 × 基础伤害）。
  * **距离衰减（fn-47e1c0）与 CellSpread 半径筛选的精确口径归阶段 4**，未落。
  */
 
-/** 爆炸动画承载的伤害三件套（AnimType 字段的 sim 投影）。 */
+/** 爆炸动画承载的伤害三件套（AnimType 字段的 sim 投影：Warhead+0x2f0 / DamageRadius+0x2f4 / Damage+0x270）。 */
 export interface ExplosionAnim {
   /** Warhead 的 Verses 表（WarheadType+0xa0，11 项） */
   readonly verses: readonly number[]
-  /** AnimType+0x2c4；0 = 该动画不造成伤害 */
+  /** AnimType+0x2f4；0 = 该动画不造成伤害 */
   readonly damageRadius: number
 }
 
-/** 该爆炸动画是否造成伤害（fn-421710 的 DamageRadius != 0 门控）。 */
+/**
+ * 该爆炸动画是否造成伤害。
+ *
+ * 本项目自定口径：`DamageRadius（+0x2f4）!= 0` 视为可造成伤害。原版已核的运行时门控
+ * 是"ExpireAnim 指针非空才生成爆炸子动画"（fn-421710）与"warhead 为空则 0x47e2c0
+ * 直接返回"（fn-47e2c0:83）；**DamageRadius 的运行时用途尚未取到**（record_unknown），
+ * 本判定待阶段 4 校准。
+ */
 export function hasDamage(an: ExplosionAnim): boolean {
   return an.damageRadius !== 0
 }
