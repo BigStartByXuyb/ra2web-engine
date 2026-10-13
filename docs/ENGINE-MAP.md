@@ -986,3 +986,11 @@ special_2(0x7d3974)。特判 +0xc0/+0xd0 即 Verses[4]=medium、Verses[6]=wood�
   （medium/rendering）。闭合探针：定位战术显示地块绘制循环或单位精灵落屏例程，读其 z 折算式。
   证据：`work/decompiled/ra2-engine/zstep-lepton-to-pixel.md`。引擎线后续的坡度俯仰渲染若需此值，
   先查该台账是否已闭合。
+
+### 开火判定链（2026-10-13 战斗线续，证据 work/decompiled/ra2-engine/fn-*.c + combat-fireloop-notes.md）
+
+- **TechnoClass vtable = 0x79cbbc**（What_Am_I 槽11 = `mov eax,6; ret` @0x453c40，即 **What_Am_I==6 ⇔ Techno**）；**虚槽 231（+0x39C）= Get_Weapon(index) → 0x44d980**（精英优先，内部走 0x6d8540/0x6df5c0/0x6df5e0）；**虚槽 233（+0x3A0）= Has_Turret → 0x44d9d0**（Type+0xaab 或实例炮塔数组逐项判定）。
+- **TechnoClass 实例新字段**：+0x1060 = TechnoType\*、+0x1300 = Turret 数组（每项一指针）、+0x1718 = 炮塔数（byte）、+0x228 = 目标对象指针（0x6d7d20 用）。
+- **射程判定 = 0x6c4bb0**（In_Range：`Range==−512` 哨兵直通；目标在空中 → Range += **TechnoType+0x5b4 射程加成**；`MinRange(+0xb8) > 3D 欧氏距离 → false`；3D 距离 dx²+dy²+dz²）。
+- **弹道视线**：0x47f8b0（包装）+ 0x47f9b0（核心）——可直击判定 + 命中方向角（16 位角）输出；rules+0x1320（int）参与换算，键名待核。
+- **开火链全貌**：Get_Weapon → 0x6c4bb0 射程 → 虚+0x1d8 视线 → Has_Turret → 发射。**发射本体（Bullet 构造调用点）未定位**（0x463990 已证伪为音效 CoCreateInstance）——下轮从 0x6c4xxx/0x6c5xxx 开火方法群或 BulletClass ctor 正面攻。
