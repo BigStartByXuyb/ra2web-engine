@@ -1,0 +1,201 @@
+import {
+  landTypeOfTerrainType,
+  loadTheaterPalette,
+  openTheater,
+  type LandTypeName,
+  type TheaterAssets,
+} from '@ra2web/assets'
+import type { Camera } from './camera.js'
+import { viewScale } from './camera.js'
+import type { MapCell, MapPreview } from './map-preview.js'
+import { buildTerrain3dGeometry, type Terrain3dVertexData } from './terrain3d-geometry.js'
+import { sampleTerrainMaterials, type MaterialSampleInput } from './terrain3d-materials.js'
+import { TERRAIN_Z_STEP_PX } from './terrain3d-zstep.js'
+
+/**
+ * 地貌线任务 1：terrain3d 的 GL 渲染层 —— 程序化 PBR 地形（本项目自定观感）。
+ *
+ * 场景工厂把"剧场采样 + 几何构建"封在**首次装载**里（WeakMap 按地图缓存，同图复用），
+ * 每帧只剩一次 useProgram + drawArrays。投影与 `webgl-unit3d.ts` 同一套仿射
+ * （screenX = x − y、screenY = (x + y)/2 − z），三条渲染路不跳位。
+ */
+
+export interface Terrain3dScene {
+  render(camera: Camera, viewportWidth: number, viewportHeight: number): void
+}
+
+/** 同一张地图只构建一次几何与采样；换图换键，自然重建。 */
+const sceneCache = new WeakMap<MapPreview, Terrain3dScene>()
+
+export function createTerrain3dScene(
+  gl: WebGLRenderingContext,
+  preview: MapPreview,
+  archiveBytes: Uint8Array | undefined,
+  theaterName: string | undefined,
+): Terrain3dScene | undefined {
+  const cached = sceneCache.get(preview)
+  if (cached) return cached
+  if (!archiveBytes || !theaterName) return undefined
+  const theater = openTheater(archiveBytes, theaterName)
+  const palette = loadTheaterPalette(archiveBytes, theaterName, 'iso')
+  if (!theater || !palette) return undefined
+  const materials = sampleTerrainMaterials(theaterSubTiles(theater), palette)
+  const geometry = buildTerrain3dGeometry(preview, TERRAIN_Z_STEP_PX, (x, y) => landTypeAt(preview, theater, x, y), materials)
+  const render = createTerrain3dRenderer(gl, geometry)
+  if (!render) return undefined
+  const scene: Terrain3dScene = { render }
+  sceneCache.set(preview, scene)
+  return scene
+}
+
+/** 剧场全部子块喂给采样器：遍历全局地块表 → 每个非空子块的 terrainType 与像素索引。 */
+function* theaterSubTiles(theater: TheaterAssets): Iterable<MaterialSampleInput> {
+  for (let index = 0; index < theater.ini.tiles.length; index++) {
+    const tile = theater.loadTile(index)
+    if (!tile) continue
+    for (const sub of tile.subTiles) {
+      if (sub.isEmpty) continue
+      yield { terrainType: sub.terrainType, pixelIndices: sub.pixels }
+    }
+  }
+}
+
+/** 一格的地块类型：缺图/子块越界/未认识编号一律 'Unknown'（走回退档），不猜。 */
+function landTypeAt(
+  preview: MapPreview,
+  theater: TheaterAssets,
+  cellX: number,
+  cellY: number,
+): LandTypeName | 'Unknown' {
+  const cell = preview.cellByIndex.get(cellY * preview.width + cellX)
+  if (!cell) return 'Unknown'
+  const sub = theater.loadTile((cell as MapCell).tileIndex)?.subTiles[(cell as MapCell).subTile]
+  if (!sub) return 'Unknown'
+  return landTypeOfTerrainType(sub.terrainType) ?? 'Unknown'
+}
+
+const VERTEX_SHADER = `
+attribute vec3 a_position;
+attribute vec3 a_normal;
+attribute vec3 a_albedo;
+attribute float a_roughness;
+attribute float a_variance;
+uniform vec2 u_camera;
+uniform float u_scale;
+uniform vec2 u_viewport;
+varying vec3 v_normal;
+varying vec3 v_albedo;
+varying float v_roughness;
+varying float v_variance;
+varying vec2 v_world;
+void main() {
+  // 与 webgl-unit3d.ts 同一套仿射投影：screenX = x − y，screenY = (x + y)/2 − z
+  vec2 world = vec2(a_position.x - a_position.y, (a_position.x + a_position.y) * 0.5 - a_position.z);
+  vec2 pixel = (world - u_camera) * u_scale;
+  gl_Position = vec4(pixel.x / u_viewport.x * 2.0 - 1.0, 1.0 - pixel.y / u_viewport.y * 2.0, 0.0, 1.0);
+  v_normal = a_normal;
+  v_albedo = a_albedo;
+  v_roughness = a_roughness;
+  v_variance = a_variance;
+  v_world = a_position.xy;
+}`
+
+const FRAGMENT_SHADER = `
+precision mediump float;
+uniform vec2 u_noiseSeed;
+varying vec3 v_normal;
+varying vec3 v_albedo;
+varying float v_roughness;
+varying float v_variance;
+varying vec2 v_world;
+float hash(vec2 p) {
+  return fract(sin(dot(p + u_noiseSeed, vec2(127.1, 311.7))) * 43758.5453);
+}
+float valueNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 s = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), s.x),
+             mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), s.x), s.y);
+}
+void main() {
+  // 两个倍频的值噪声把整片同色地面打碎成有颗粒的泥泞/雪层质感（本项目自定）
+  float noise = valueNoise(v_world * 0.05) * 0.65 + valueNoise(v_world * 0.21) * 0.35;
+  vec3 albedo = v_albedo + (noise - 0.5) * 2.0 * v_variance;
+  vec3 normal = normalize(v_normal);
+  vec3 light = normalize(vec3(-0.25, 0.42, 0.87));
+  vec3 view = normalize(vec3(1.0, 1.0, 1.0));
+  float lambert = max(0.0, dot(normal, light));
+  float shine = mix(8.0, 96.0, 1.0 - v_roughness);
+  vec3 halfVector = normalize(light + view);
+  float specular = pow(max(0.0, dot(normal, halfVector)), shine) * (1.0 - v_roughness);
+  vec3 color = albedo * (0.35 + 0.65 * lambert) + vec3(specular * 0.5);
+  gl_FragColor = vec4(color, 1.0);
+}`
+
+function compileShader(gl: WebGLRenderingContext, type: number, source: string): WebGLShader | undefined {
+  const shader = gl.createShader(type)
+  if (!shader) return undefined
+  gl.shaderSource(shader, source)
+  gl.compileShader(shader)
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    console.error('[terrain3d]', gl.getShaderInfoLog(shader))
+    return undefined
+  }
+  return shader
+}
+
+/** 顶点属性步长 44 字节 = pos(3) + normal(3) + albedo(3) + roughness(1) + variance(1) 个 float。 */
+function createTerrain3dRenderer(
+  gl: WebGLRenderingContext,
+  geometry: Terrain3dVertexData,
+): ((camera: Camera, viewportWidth: number, viewportHeight: number) => void) | undefined {
+  const vertex = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER)
+  const fragment = compileShader(gl, gl.FRAGMENT_SHADER, FRAGMENT_SHADER)
+  if (!vertex || !fragment) return undefined
+  const program = gl.createProgram()
+  if (!program) return undefined
+  gl.attachShader(program, vertex)
+  gl.attachShader(program, fragment)
+  gl.linkProgram(program)
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    console.error('[terrain3d]', gl.getProgramInfoLog(program))
+    return undefined
+  }
+  const buffer = gl.createBuffer()
+  if (!buffer) return undefined
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
+  gl.bufferData(gl.ARRAY_BUFFER, geometry.vertices, gl.STATIC_DRAW)
+  const positionLocation = gl.getAttribLocation(program, 'a_position')
+  const normalLocation = gl.getAttribLocation(program, 'a_normal')
+  const albedoLocation = gl.getAttribLocation(program, 'a_albedo')
+  const roughnessLocation = gl.getAttribLocation(program, 'a_roughness')
+  const varianceLocation = gl.getAttribLocation(program, 'a_variance')
+  const cameraLocation = gl.getUniformLocation(program, 'u_camera')
+  const scaleLocation = gl.getUniformLocation(program, 'u_scale')
+  const viewportLocation = gl.getUniformLocation(program, 'u_viewport')
+  const noiseSeedLocation = gl.getUniformLocation(program, 'u_noiseSeed')
+  return (camera, viewportWidth, viewportHeight) => {
+    gl.useProgram(program)
+    gl.uniform2f(cameraLocation, camera.x, camera.y)
+    gl.uniform1f(scaleLocation, viewScale(camera))
+    gl.uniform2f(viewportLocation, viewportWidth, viewportHeight)
+    // 固定种子：两次运行必须逐像素一致（UI 用例红线），不许用时间种子
+    gl.uniform2f(noiseSeedLocation, 0, 0)
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
+    gl.enableVertexAttribArray(positionLocation)
+    gl.vertexAttribPointer(positionLocation, 3, gl.FLOAT, false, 44, 0)
+    gl.enableVertexAttribArray(normalLocation)
+    gl.vertexAttribPointer(normalLocation, 3, gl.FLOAT, false, 44, 12)
+    gl.enableVertexAttribArray(albedoLocation)
+    gl.vertexAttribPointer(albedoLocation, 3, gl.FLOAT, false, 44, 24)
+    gl.enableVertexAttribArray(roughnessLocation)
+    gl.vertexAttribPointer(roughnessLocation, 1, gl.FLOAT, false, 44, 36)
+    gl.enableVertexAttribArray(varianceLocation)
+    gl.vertexAttribPointer(varianceLocation, 1, gl.FLOAT, false, 44, 40)
+    // 地形不透明：关混合整批画；画完恢复 —— 后续倒影/阴影/物体 pass 依赖混合
+    gl.disable(gl.BLEND)
+    gl.drawArrays(gl.TRIANGLES, 0, geometry.vertexCount)
+    gl.enable(gl.BLEND)
+  }
+}

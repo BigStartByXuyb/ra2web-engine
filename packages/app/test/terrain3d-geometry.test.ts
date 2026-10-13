@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { MapCell, MapFile } from '@ra2web/formats'
+import type { LandTypeName } from '@ra2web/assets'
+import type { TerrainMaterial } from '../src/game/terrain3d-materials.js'
 import { buildMapPreview, type MapPreview } from '../src/game/map-preview.js'
 import { buildTerrain3dGeometry, STRIDE } from '../src/game/terrain3d-geometry.js'
 
@@ -60,7 +62,7 @@ test("landTypeAt 返回 'Unknown' 时落回退档（无 NaN）", () => {
 })
 
 test('材质：landTypeAt 给 Water 时顶点带 Water 的 albedo', () => {
-  const materials = new Map([
+  const materials = new Map<LandTypeName, TerrainMaterial>([
     ['Water', { albedo: [0.1, 0.2, 0.3] as const, variance: [0.01, 0.01, 0.01] as const }],
   ])
   const data = buildTerrain3dGeometry(flatMap(1, 1, () => 0), 10, () => 'Water', materials)

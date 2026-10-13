@@ -90,8 +90,10 @@ function materialFor(
 ): { albedo: readonly [number, number, number]; roughness: number; variance: readonly [number, number, number] } {
   const landType = landTypeAt(face.cellX, face.cellY)
   const sampled = (landType !== 'Unknown' ? materials?.get(landType) : undefined) ?? fallbackMaterial()
-  // 崖壁一律 Cliff 档 roughness（任务 2「崖壁与过渡」再细化）；顶面按格类型
-  const style = TERRAIN_PBR_STYLE[face.kind === 'wall' ? 'Cliff' : landType] ?? TERRAIN_PBR_STYLE.Clear
+  // 崖壁一律 Cliff 档 roughness（任务 2「崖壁与过渡」再细化）；顶面按格类型，未认识编号回 Clear
+  const style =
+    (face.kind === 'wall' ? TERRAIN_PBR_STYLE.Cliff : landType !== 'Unknown' ? TERRAIN_PBR_STYLE[landType] : undefined) ??
+    TERRAIN_PBR_STYLE.Clear
   return { albedo: sampled.albedo, roughness: style.roughness, variance: sampled.variance }
 }
 
