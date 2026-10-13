@@ -30,7 +30,7 @@ import { pickUnit } from './picking.js'
 import { FXAA_FRAGMENT } from './fxaa.js'
 import { createContactAoRenderer, type ContactAoRenderer } from './contact-ao.js'
 import { createProjectedShadowRenderer, type ProjectedShadowRenderer } from './projected-shadows.js'
-import { createRenderPipeline } from './render-pipeline.js'
+import { createRenderPipeline, detectPipelineCaps } from './render-pipeline.js'
 import { TONEMAP_DEFAULTS, TONEMAP_FRAGMENT } from './tonemap.js'
 import { createGlTileLayer, type GlTileLayer } from './webgl-tile-layer.js'
 import { createTerrain3dScene, type Terrain3dScene } from './webgl-terrain3d.js'
@@ -814,8 +814,15 @@ if (glTiles && new URLSearchParams(location.search).get('pipeline') === '1') {
   const params = new URLSearchParams(location.search)
   const exposure = Number(params.get('exposure'))
   const fxaaOn = params.get('fxaa') !== '0'
-  const pipeline = createRenderPipeline(glTiles.gl, 2, { width: canvas.width, height: canvas.height }, 1)
-  if (pipeline) {
+  // 优雅降级（总工 2026-10-13 批）：无 WebGL2 或管线初始化失败 → 可见提示 + 回退默认直绘，
+  // 不允许静默黑屏。WebGL1 理论上可跑 RGBA8 链（tools/webgl2-probe.ts 探测全绿），此处按
+  // "现代化开关只对 WebGL2 开放"保守门控，避免未实测路径进入用户可见状态。
+  if (!detectPipelineCaps(glTiles.gl).isWebGL2) {
+    status.textContent = '现代化渲染管线需要 WebGL2：已回退默认直绘路径'
+  } else {
+    const pipeline = createRenderPipeline(glTiles.gl, 2, { width: canvas.width, height: canvas.height }, 1)
+    if (!pipeline) status.textContent = '渲染管线初始化失败：已回退默认直绘路径'
+    if (pipeline) {
     glTiles.setPipeline(pipeline, {
       // 任务 3：FXAA pass（离屏模式无画布 MSAA，FXAA 补位）；texelSize 惰性求值随 resize 自适应
       passes: fxaaOn
@@ -839,6 +846,7 @@ if (glTiles && new URLSearchParams(location.search).get('pipeline') === '1') {
         },
       },
     })
+    }
   }
 }
 shadows = new URLSearchParams(location.search).get('shadows') === '1'

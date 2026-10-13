@@ -37,13 +37,15 @@ import type { Camera } from './camera.js'
 import { viewScale } from './camera.js'
 import type { Unit3dModel } from './webgl-unit3d.js'
 
-/** 一个要投影影子的单位（模型几何只读复用 unit3d 的 VBO）。 */
+/** 投影阴影入口（宽容型）：model 可空，无模型项在 draw 里跳过——
+ *  调用方直接传可见单位的 `GlUnitQuad[]` 即可（其 model 类型为可空）。 */
 export interface ProjectedShadowEntry {
-  readonly model: Unit3dModel
+  readonly model?: Unit3dModel | undefined
   /** 贴地锚点的屏幕世界坐标（与主绘制同一套） */
   readonly worldX: number
   readonly worldY: number
-  readonly facing: number
+  /** 朝向弧度（可空：缺省 0，与 GlUnitQuad 的可选字段对齐） */
+  readonly facing?: number | undefined
 }
 
 export interface ProjectedShadowRenderer {
@@ -120,9 +122,11 @@ export function createProjectedShadowRenderer(
       gl.enable(gl.BLEND)
       gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
       for (const entry of entries) {
+        const model = entry.model
+        if (!model) continue
         gl.uniform2f(originLocation, entry.worldX, entry.worldY)
-        gl.uniform1f(facingLocation, entry.facing)
-        for (const primitive of entry.model.primitives) {
+        gl.uniform1f(facingLocation, entry.facing ?? 0)
+        for (const primitive of model.primitives) {
           gl.bindBuffer(gl.ARRAY_BUFFER, primitive.position)
           gl.enableVertexAttribArray(positionLocation)
           gl.vertexAttribPointer(positionLocation, 3, gl.FLOAT, false, 0, 0)
