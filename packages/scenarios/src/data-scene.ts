@@ -1,4 +1,12 @@
-import { loadRules, parseUnitType, type UnitType } from '@ra2web/rules'
+import {
+  armorIndex,
+  loadRules,
+  parseUnitType,
+  parseWarheadType,
+  parseWeaponType,
+  type RawRules,
+  type UnitType,
+} from '@ra2web/rules'
 import {
   TICKS_PER_SECOND,
   createWorld,
@@ -35,6 +43,27 @@ export function parseFixtureRules(): readonly UnitType[] {
   return ids.map((id) => parseUnitType(rules, id)).filter((unit): unit is UnitType => unit !== undefined)
 }
 
+/**
+ * 从 rules 按单位类型的 Primary 武器名装配 sim 的 UnitWeapon（战斗线阶段 1/3 口径）。
+ * 关键字段（Damage/ROF/Range）缺失视为无武器；Warhead 缺失时 Verses 全 1、CellSpread 0。
+ */
+function weaponOf(rules: RawRules | undefined, type: UnitType): import('@ra2web/sim').UnitWeapon | undefined {
+  if (!rules || !type.primary) return undefined
+  const weapon = parseWeaponType(rules, type.primary)
+  if (!weapon || weapon.damage === undefined || weapon.rof === undefined || weapon.range === undefined) {
+    return undefined
+  }
+  const warhead = weapon.warhead !== undefined ? parseWarheadType(rules, weapon.warhead) : undefined
+  return {
+    range: weapon.range,
+    minRange: weapon.minimumRange ?? 0,
+    rof: weapon.rof,
+    damage: weapon.damage,
+    verses: warhead?.verses ?? Array.from({ length: 11 }, () => 1),
+    cellSpread: warhead?.cellSpread ?? 0,
+  }
+}
+
 export function buildDataDrivenScene(
   unitTypes: readonly UnitType[],
   spawns: readonly UnitSpawn[],
@@ -51,6 +80,10 @@ export function buildDataDrivenScene(
     readonly slopeFactors?: import('@ra2web/sim').SlopeFactors
     /** 上阵血量百分比（1..100）：伤车减速的人工验证入口，缺省满血 */
     readonly spawnHealthPercent?: number
+    /** rules 表：给了就按 `type.primary` 装配武器（战斗线集成）；不给 = 无武器 */
+    readonly rules?: RawRules
+    /** 弹道散布上限（原版 rules+0x139c BallisticScatter）；给了就传进 world */
+    readonly ballisticScatter?: number
     readonly seed: number
   },
 ): DataSceneResult {
@@ -78,10 +111,17 @@ export function buildDataDrivenScene(
       ...(type.sight !== undefined ? { sight: type.sight } : {}),
       // 炮塔独立旋转门控（原版 Type+0xaed TurretSpins）：sim 用它在无战斗目标时决定炮塔是否追随车体
       ...(type.turretSpins ? { turretSpins: true } : {}),
+      // 武器装配（战斗线集成）：Primary → WeaponType（+WarheadType 的 Verses/CellSpread）；
+      // 全部字段来自 rules 解析（阶段 1 取证口径），缺关键字段则视为无武器
+      ...(weaponOf(options.rules, type) !== undefined ? { weapon: weaponOf(options.rules, type)! } : {}),
+      ...(type.armor !== undefined && armorIndex(type.armor) !== undefined
+        ? { armorIndex: armorIndex(type.armor)! }
+        : {}),
     }
   })
   const world = createWorld({
     ...options,
+    ...(options.ballisticScatter !== undefined ? { ballisticScatter: options.ballisticScatter } : {}),
     units,
   } as Parameters<typeof createWorld>[0])
   return { world, unitTypes }

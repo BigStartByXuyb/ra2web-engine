@@ -5,6 +5,18 @@
  * 真实数值走 `npm run vanilla:scene`（从玩家自备的 RA2.MIX 里读 rules.ini）。
  */
 export const FIXTURE_RULES_INI = `
+; 武器与弹头（**合成数值**，与文件头"固定值非原版"同口径；字段名与解析口径照原版）
+[120mm]
+Damage=90
+ROF=60
+Range=5.75
+Projectile=Cannon
+Warhead=AP
+
+[AP]
+Verses=100%,100%,100%,100%,75%,50%,100%,100%,50%,25%,100%
+CellSpread=0.5
+
 [HTNK]
 UIName=Name:HTNK
 Name=Rhino Heavy Tank

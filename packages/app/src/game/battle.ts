@@ -67,6 +67,7 @@ export function createBattle(archiveBytes: Uint8Array, options: BattleOptions): 
     ...(options.terrainSpeed ? { terrainSpeed: options.terrainSpeed } : {}),
     ...(options.heights ? { heights: options.heights } : {}),
     slopeFactors: slopeFactorsOf(rules),
+    rules,
     ...(options.spawnHealthPercent !== undefined ? { spawnHealthPercent: options.spawnHealthPercent } : {}),
     ...(conditionYellow !== undefined ? { crippled: { threshold: conditionYellow, factor: CRIPPLED_FACTOR } } : {}),
     seed: options.seed,
