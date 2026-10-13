@@ -978,47 +978,26 @@ special_2(0x7d3974)。特判 +0xc0/+0xd0 即 Verses[4]=medium、Verses[6]=wood�
   （FacingClass 插值，车体 @+0x2e0）；即"没有瞄准函数介入时炮塔不独立转"。战斗线闭环后换精确追踪口径。
 - **开火循环拉扳机函数仍未定位**（证据工作笔记 combat-fireloop-notes.md「2026-10-13 补充」节：已核事实/已证伪/下一步三段）。弹药实例化与命中判定按队列归阶段 3/4。
 
-## 地貌线：一级高度折像素（试算值待核，2026-10-13）
+## 地貌线：一级高度折像素（已判定，2026-10-13）
 
-- **结论（未闭合）**：zStep（"格子 x/y/z → 屏幕坐标"里 z 折屏幕像素的系数）**仍是未定项**。
-  已证的否定性事实：① `0x8529d0`（=90 lepton/级）的 18 处引用全在初始化块与移动引擎
-  （FUN_004a1000 / FUN_004a2670），**显示侧不读它**——90 是 sim 侧"级→lepton"量子；
-  ② `.text` 对浮点 30/256、60/256、15/256 **零引用**（全节区字节扫描 + 绝对寻址扫描，
-  工具 `work/decompiled/scan-float.ps1`，本项目自定）；`.rdata` 的两处字节重叠
-  （`0x7b3dfa`、`0x7a5dd4`）经字节上下文核对属指针数据巧合，Ghidra 引用表记 0 条。
-  ③ 因此上文「一级折多少像素」的 10.547 px（=90×30/256）候选是**外部推导口径**，
-  引擎里没有可指认的常量；整数运算（`(z×30)>>8`，同值 10.547）或查表两种形态都需读到
-  显示例程才能闭合。
-- **地貌线 terrain3d 暂用试算值 10.547 px/级**（`packages/app/src/game/terrain3d-zstep.ts`，
-  注明"试算值待核"），台账 `unk_3a77f19a21db32fd217ecd87d06ed70f806e54b51e0918ccbdf3b5055127b84c`
-  （medium/rendering）。闭合探针：定位战术显示地块绘制循环或单位精灵落屏例程，读其 z 折算式。
-  证据：`work/decompiled/ra2-engine/zstep-lepton-to-pixel.md`。引擎线后续的坡度俯仰渲染若需此值，
-  先查该台账是否已闭合。
-
-### 开火判定链（2026-10-13 战斗线续，证据 work/decompiled/ra2-engine/fn-*.c + combat-fireloop-notes.md）
-
-- **TechnoClass vtable = 0x79cbbc**（What_Am_I 槽11 = `mov eax,6; ret` @0x453c40，即 **What_Am_I==6 ⇔ Techno**）；**虚槽 231（+0x39C）= Get_Weapon(index) → 0x44d980**（精英优先，内部走 0x6d8540/0x6df5c0/0x6df5e0）；**虚槽 233（+0x3A0）= Has_Turret → 0x44d9d0**（Type+0xaab 或实例炮塔数组逐项判定）。
-- **TechnoClass 实例新字段**：+0x1060 = TechnoType\*、+0x1300 = Turret 数组（每项一指针）、+0x1718 = 炮塔数（byte）、+0x228 = 目标对象指针（0x6d7d20 用）。
-- **射程判定 = 0x6c4bb0**（In_Range：`Range==−512` 哨兵直通；目标在空中 → Range += **TechnoType+0x5b4 射程加成**；`MinRange(+0xb8) > 3D 欧氏距离 → false`；3D 距离 dx²+dy²+dz²）。
-- **弹道视线**：0x47f8b0（包装）+ 0x47f9b0（核心）——可直击判定 + 命中方向角（16 位角）输出；rules+0x1320 = **Gravity**（弹道下坠参数，2026-10-13 静态解码核名，提交见 notes 终十）。
-- **开火链全貌**：Get_Weapon → 0x6c4bb0 射程 → 虚+0x1d8 视线 → Has_Turret → 发射。**发射本体（Bullet 构造调用点）未定位**（0x463990 已证伪为音效 CoCreateInstance）——下轮从 0x6c4xxx/0x6c5xxx 开火方法群或 BulletClass ctor 正面攻。
-
-### 目标选择/开火前置判定（2026-10-13 战斗线续，证据 work/decompiled/ra2-engine/fn-*.c）
-
-- **散布内判定 0x6c4f60**（漏识别已建函数）：经虚槽 229（+0x394）取 warhead，`CellSpread(0x124) − Warhead+0x128(float，内圈扣除，键名待核)` 与目标格心水平距离比较。
-- **Can_Hit 包装器 0x6c50a0**：Get_Weapon（虚+0x39C）→ `weapon+0x110` 标志（取目标所在格修正）→ 虚+0x54（在空判定）→ In_Range(0x6c4bb0)。
-- **Should_Target 目标有效性评估 0x6c5570**（2998B，调用者 0x6c6130/0x6c6530 = Find_Target 家族）：隐身（obj+0x76）、血量（obj+0x1b）、`type+0x5dc`、`rules+0x1360`（键名=**AllyReveal** int 对，double 读法待重核）、潜地（obj+0x32d）等十余个否决条件后按 Verses 有效性（fn-6c1380 同款）过筛。
-- **开火前走位搜索 0x4c4c30**（3.3KB；总工已记 sim 需求清单，可后置阶段 4）：双层枚举 0x7d8178~0x7d81dc 炮位偏移表 × 0x851a70 八方向，每候选 `Get_Weapon → In_Range → 0x478760(移动分区检查) → 0x42aa30(寻路长度 ≤ 射程+8)` 选定炮位，尾部虚+0x370/+0x410 下移动指令——"走位再打"手感的原版来源。
-
-### 爆炸伤害载体 = Anim 系统（2026-10-13 战斗线，假设①验证成立 + 键名清扫①）
-
-- **AnimTypeClass::Read_INI = FUN_0070e470**（fn-70e470.c；定位法：`Warhead\0` 键串 0x7ced5c → scan-ptr → 0x70e839）。键表（bool=0x50f410 / int=0x50d7f0 / double=0x50e3a0 / 按名=0x50e9a0+0x720f30）：
-  - _*+0x2c8 ← Warhead=（按名 → WarheadType*，Warhead 真身）_*
-  - **+0x2c4 ← DamageRadius（int）**
-  - +0x2cc ← AttachedSystem（按名）；+0x264 ← Normalized、+0x265 ← Translucent（+0x266 三 flag 合一）；+0x2d0 ← IsTiberium、+0x2a0 ← IsMeteor；+0x270 ← Elasticity(double)；+0xb0/+0xb4 ← 语音对象（new 0x1c）
-- **AnimClass::AI 爆炸分支 = FUN_00421710**（fn-421710.c）：`AnimType.DamageRadius != 0` → 爆炸；水面（cell+0xec==2）走 rules+0x9c 溅水动画；空中门控 `FUN_0055a280()+DAT_0084c6f8 ≤ z`。
-- **勘误链**：①"+0x2f0=WarheadType*"作废（fn-421710 fastcall 寄存器混淆），Warhead 真身 = +0x2c8（Read_INI 铁证），+0x2f0 语义 record_unknown（需汇编对齐 0x47e2c0 实参）；②"+0x2c4=连锁爆炸 Anim"作废，实为 DamageRadius；③fn-461de0 的 +0x264 按 Read_INI 重对 = Normalized bool（"循环引爆×N"存疑）。独立 Bullet 类无证据，弹道飞行机制阶段 3 内继续核。
-- 阶段 3 实现面：**Anim 承载伤害（AnimType{Warhead+0x2c8, DamageRadius+0x2c4, Damage 待核} → 0x47e2c0 AoE）**；instant 类全链（判定→施加→引爆）证据已齐。
+- **结论：zStep = 10.546875 px/级**（一级 = 90 lepton × 30px/256lepton）。原二分候选的
+  **12.245 px（104.5 口径）已排除**——104.5（=128·cos45°/cos30°）是参考实现把 64√2 连续化的产物，
+  全二进制无来源；原版量子是取整的 90。
+- **判定证据（决定性）**：`FUN_00472540`（格对象更新）以 `(char)cell[0x11b] × DAT_00850c40`
+  构造显示对象 z（**显示管线**，非移动引擎），同函数内 `x=ix+cellX×0x100+0x80` 再次实锤
+  256 lepton/格 与半格 128 偏移；`0x850c40` 由 `0x4704a0-0x4705a0` 惰性初始化重算
+  `int(sin(90°−60°)×256√2×0.5)=90`（字节级手解；常量 45.0/60.0/90.0/0.5/2.0/256.0/π180
+  于 0x79a6f8-0x79a728 表全部读出核对；与 `0x49f520` 的 `0x8529d0=90` 同式同值，两处独立印证）。
+  另证：`0x850bd0 = 90 × (1/256) = 0.3515625`（一级的格占比，FUN_004706c0 内）。
+- **死代码甄别**：`0x4705d0` 附近把 90 用作 2×/4× 后写入 `0x850c10`（≈30°）等派生值——
+  `xrefs` 证实只有写点无读者，与本节下方 `0x8529b0-c8` 同模式，不得当口径用。
+- **残留（低影响，不影响 zStep 取值）**：`z × 像素系数` 的最终乘法点在绘制端实例未直读；
+  如需该直读形式（坡度俯仰），在 Anim/Techno 绘制端继续定位。
+- 证据全文：`work/decompiled/ra2-engine/zstep-lepton-to-pixel.md`（含常量表与字节级解码附录）；
+  工具沉淀 `scan-float.ps1` / `scan-double.ps1`（全节区浮点/double 常量扫描）。
+- 台账：原 `unk_3a77f19a`（上会话已销毁）；本会话重建 `unk_0f96eea7…`（revision 1，
+  rea 侧 `update_unknown` 在本环境报 evidence_integrity_mismatch 未能落 resolved——
+  判定以本小节 + 证据文件为准，后续会话可补）。
 
 ## 地貌线：崖块集合与坡道语义（已核，2026-10-13）
 
