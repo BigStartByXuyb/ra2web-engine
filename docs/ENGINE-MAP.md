@@ -1061,3 +1061,20 @@ special_2(0x7d3974)。特判 +0xc0/+0xd0 即 Verses[4]=medium、Verses[6]=wood�
 - **双源印证**：`Warhead=→+0x2f0`（键解析）与 fn-421710 运行时压栈 `[Anim+0xb0]+0x2f0` 当 WarheadType\* 完全吻合；对象大小 operator_new(0x330)=816B。
 - **上一节 fn-70e470 键表整体重新定性**：它有一套平行键集（Warhead→+0x2c8、DamageRadius→+0x2c4、Normalized/Translucent/IsTiberium/IsMeteor/Elasticity、AttachedSystem 等）但槽位与真 AnimType 冲突——**该函数所属类身份存疑（record_unknown）**，键表暂标"平行动画类待定"，不得再当 AnimType 引用。
 - 影响面：stage-3 sim 的 `ExplosionAnim` 投影字段来源改为 Warhead+0x2f0 / DamageRadius+0x2f4（提交 305f412，逻辑不变仅注释）；`hasDamage` 标注为本项目自定口径（DamageRadius 运行时用途待核）。
+
+**追加勘误与新增（2026-10-13 深夜，visible shell 侦察）**：
+
+- **翻正**：前文"独立 Bullet 类无证据"作废——**独立 Bullet 类存在**（飞行体 visible shell），
+  爆炸载体=Anim 的结论独立成立（两条链并存）。
+- **BulletClass**: 构造器 **FUN_007213a0**（0x7213a0，operator_new(0x208)=520B，vtable
+  0x7aecd0 116 槽）；内嵌 FacingClass + 全局散布表（sqrt(i²+j²) 300 项 @0xaf9620 + sin/cos
+  表 @0xaf91e4）；由开火函数按 `type+0x10c` 门控创建（fn-6ca890 为创建点之一）；更新/引爆端
+  = fn-461de0（+0x88 坐标 / +0xf4 目标 / +0x98=BulletType\*）。
+- **BulletTypeClass::Read_INI = FUN_0070e470**（悬案破）：键表含 **Warhead=→+0x2c8、
+  DamageRadius=→+0x2c4**、Normalized(+0x264)、Translucent、Elasticity(+0x270 double)、
+  MinAngularVelocity、AttachedSystem(+0x2cc)、ShareSource、Report/StartSound/StopSound、
+  IsTiberium/IsMeteor/TiberiumSpawnType/TiberiumSpreadRadius。与 AnimType 的"槽位冲突"
+  实为不同类同名字段，全部自洽。
+- **弹道数学**：**0x47f9b0 = 抛射角双解解算**（θ=atan((v²±√(v⁴−g(g·d²+2·dz·v²)))/(g·d))，
+  g=rules+0x1320 Gravity，v=弹速；g>0 分支→45°）；0x47f8b0=双解选择包装；0x47fb70=×1.2
+  换算（_DAT_0079dda8）。**visible shell 弧线机制全通。**
