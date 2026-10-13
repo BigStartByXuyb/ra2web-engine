@@ -4,6 +4,7 @@ import type { Battle } from './battle.js'
 import { viewScale, visibleCellRange, type Camera } from './camera.js'
 import { drawMapPreview, sortedStructures, structureDepth, structureOrigin, type MapPreview } from './map-preview.js'
 import { HOVER_COLOR, SELECTED_COLOR, drawTerrain, strokeCell, strokeUnitBrackets } from './terrain.js'
+import { slopeTiltOf } from './slope.js'
 import { blitFogCell, createFogSprites, type FogSprites } from './fog-layer.js'
 import { BLOOM, applyBloom, applyWetNightGrade, drawWetReflection } from './post-process.js'
 import type { GlTileLayer } from './webgl-tile-layer.js'
@@ -277,6 +278,9 @@ function collectUnits(
   unit3d: ((typeId: string) => Unit3dModel | undefined) | undefined,
 ): readonly GlUnitQuad[] {
   const quads: GlUnitQuad[] = []
+  // 坡度俯仰（本项目自定增强）：有高度场时按单位所在格算模型倾角（见 slope.ts）
+  const heights = battle.world.heights
+  const grid = battle.world.grid
   for (const { unit, index } of visibleUnits(battle)) {
     const art = artByUnit[index]
     if (!art) continue
@@ -285,6 +289,8 @@ function collectUnits(
     const x = fromFixedExact(unit.x)
     const y = fromFixedExact(unit.y)
     const ground = cellToScreen(VIEW, { x, y })
+    const cell = unitCell(unit)
+    const tilt = heights ? slopeTiltOf(heights, grid.width, grid.height, cell.x, cell.y) : undefined
     quads.push({
       source: frame.canvas,
       anchorX: frame.anchorX,
@@ -302,6 +308,8 @@ function collectUnits(
       turretFacing:
         (battle.facingByUnit[index] ?? 0) * (Math.PI / 4) +
         (((unit.turretFacing - unit.facing + 32768) % 65536) - 32768) * ((Math.PI * 2) / 65536),
+      slopePitch: tilt?.pitch,
+      slopeRoll: tilt?.roll,
     })
   }
   return quads

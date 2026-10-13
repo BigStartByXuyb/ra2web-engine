@@ -33,11 +33,14 @@ export function startUnitView(): boolean {
     .filter((value) => value !== '')
     .map((value) => Number(value))
     .filter((value) => value === 0 || value === 1 || value === 2)
-  void run(raw.toLowerCase(), only)
+  // `&tilt=<度>`：强制坡度俯仰（调试用，验证坡面姿态着色器路径；不传 = 0）
+  const tiltDegrees = Number(params.get('tilt') ?? '0')
+  const forcedTilt = Number.isFinite(tiltDegrees) ? (tiltDegrees * Math.PI) / 180 : 0
+  void run(raw.toLowerCase(), only, forcedTilt)
   return true
 }
 
-async function run(name: string, onlyGroups: readonly number[]): Promise<void> {
+async function run(name: string, onlyGroups: readonly number[], forcedTilt: number): Promise<void> {
   const canvas = document.createElement('canvas')
   canvas.id = 'unitview'
   canvas.style.cssText =
@@ -162,6 +165,8 @@ async function run(name: string, onlyGroups: readonly number[]): Promise<void> {
         worldY: (canvas.height * 0.68) / scale,
         facing: yaw,
         turretFacing: swing,
+        // `&tilt=` 强制坡度俯仰（调试）；默认 0 = 平地姿态
+        slopePitch: forcedTilt,
       },
     ])
     // 俯仰压扁走 CSS（与 freecam 同一套伪 3D）：画布整体 scale(1, p)

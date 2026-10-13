@@ -108,6 +108,9 @@ export interface GlUnitQuad {
   readonly facing?: number | undefined
   /** 炮塔朝向弧度（相对车体的偏转；3D 分件模型的炮塔/炮管用） */
   readonly turretFacing?: number | undefined
+  /** 坡度俯仰/侧倾（本项目自定增强，由 draw.ts 用 height 场算好；3D 模型贴坡用） */
+  readonly slopePitch?: number | undefined
+  readonly slopeRoll?: number | undefined
 }
 
 const VERTEX_SHADER = `
@@ -286,6 +289,9 @@ interface GroundedQuad {
   readonly facing?: number | undefined
   /** 炮塔朝向弧度（相对车体；分件模型的炮塔/炮管组用） */
   readonly turretFacing?: number | undefined
+  /** 坡度俯仰/侧倾（本项目自定增强；直接透传给 3D 渲染器） */
+  readonly slopePitch?: number | undefined
+  readonly slopeRoll?: number | undefined
 }
 
 /** 倒影四边形的世界落位：`top` 是世界坐标里翻转后的上边（`height` 为负表示上下翻转）。 */
@@ -360,6 +366,8 @@ function groundedQuads(context: GlSceneContext): {
       model: unit.model,
       facing: unit.facing,
       turretFacing: unit.turretFacing,
+      slopePitch: unit.slopePitch,
+      slopeRoll: unit.slopeRoll,
     })
   }
   return { structures: structures_, units }
@@ -614,6 +622,8 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       worldY: number
       facing: number
       turretFacing?: number | undefined
+      slopePitch?: number | undefined
+      slopeRoll?: number | undefined
     }[] = []
     const flushSprites = (): void => {
       if (!batchDirty) return
@@ -640,6 +650,8 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
           worldY: item.unit!.worldY,
           facing: item.unit!.facing ?? 0,
           turretFacing: item.unit!.turretFacing,
+          slopePitch: item.unit!.slopePitch,
+          slopeRoll: item.unit!.slopeRoll,
         })
         continue
       }
@@ -859,6 +871,9 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
                 worldY: quad.groundY,
                 facing: quad.facing ?? 0,
                 turretFacing: quad.turretFacing,
+                // 倒影里的坡面姿态与本体一致
+                slopePitch: quad.slopePitch,
+                slopeRoll: quad.slopeRoll,
               },
             ],
             {

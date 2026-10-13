@@ -51,6 +51,10 @@ export interface Unit3dDraw {
   readonly turretFacing?: number | undefined
   /** 炮管俯仰弧度（绕耳轴，正 = 抬）；缺省 0（接口预留，sim 俯仰口径未落地） */
   readonly barrelPitch?: number | undefined
+  /** 坡度俯仰（本项目自定增强，见 slope.ts）：绕体素 y 轴，沿格 x 的坡；缺省 0 */
+  readonly slopePitch?: number | undefined
+  /** 坡度侧倾（本项目自定增强）：绕体素 x 轴，沿格 y 的坡；缺省 0 */
+  readonly slopeRoll?: number | undefined
 }
 
 /** 倒影参数：关于贴地线翻转、压扁、抬高，并整体变淡 */
@@ -84,6 +88,9 @@ uniform vec3 u_pivotOffset;
 uniform vec3 u_nodeOffset;
 uniform float u_turretYaw;
 uniform float u_barrelPitch;
+// 坡度俯仰（本项目自定增强）：在地面坐标里绕体素 y/x 两轴倾斜贴合坡面（原版精灵不倾斜）。
+uniform float u_slopePitch;
+uniform float u_slopeRoll;
 varying vec3 v_normal;
 varying vec2 v_uv;
 varying float v_height;
@@ -117,6 +124,16 @@ void main() {
   }
   position = vec3(position.x * c - position.y * s, position.x * s + position.y * c, position.z);
   normal = vec3(normal.x * c - normal.y * s, normal.x * s + normal.y * c, normal.z);
+  // 坡度俯仰（本项目自定）：在**地面坐标**里绕两轴倾斜（放在朝向旋转之后，倾斜轴 = 格 x/y）。
+  // 锚点 (0,0,0) 不动 —— 贴地点仍贴着地面，车身随坡面转。
+  float cs = cos(u_slopePitch);
+  float ss = sin(u_slopePitch);
+  position = vec3(position.x * cs - position.z * ss, position.y, position.x * ss + position.z * cs);
+  normal = vec3(normal.x * cs - normal.z * ss, normal.y, normal.x * ss + normal.z * cs);
+  float crr = cos(u_slopeRoll);
+  float srr = sin(u_slopeRoll);
+  position = vec3(position.x, position.y * crr - position.z * srr, position.y * srr + position.z * crr);
+  normal = vec3(normal.x, normal.y * crr - normal.z * srr, normal.y * srr + normal.z * crr);
   v_normal = normal;
   v_uv = a_uv;
   // 离地高度：贴地那一圈要压暗（接触阴影），这是"车压在地上"而不是"浮在地面上"的关键
@@ -452,6 +469,8 @@ export function createUnit3dRenderer(gl: WebGLRenderingContext): Unit3dRenderer 
   const nodeOffsetLocation = gl.getUniformLocation(program, 'u_nodeOffset')
   const turretYawLocation = gl.getUniformLocation(program, 'u_turretYaw')
   const barrelPitchLocation = gl.getUniformLocation(program, 'u_barrelPitch')
+  const slopePitchLocation = gl.getUniformLocation(program, 'u_slopePitch')
+  const slopeRollLocation = gl.getUniformLocation(program, 'u_slopeRoll')
 
   return {
     ready: true,
@@ -481,6 +500,9 @@ export function createUnit3dRenderer(gl: WebGLRenderingContext): Unit3dRenderer 
         // 炮塔偏转弧度（相对车体）与炮管俯仰——按"次"设，组内 primitive 共享
         gl.uniform1f(turretYawLocation, item.turretFacing ?? 0)
         gl.uniform1f(barrelPitchLocation, item.barrelPitch ?? 0)
+        // 坡度俯仰（本项目自定增强）：按"次"设
+        gl.uniform1f(slopePitchLocation, item.slopePitch ?? 0)
+        gl.uniform1f(slopeRollLocation, item.slopeRoll ?? 0)
         for (const primitive of item.model.primitives) {
           gl.uniform1f(groupLocation, primitive.group)
           gl.uniform3f(
