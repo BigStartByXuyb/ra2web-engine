@@ -93,6 +93,13 @@ void main() {
   gl_FragColor = texture2D(u_texture, v_uv);
 }`
 
+/** 自定义合成描述（任务 2：色调映射等直接合成到屏；uniform 值按名施加）。 */
+export interface CompositeSpec {
+  readonly fragment: string
+  /** uniform 名 → 值：number=1f、长度 2/3/4 的数组=2f/3f/4f */
+  readonly uniforms?: Readonly<Record<string, number | readonly number[]>>
+}
+
 export interface RenderPipeline {
   /** 一帧开始：绑定场景 RT、清屏。之后场景内容照常画（此时画进离屏） */
   begin(): void
@@ -101,8 +108,8 @@ export interface RenderPipeline {
    * （ping-pong 自动推进）。返回本次写入的 RT 下标（可喂给下一个 pass）。
    */
   drawFullscreen(fragmentSource: string, sourceTextureIndex: number, targetIndex: number): void
-  /** 把链上某张 RT 画回画布后端缓冲（含视口重置）。 */
-  composite(textureIndex: number): void
+  /** 把链上某张 RT 画回画布后端缓冲（含视口重置）；给了 spec 则用自定义着色器合成（任务 2 起）。 */
+  composite(textureIndex: number, spec?: CompositeSpec): void
   /** 建链时得到的 pass 数（RT 张数） */
   readonly length: number
   /** 取第 i 张 RT 的纹理（接线方把场景画进它 / 交给下一个 pass） */
@@ -118,6 +125,8 @@ interface PassProgram {
   readonly program: WebGLProgram
   readonly uniformTexture: WebGLUniformLocation | null
   readonly attributePosition: number
+  /** 具名 uniform 位置缓存（自定义合成用） */
+  readonly uniforms: Map<string, WebGLUniformLocation | null>
 }
 
 /**
@@ -198,6 +207,7 @@ export function createRenderPipeline(
       program,
       uniformTexture: gl.getUniformLocation(program, 'u_texture'),
       attributePosition: gl.getAttribLocation(program, 'a_position'),
+      uniforms: new Map(),
     }
     programs.set(fragmentSource, entry)
     return entry
@@ -243,13 +253,25 @@ export function createRenderPipeline(
       drawQuad(entry, source)
       gl.enable(gl.BLEND)
     },
-    composite(textureIndex) {
-      const entry = programFor(COPY_FRAGMENT)
+    composite(textureIndex, spec) {
+      const entry = programFor(spec?.fragment ?? COPY_FRAGMENT)
       const source = targets[textureIndex]?.texture
       if (!entry || !source) return
       gl.bindFramebuffer(gl.FRAMEBUFFER, null)
       gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight)
       gl.disable(gl.BLEND)
+      gl.useProgram(entry.program)
+      if (spec?.uniforms) {
+        for (const [name, value] of Object.entries(spec.uniforms)) {
+          if (!entry.uniforms.has(name)) entry.uniforms.set(name, gl.getUniformLocation(entry.program, name))
+          const location = entry.uniforms.get(name) ?? null
+          if (location === null) continue
+          if (typeof value === 'number') gl.uniform1f(location, value)
+          else if (value.length === 2) gl.uniform2f(location, value[0]!, value[1]!)
+          else if (value.length === 3) gl.uniform3f(location, value[0]!, value[1]!, value[2]!)
+          else if (value.length === 4) gl.uniform4f(location, value[0]!, value[1]!, value[2]!, value[3]!)
+        }
+      }
       drawQuad(entry, source)
       gl.enable(gl.BLEND)
     },

@@ -3,6 +3,7 @@ import type { Camera, CellRange } from './camera.js'
 import { viewScale } from './camera.js'
 import { sortedStructures, structureDepth, structureOrigin, type MapPreview } from './map-preview.js'
 import { WET_REFLECTION } from './post-process.js'
+import type { CompositeSpec, RenderPipeline } from './render-pipeline.js'
 import { createUnit3dModel, createUnit3dRenderer, type Unit3dModel } from './webgl-unit3d.js'
 import { animatedTileIndex } from './water-animation.js'
 
@@ -38,6 +39,12 @@ export interface GlTileLayer {
   loadUnit3d(typeId: string, bytes: ArrayBuffer): Promise<void>
   /** 该单位类型有没有 3D 模型（没有就退回贴图／原版） */
   unit3d(typeId: string): Unit3dModel | undefined
+  /**
+   * 渲染现代化管线（渲染线任务 2，接缝经总工批准）：设置后本层场景绘进离屏 RT、
+   * 帧末用 `composite` 描述合成回画布（色调映射等挂这里）；缺省 undefined 保持直绘，
+   * 默认路径一个分支不动。可在运行期更换/清除。
+   */
+  setPipeline(pipeline: RenderPipeline | undefined, composite?: CompositeSpec | undefined): void
 }
 
 /** 一帧要叠的增强：都不开就是纯原版画面（与 2D 路径逐像素一致）。 */
@@ -453,6 +460,9 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
   const fogVignetteLocation = fogProgram ? gl.getUniformLocation(fogProgram, 'u_vignette') : undefined
   const fogBuffer = fogProgram ? gl.createBuffer() : undefined
   const buffer = gl.createBuffer()
+  /** 渲染现代化管线（任务 2）：非空时 render() 走离屏 + 合成 */
+  let pipeline: RenderPipeline | undefined
+  let pipelineComposite: CompositeSpec | undefined
   const textures = new WeakMap<HTMLCanvasElement, WebGLTexture>()
   /** B 路：单位的实时 3D 模型（按单位类型注册），没有就退回精灵 */
   const unitModels = new Map<string, Unit3dModel>()
@@ -749,10 +759,15 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
   return {
     ready: true,
     gl,
+    setPipeline(next, composite) {
+      pipeline = next
+      pipelineComposite = composite
+    },
     resize(width, height) {
       canvas.width = width
       canvas.height = height
       gl.viewport(0, 0, width, height)
+      pipeline?.resize(width, height)
     },
     async loadUnit3d(typeId, bytes) {
       if (!unitRenderer.ready) return
@@ -770,8 +785,13 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       // 直立修正角来自本帧 effects.spriteYaw（自由视角时 = -atan(pitch*tan az)，缺省 0 = 恒等）
       frameYawX = Math.cos(effects.spriteYaw ?? 0)
       frameYawY = Math.sin(effects.spriteYaw ?? 0)
-      gl.clearColor(0, 0, 0, 0)
-      gl.clear(gl.COLOR_BUFFER_BIT)
+      if (pipeline) {
+        // 离屏模式（任务 2）：场景绘进 RT，帧末合成回画布
+        pipeline.begin()
+      } else {
+        gl.clearColor(0, 0, 0, 0)
+        gl.clear(gl.COLOR_BUFFER_BIT)
+      }
       // 这一帧的深度缓冲只由 3D 单位那一段用（自己清、自己写、画完关掉写入）：
       // 地块/精灵/倒影/阴影全是覆盖式叠画，一写深度就会把后面的 3D 单位整批挡掉。
       gl.depthMask(false)
@@ -890,6 +910,7 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       if (effects.shadows) drawShadows(camera, grounded)
       drawOrderedObjects(camera, structures, context.units)
       if (effects.fog) drawFog()
+      if (pipeline) pipeline.composite(0, pipelineComposite)
     },
   }
 }

@@ -25,6 +25,8 @@ import { openStructureLayer } from './structure-layer.js'
 import { openTileLayer } from './tile-layer.js'
 import { loadHdTiles } from './hd-tiles.js'
 import { pickUnit } from './picking.js'
+import { createRenderPipeline } from './render-pipeline.js'
+import { TONEMAP_DEFAULTS, TONEMAP_FRAGMENT } from './tonemap.js'
 import { createGlTileLayer, type GlTileLayer } from './webgl-tile-layer.js'
 import { createTerrain3dScene, type Terrain3dScene } from './webgl-terrain3d.js'
 import { buildDemoUnitArt, loadUnitArt, type QualityPreset, type UnitArt } from './unit-art.js'
@@ -588,6 +590,17 @@ function frame(now: number): void {
     spriteYaw: freecamEnabled ? -Math.atan(freeCam.pitch * Math.tan(freeCam.azimuth)) : 0,
   })
   hud.update(now, { battle, mapPreview, camera, hoverCell })
+  // `?debug=1`：单位朝向状态镜（本项目自定调试口）：验收脚本按 sim 值 vs 屏幕姿态核对
+  if (battle && debugMirrorEnabled) {
+    const activeBattle = battle
+    ;(window as unknown as { __battleUnits?: unknown }).__battleUnits = activeBattle.world.units.map((unit, index) => ({
+      hull: unit.hull.current,
+      turret: unit.turret.current,
+      frame: activeBattle.facingByUnit[index],
+      x: unit.x,
+      y: unit.y,
+    }))
+  }
   requestAnimationFrame(frame)
 }
 
@@ -687,6 +700,22 @@ if (new URLSearchParams(location.search).get('renderer') === 'webgl') {
   if (!glTiles) status.textContent = 'WebGL 不可用：仍在用 2D 画布渲染'
   else glTiles.resize(canvas.width, canvas.height)
 }
+// 渲染现代化管线（渲染线任务 2）：`?pipeline=1` 时场景走离屏 + 合成链（色调映射挂这里）。
+// 缺省关：直绘路径一个分支不动。`?tonemap=0` 关色调映射（管线内），`?exposure=` 调曝光。
+if (glTiles && new URLSearchParams(location.search).get('pipeline') === '1') {
+  const params = new URLSearchParams(location.search)
+  const exposure = Number(params.get('exposure'))
+  const pipeline = createRenderPipeline(glTiles.gl, 2, { width: canvas.width, height: canvas.height }, 1)
+  if (pipeline) {
+    glTiles.setPipeline(pipeline, {
+      fragment: TONEMAP_FRAGMENT,
+      uniforms: {
+        u_exposure: Number.isFinite(exposure) && exposure > 0 ? exposure : TONEMAP_DEFAULTS.exposure,
+        u_tonemapOn: params.get('tonemap') === '0' ? 0 : 1,
+      },
+    })
+  }
+}
 shadows = new URLSearchParams(location.search).get('shadows') === '1'
 fogEffect = new URLSearchParams(location.search).get('fog') === '1'
 reflections = new URLSearchParams(location.search).get('reflect') === '1'
@@ -710,6 +739,8 @@ const spawnHealthPercent = (() => {
 /** `?reveal=1`（本项目自定调试开关）：战局内迷雾全揭（本地玩家 explored+visible 填满），
  *  只影响本局内存状态 —— 模型/机位验收不再被初始迷雾挡住。 */
 const revealEnabled = new URLSearchParams(location.search).get('reveal') === '1'
+/** `?debug=1`（本项目自定调试口）：每帧把单位朝向状态写进 window.__battleUnits，供验收脚本核对 */
+const debugMirrorEnabled = new URLSearchParams(location.search).get('debug') === '1'
 units3dSelect.value = units3d ? '3d' : '2d'
 // ?unitview=<单位名>：模型检视模式（本项目自定调试入口）。接管时不自动开战 ——
 // 一条 URL 只干一件事，模型验收不依赖战场装载。

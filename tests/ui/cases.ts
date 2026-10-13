@@ -344,6 +344,36 @@ export const cases: readonly UiCase[] = [
     },
   },
   {
+    name: 'phase-2 帧：色调映射+曝光（开/关/原版三帧 + 上屏判定 + 确定性）',
+    async run(session) {
+      // 样板间帧规格（总工定）：MULTI.MIX 57、units3d+terrain3d 全开、同机位三帧
+      const scene = 'mix=/pack/RA2.MIX&map=/pack/MULTI.MIX&index=57&battle=1&renderer=webgl&anim=0'
+      const on = await session.capture({
+        name: 'phase-2-tonemap',
+        query: `${scene}&units3d=1&terrain3d=1&pipeline=1&tonemap=1`,
+      })
+      const off = await session.capture({
+        name: 'phase-2-off',
+        query: `${scene}&units3d=1&terrain3d=1&pipeline=1&tonemap=0`,
+      })
+      const vanilla = await session.capture({
+        name: 'phase-2-vanilla',
+        query: `${scene}&units3d=0`,
+      })
+      void vanilla // 原版帧仅作对照产出
+      const diff = diffImages(on, off)
+      // ACES + 曝光作用全屏，差异应覆盖大部分画面
+      assert.ok(diff.changed >= 50_000, `色调映射开/关只差 ${diff.changed} 像素，等于没上屏`)
+      const repeat = await session.capture({
+        name: 'phase-2-tonemap-repeat',
+        query: `${scene}&units3d=1&terrain3d=1&pipeline=1&tonemap=1`,
+      })
+      const repeatDiff = diffImages(on, repeat)
+      assert.equal(repeatDiff.changed, 0, `色调映射两次运行差 ${repeatDiff.changed} 像素（必须确定性）`)
+      return `相位帧三连产出；色调映射改变 ${diff.changed} 像素，确定性 0 像素差`
+    },
+  },
+  {
     name: '雨夜后处理作用在整幅画面上',
     async run(session) {
       const glWet = await session.capture({
