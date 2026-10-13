@@ -40,6 +40,8 @@ export interface MapBattleSetup {
   readonly blockedSteps: Uint8Array
   /** 每格地表速度系数（0..1，Track 口径），见 `WorldOptions.terrainSpeed` */
   readonly terrainSpeed: Float32Array
+  /** 每格高度级（一级 = 90 lepton），见 `WorldOptions.heights` */
+  readonly heights: Int8Array
   readonly landTypeSummary: string
   readonly unknownTerrainTypes: readonly number[]
   /** 取不到地块图形的格数与地块集名；非 0 说明这局在这份资产上开不了 */
@@ -99,6 +101,12 @@ export function planMapBattle(archiveBytes: Uint8Array, map: MapFile): MapBattle
     const landIndex = passability.landTypeByCell[index] ?? -1
     if (landIndex >= 0) terrainSpeed[index] = factorByIndex[landIndex] ?? 1
   }
+  // 每格高度级：地图记录的 z 字节（一级 = 90 lepton，见 ENGINE-MAP「一级高度 = 90」）
+  const heights = new Int8Array(gridWidth * gridHeight)
+  for (const cell of map.cells) {
+    if (cell.cellX < 0 || cell.cellY < 0 || cell.cellX >= gridWidth || cell.cellY >= gridHeight) continue
+    heights[cell.cellY * gridWidth + cell.cellX] = cell.z
+  }
 
   return {
     width: gridWidth,
@@ -106,6 +114,7 @@ export function planMapBattle(archiveBytes: Uint8Array, map: MapFile): MapBattle
     blocked,
     blockedSteps: buildBlockedSteps(map),
     terrainSpeed,
+    heights,
     landTypeSummary: summarizeLandTypes(passability.landTypeCounts, land, SPEED_TYPE),
     unknownTerrainTypes: passability.unknownTerrainTypes,
     missingArt: passability.missingArt,

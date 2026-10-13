@@ -45,6 +45,10 @@ export function buildDataDrivenScene(
     readonly blockedSteps?: Uint8Array
     /** 每格地表速度系数（0..1），见 `WorldOptions.terrainSpeed` */
     readonly terrainSpeed?: Float32Array
+    /** 每格高度级（一级 = 90 lepton），见 `WorldOptions.heights` */
+    readonly heights?: Int8Array
+    /** 坡度乘数（rules.ini [General] Tracked/Wheeled Uphill/Downhill），见 `WorldOptions.slopeFactors` */
+    readonly slopeFactors?: import('@ra2web/sim').SlopeFactors
     /** 上阵血量百分比（1..100）：伤车减速的人工验证入口，缺省满血 */
     readonly spawnHealthPercent?: number
     readonly seed: number
@@ -67,10 +71,17 @@ export function buildDataDrivenScene(
       // 伤车判定（ConditionYellow ×0.75）需要满血值；maxHealth 永远是类型满血
       maxHealth: type.strength,
       speed: speedToMovementPerTick(type.speed),
+      // 坡度乘数选组：SpeedType=Track（履带）走 Tracked 组，其余走 Wheeled/other 组
+      ...(type.speedType !== undefined
+        ? { slopeClass: (type.speedType === 'Track' ? 'track' : 'other') as 'track' | 'other' }
+        : {}),
       ...(type.sight !== undefined ? { sight: type.sight } : {}),
     }
   })
-  const world = createWorld({ ...options, units })
+  const world = createWorld({
+    ...options,
+    units,
+  } as Parameters<typeof createWorld>[0])
   return { world, unitTypes }
 }
 

@@ -22,6 +22,7 @@ export {
   isBlocked,
 } from './grid.js'
 export type { Cell, Grid } from './grid.js'
+export type { SlopeFactors } from './world.js'
 export { findPath } from './path.js'
 export {
   CELL_STEPS,

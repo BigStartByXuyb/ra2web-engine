@@ -36,6 +36,10 @@ export interface BattleOptions {
   readonly blockedSteps?: Uint8Array
   /** 每格地表速度系数（0..1），见 `WorldOptions.terrainSpeed` */
   readonly terrainSpeed?: Float32Array
+  /** 每格高度级（一级 = 90 lepton），见 `WorldOptions.heights` */
+  readonly heights?: Int8Array
+  /** 坡度乘数（rules.ini [General] Tracked/Wheeled Uphill/Downhill），见 `WorldOptions.slopeFactors` */
+  readonly slopeFactors?: import('@ra2web/sim').SlopeFactors
   /** 上阵血量百分比（1..100）：伤车减速的人工验证入口（URL `?hp=`），缺省满血 */
   readonly spawnHealthPercent?: number
   readonly spawns: readonly UnitSpawn[]
@@ -61,6 +65,8 @@ export function createBattle(archiveBytes: Uint8Array, options: BattleOptions): 
     blocked: options.blocked,
     ...(options.blockedSteps ? { blockedSteps: options.blockedSteps } : {}),
     ...(options.terrainSpeed ? { terrainSpeed: options.terrainSpeed } : {}),
+    ...(options.heights ? { heights: options.heights } : {}),
+    slopeFactors: slopeFactorsOf(rules),
     ...(options.spawnHealthPercent !== undefined ? { spawnHealthPercent: options.spawnHealthPercent } : {}),
     ...(conditionYellow !== undefined ? { crippled: { threshold: conditionYellow, factor: CRIPPLED_FACTOR } } : {}),
     seed: options.seed,
@@ -112,6 +118,27 @@ function conditionYellowOf(rules: ReturnType<typeof loadRules>): number | undefi
   if (!raw) return undefined
   const percent = raw.endsWith('%') ? Number(raw.slice(0, -1)) : Number(raw) * 100
   return Number.isFinite(percent) ? percent / 100 : undefined
+}
+
+/** rules.ini `[General]` 上下坡系数（rules+0x690 系列，键名 0x648a84 读值点已核）。
+ *  值是普通小数（TrackedUphill=1.0、TrackedDownhill=1.2…），键缺失取原版出厂值 1.0。 */
+function slopeFactorsOf(rules: ReturnType<typeof loadRules>): {
+  upTrack: number
+  downTrack: number
+  upOther: number
+  downOther: number
+} {
+  const read = (key: string): number => {
+    const raw = valueOf(rules, 'General', key)?.trim().replace('%', '')
+    const parsed = Number(raw)
+    return Number.isFinite(parsed) ? parsed : 1.0
+  }
+  return {
+    upTrack: read('TrackedUphill'),
+    downTrack: read('TrackedDownhill'),
+    upOther: read('WheeledUphill'),
+    downOther: read('WheeledDownhill'),
+  }
 }
 
 function readRulesText(archiveBytes: Uint8Array): string {

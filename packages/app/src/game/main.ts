@@ -332,6 +332,7 @@ async function startBattleOnMap(): Promise<void> {
       blocked: setup.blocked,
       blockedSteps: setup.blockedSteps,
       terrainSpeed: setup.terrainSpeed,
+      heights: setup.heights,
       ...(spawnHealthPercent !== undefined ? { spawnHealthPercent } : {}),
       spawns: setup.spawns,
       seed: 20261010,
