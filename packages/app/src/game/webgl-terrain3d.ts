@@ -9,6 +9,7 @@ import type { Camera } from './camera.js'
 import { viewScale } from './camera.js'
 import type { MapPreview } from './map-preview.js'
 import type { MapCell } from '@ra2web/formats'
+import { createDecalBuffer, type DecalBuffer } from './terrain3d-decals.js'
 import { buildTerrain3dGeometry, type Terrain3dVertexData } from './terrain3d-geometry.js'
 import {
   fallbackMaterial,
@@ -28,8 +29,15 @@ import { TERRAIN_Z_STEP_PX } from './terrain3d-zstep.js'
  */
 
 export interface Terrain3dScene {
-  /** waterFrame = 原版水面动画当前帧（`waterFrameAt` 同一口径；缺省 0 = 静止）。 */
-  render(camera: Camera, viewportWidth: number, viewportHeight: number, waterFrame?: number): void
+  /** waterFrame = 原版水面动画当前帧（`waterFrameAt` 同一口径；缺省 0 = 静止）。
+   *  stamps = 本帧要盖痕的单位贴地世界坐标（任务 4 车辙/踩痕，本项目自定）；缺省不盖。 */
+  render(
+    camera: Camera,
+    viewportWidth: number,
+    viewportHeight: number,
+    waterFrame?: number,
+    stamps?: readonly { readonly x: number; readonly y: number }[],
+  ): void
 }
 
 /** 同一张地图只构建一次几何与采样；换图换键，自然重建。 */
@@ -40,6 +48,7 @@ export function createTerrain3dScene(
   preview: MapPreview,
   archiveBytes: Uint8Array | undefined,
   theaterName: string | undefined,
+  decalsEnabled = true,
 ): Terrain3dScene | undefined {
   const cached = sceneCache.get(preview)
   if (cached) return cached
@@ -65,7 +74,9 @@ export function createTerrain3dScene(
   }
   const waterTable = waterFrameAlbedos(frameInputs, palette)
   const waterFallback = materials.get('Water')?.albedo ?? fallbackMaterial().albedo
-  const render = createTerrain3dRenderer(gl, geometry, { table: waterTable, fallback: waterFallback })
+  // 痕迹缓冲（任务 4，本项目自定）：每格 4px 的 RGBA canvas，世界范围按地图菱形包围盒
+  const decal = decalsEnabled ? createDecalLayer(preview) : undefined
+  const render = createTerrain3dRenderer(gl, geometry, { table: waterTable, fallback: waterFallback }, decal)
   if (!render) return undefined
   const scene: Terrain3dScene = { render }
   sceneCache.set(preview, scene)
@@ -99,6 +110,45 @@ function landTypeAt(
   const sub = theater.loadTile((cell as MapCell).tileIndex)?.subTiles[(cell as MapCell).subTile]
   if (!sub) return 'Clear'
   return landTypeOfTerrainType(sub.terrainType) ?? 'Unknown'
+}
+
+/** 痕迹层：canvas + 缓冲 + 世界↔UV 映射（origin/scale 直接喂给着色器 uniform）。 */
+export interface DecalLayer {
+  readonly canvas: HTMLCanvasElement
+  readonly buffer: DecalBuffer
+  readonly originX: number
+  readonly originY: number
+  readonly scaleX: number
+  readonly scaleY: number
+}
+
+/** 每格折几个缓冲像素（本项目自定：4 够软，纹理也不大）。 */
+const DECAL_PIXELS_PER_CELL = 4
+
+function createDecalLayer(preview: MapPreview): DecalLayer {
+  // 世界包围盒：worldX ∈ [−(h)·30, (w)·30]、worldY ∈ [0, (w+h)·15]（菱形外接，取整放宽）
+  const originX = -preview.height * 30
+  const originY = 0
+  const scaleX = (preview.width + preview.height) * 30
+  const scaleY = (preview.width + preview.height) * 15
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round((scaleX / 60) * DECAL_PIXELS_PER_CELL))
+  canvas.height = Math.max(1, Math.round((scaleY / 60) * DECAL_PIXELS_PER_CELL))
+  const context = canvas.getContext('2d')!
+  const buffer = createDecalBuffer(
+    { minX: originX, minY: originY, width: scaleX, height: scaleY, pixelsPerCell: DECAL_PIXELS_PER_CELL },
+    (px, py, radius, strength) => {
+      // 软边圆：source-over 叠加 → 多次经过自然加深（单调累积，本项目自定）
+      const gradient = context.createRadialGradient(px, py, 0, px, py, radius)
+      gradient.addColorStop(0, 'rgba(0, 0, 0, ' + strength + ')')
+      gradient.addColorStop(1, 'rgba(0, 0, 0, 0)')
+      context.fillStyle = gradient
+      context.beginPath()
+      context.arc(px, py, radius, 0, Math.PI * 2)
+      context.fill()
+    },
+  )
+  return { canvas, buffer, originX, originY, scaleX, scaleY }
 }
 
 /** 一个地块的全部子块像素拼起来（水面帧采样用；多数是 1×1 单子块）。 */
@@ -184,6 +234,10 @@ varying float v_topZ;
 varying float v_water;
 uniform vec3 u_waterColor;
 uniform float u_waterFrame;
+uniform sampler2D u_decals;
+uniform vec2 u_decalOrigin;
+uniform vec2 u_decalScale;
+uniform float u_decalsOn;
 float hash(vec2 p) {
   return fract(sin(dot(p + u_noiseSeed, vec2(127.1, 311.7))) * 43758.5453);
 }
@@ -206,6 +260,13 @@ void main() {
   albedo *= mix(1.0, 0.8 + 0.3 * stripe, wallMask);
   float dropBelowTop = v_topZ - v_z;
   albedo *= mix(1.0, mix(0.72, 1.0, smoothstep(0.0, 10.0, dropBelowTop)), wallMask);
+  // 地貌细节（任务 4，本项目自定）：静态低频污渍 + 车辙/雪地踩痕贴花（痕迹由单位位置流盖章）
+  float stain = valueNoise(v_world * 0.013);
+  albedo *= mix(1.0, 0.90 + 0.10 * stain, u_decalsOn);
+  vec2 decalUv = (v_world - u_decalOrigin) / u_decalScale;
+  float inside = step(0.0, decalUv.x) * step(decalUv.x, 1.0) * step(0.0, decalUv.y) * step(decalUv.y, 1.0);
+  float track = u_decalsOn * inside * texture2D(u_decals, decalUv).a;
+  albedo *= mix(1.0, 0.78, track);
   // 水面（任务 3，本项目自定）：帧号驱动波纹相位——帧不动画面即静止；
   // 基色取原版该帧地块的真实采样色，菲涅尔边缘提亮，高光由 roughness 0.12 走主光照链
   if (v_water > 0.5) {
@@ -241,7 +302,14 @@ function createTerrain3dRenderer(
   gl: WebGLRenderingContext,
   geometry: Terrain3dVertexData,
   water: { table: readonly (readonly [number, number, number] | undefined)[]; fallback: readonly [number, number, number] },
-): ((camera: Camera, viewportWidth: number, viewportHeight: number, waterFrame: number) => void) | undefined {
+  decal: DecalLayer | undefined,
+): ((
+  camera: Camera,
+  viewportWidth: number,
+  viewportHeight: number,
+  waterFrame: number,
+  stamps: readonly { readonly x: number; readonly y: number }[],
+) => void) | undefined {
   const vertex = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER)
   const fragment = compileShader(gl, gl.FRAGMENT_SHADER, FRAGMENT_SHADER)
   if (!vertex || !fragment) return undefined
@@ -267,11 +335,42 @@ function createTerrain3dRenderer(
   const waterFlagLocation = gl.getAttribLocation(program, 'a_waterFlag')
   const waterColorUniform = gl.getUniformLocation(program, 'u_waterColor')
   const waterFrameUniform = gl.getUniformLocation(program, 'u_waterFrame')
+  const decalsUniform = gl.getUniformLocation(program, 'u_decals')
+  const decalOriginUniform = gl.getUniformLocation(program, 'u_decalOrigin')
+  const decalScaleUniform = gl.getUniformLocation(program, 'u_decalScale')
+  const decalsOnUniform = gl.getUniformLocation(program, 'u_decalsOn')
+  // 痕迹纹理：1×1 空白兜底（decals 关或无层时采样恒 0）
+  const blankTexture = gl.createTexture()
+  if (blankTexture) {
+    gl.bindTexture(gl.TEXTURE_2D, blankTexture)
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 0]))
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+  }
+  const decalTexture = gl.createTexture()
+  if (decalTexture && decal) {
+    gl.bindTexture(gl.TEXTURE_2D, decalTexture)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, decal.canvas)
+  }
   const cameraLocation = gl.getUniformLocation(program, 'u_camera')
   const scaleLocation = gl.getUniformLocation(program, 'u_scale')
   const viewportLocation = gl.getUniformLocation(program, 'u_viewport')
   const noiseSeedLocation = gl.getUniformLocation(program, 'u_noiseSeed')
-  return (camera, viewportWidth, viewportHeight, waterFrame) => {
+  return (camera, viewportWidth, viewportHeight, waterFrame, stamps) => {
+    // 先盖章再上传：脏位只在真的有新痕迹时置位（无单位的帧零开销）
+    if (decal) {
+      for (const stamp of stamps) decal.buffer.stampWorld(stamp.x, stamp.y)
+      if (decalTexture && decal.buffer.takeDirty()) {
+        gl.bindTexture(gl.TEXTURE_2D, decalTexture)
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, decal.canvas)
+      }
+    }
     gl.useProgram(program)
     gl.uniform2f(cameraLocation, camera.x, camera.y)
     gl.uniform1f(scaleLocation, viewScale(camera))
@@ -289,6 +388,14 @@ function createTerrain3dRenderer(
     }
     gl.uniform3f(waterColorUniform, waterColor[0], waterColor[1], waterColor[2])
     gl.uniform1f(waterFrameUniform, Math.trunc(waterFrame))
+    // 痕迹/污渍（任务 4，本项目自定）：层缺省时绑 1×1 空白纹理并关分支
+    gl.activeTexture(gl.TEXTURE1)
+    gl.bindTexture(gl.TEXTURE_2D, decalTexture && decal ? decalTexture : blankTexture)
+    gl.uniform1i(decalsUniform, 1)
+    gl.uniform2f(decalOriginUniform, decal?.originX ?? 0, decal?.originY ?? 0)
+    gl.uniform2f(decalScaleUniform, decal?.scaleX ?? 1, decal?.scaleY ?? 1)
+    gl.uniform1f(decalsOnUniform, decal ? 1 : 0)
+    gl.activeTexture(gl.TEXTURE0)
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
     gl.enableVertexAttribArray(positionLocation)
     gl.vertexAttribPointer(positionLocation, 3, gl.FLOAT, false, 52, 0)

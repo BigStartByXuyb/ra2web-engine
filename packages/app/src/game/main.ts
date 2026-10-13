@@ -108,6 +108,8 @@ let bloom = false
 let terrain3dEnabled = false
 /** terrain3d 场景：装地图时按当时的 mapPreview 建（webgl-terrain3d 里按地图 WeakMap 缓存） */
 let terrain3dScene: Terrain3dScene | undefined
+/** 地貌细节层开关（车辙/踩痕/污渍，本项目自定）：`?decals=0` 关，默认开 */
+let decalsEnabled = true
 /** 真 3D 单位（B 路，默认关闭）：`?units3d=1`，模型从 `/packs/units3d/<单位>.glb` 取 */
 let units3d = false
 /** 水面动画（原版水面本来就动）；`?anim=0` 关掉，用于逐像素比对 */
@@ -349,7 +351,9 @@ async function showMap(bytes: Uint8Array, fileName: string, entryIndex: number):
     )
     // terrain3d 场景：剧场/档案缺失时返回 undefined，开关自动静默不生效（TERRAIN-ROADMAP 任务 1）
     terrain3dScene =
-      terrain3dEnabled && glTiles ? createTerrain3dScene(glTiles.gl, mapPreview, gameArchive, map.theater) : undefined
+      terrain3dEnabled && glTiles
+        ? createTerrain3dScene(glTiles.gl, mapPreview, gameArchive, map.theater, decalsEnabled)
+        : undefined
     drawOfficialPreview(previewBox, previewCanvas, map)
     notice.hidden = true
     battle = undefined
@@ -689,6 +693,8 @@ reflections = new URLSearchParams(location.search).get('reflect') === '1'
 bloom = new URLSearchParams(location.search).get('bloom') === '1'
 // 地貌线 PBR 地形默认关（原版 TMP 模式是逐像素基准）；`?terrain3d=1` 开
 terrain3dEnabled = new URLSearchParams(location.search).get('terrain3d') === '1'
+// 地貌细节（车辙/踩痕/污渍，本项目自定）默认开；`?decals=0` 关（任务 4）
+decalsEnabled = new URLSearchParams(location.search).get('decals') !== '0'
 // 3D 单位默认开：重制画面就是默认档，模型缺失的类型自动退回 8 朝向贴图。
 // 要比对"原版精灵"那条线（两条绘制路径逐像素一致、逐帧位置判据）时用 `?units3d=0`。
 units3d = new URLSearchParams(location.search).get('units3d') !== '0'

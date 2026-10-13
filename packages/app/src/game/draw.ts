@@ -111,9 +111,15 @@ export function drawScene(scene: Scene): void {
       spriteYaw: scene.spriteYaw,
       terrain3d: scene.terrain3d
         ? {
-            // 传当前水面帧号：帧号只选水色表项（原版 WaterSet 轮播口径不变，waterFrameAt 同一处算）
+            // 传当前水面帧号 + 本帧要盖痕的单位贴地坐标（任务 4 车辙/踩痕，本项目自定）
             drawGround: () =>
-              scene.terrain3d!.render(scene.camera, scene.canvas.width, scene.canvas.height, scene.waterFrame ?? 0),
+              scene.terrain3d!.render(
+                scene.camera,
+                scene.canvas.width,
+                scene.canvas.height,
+                scene.waterFrame ?? 0,
+                glContext.units.map((unit) => ({ x: unit.worldX, y: unit.worldY })),
+              ),
             zStep: TERRAIN_Z_STEP_PX,
           }
         : undefined,
