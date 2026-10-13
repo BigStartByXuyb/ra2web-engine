@@ -120,3 +120,47 @@ test('崖壁法线水平朝外：z 分量为 0、xy 长度归一', () => {
   }
   assert.ok(checked >= 3, '应检查到崖壁顶点')
 })
+
+test('边界混合：两格异材质的共享角，顶点 albedo 互为均值', () => {
+  const materials = new Map<LandTypeName, TerrainMaterial>([
+    ['Water', { albedo: [0.0, 0.0, 1.0] as const, variance: [0, 0, 0] as const }],
+    ['Clear', { albedo: [1.0, 1.0, 0.0] as const, variance: [0, 0, 0] as const }],
+  ])
+  // 2×2：(0,0)=Water，其余 Clear。(0,0) 的 NE 角 (0.5,−0.5) 由 (0,0)/(1,0)/(0,1)/(1,1) 四格共享
+  const data = buildTerrain3dGeometry(
+    flatMap(2, 2, () => 0),
+    10,
+    (x, y) => (x === 0 && y === 0 ? 'Water' : 'Clear'),
+    materials,
+  )
+  const at = (vertex: number) => vertex * STRIDE
+  const albedo = (vertex: number) => [0, 1, 2].map((c) => data.vertices[at(vertex) + 6 + c]!)
+  // 面 0 的四角顶点序 = [0,1,2, 0,2,3]：顶点 0=左上(NW)、1=右上(NE)、2=右下(SE)、5=左下(SW)
+  const near = (v: number[], want: number[]) => v.every((c, i) => Math.abs(c - want[i]!) < 1e-6)
+  // NW 角 (−1,−1) 共享格 (0,0)+(−1,0)越界+(0,−1)越界+(−1,−1)越界 → 纯 Water
+  assert.ok(near(albedo(0), [0, 0, 1]), `NW 角应纯 Water（越界格不计），实际 ${albedo(0)}`)
+  // NE 角 (1,−1) 共享 (0,0)W+(1,0)C（另两格越界）→ (0.5, 0.5, 1)
+  assert.ok(near(albedo(1), [0.5, 0.5, 0.5]), `NE 角应两格均值，实际 ${albedo(1)}`)
+  // SW 角 (−1,1) 共享 (0,0)W+(0,1)C → (0.5, 0.5, 1)
+  assert.ok(near(albedo(5), [0.5, 0.5, 0.5]), `SW 角应两格均值，实际 ${albedo(5)}`)
+})
+
+test('岸线湿边：Beach 与 Water 共享的角压暗 ×0.85', () => {
+  const materials = new Map<LandTypeName, TerrainMaterial>([
+    ['Beach', { albedo: [1.0, 0.8, 0.6] as const, variance: [0, 0, 0] as const }],
+    ['Water', { albedo: [0.0, 0.0, 1.0] as const, variance: [0, 0, 0] as const }],
+  ])
+  // 2×1：(0,0)=Beach，(1,0)=Water
+  const data = buildTerrain3dGeometry(
+    flatMap(2, 1, () => 0),
+    10,
+    (x) => (x === 0 ? 'Beach' : 'Water'),
+    materials,
+  )
+  const albedo = (vertex: number) => [0, 1, 2].map((c) => data.vertices[vertex * STRIDE + 6 + c]!)
+  const near = (v: number[], want: number[]) => v.every((c, i) => Math.abs(c - want[i]!) < 1e-6)
+  // (0,0) 顶面：E 侧两角 (NE 顶点1、SE 顶点2) 触 Water → ×0.85；W 侧两角（顶点0 NW、顶点5 SW）纯
+  // 先与 Water 混合 (0.5,0.4,0.8) 再整角压暗 ×0.85
+  assert.ok(near(albedo(1), [0.425, 0.34, 0.68]), `E 角应先混合再压暗，实际 ${albedo(1)}`)
+  assert.ok(near(albedo(0), [1.0, 0.8, 0.6]), `W 角应保持纯 Beach，实际 ${albedo(0)}`)
+})

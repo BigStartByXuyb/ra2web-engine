@@ -38,13 +38,26 @@ export function buildTerrain3dGeometry(
   })
   const chunks: number[][] = []
   let total = 0
+  // 边界混合（本项目自定）：共享角把相邻格 albedo 均值，地块边界不再是硬色块；岸线湿边在角级做
+  const blends = buildCornerBlends(preview, landTypeAt, materials)
   for (const face of faces) {
     const zs = faceZs(face, levelByIndex, preview, zStep)
     const material = materialFor(face, landTypeAt, materials)
+    const faceCorners =
+      face.kind === 'top' ? cornerKeys(face.cellX, face.cellY) : undefined
     for (const index of [0, 1, 2, 0, 2, 3]) {
       const corner = face.corners[index]!
       const z = zs[index]!
       const normal = faceNormal(face)
+      let albedo = material.albedo
+      if (faceCorners) {
+        const blend = blends.get(`${faceCorners[index]![0]},${faceCorners[index]![1]}`)
+        if (blend) {
+          // 岸线湿边：Beach 格的角若共享了 Water 格 → 先混合再整体压暗 ×0.85（本项目自定）
+          const wet = blend.hasWater && landTypeAt(face.cellX, face.cellY) === 'Beach' ? 0.85 : 1
+          albedo = [blend.albedo[0] * wet, blend.albedo[1] * wet, blend.albedo[2] * wet]
+        }
+      }
       chunks.push([
         corner.x,
         corner.y + z,
@@ -52,9 +65,9 @@ export function buildTerrain3dGeometry(
         normal[0],
         normal[1],
         normal[2],
-        material.albedo[0],
-        material.albedo[1],
-        material.albedo[2],
+        albedo[0],
+        albedo[1],
+        albedo[2],
         material.roughness,
         material.variance[0],
       ])
@@ -118,4 +131,48 @@ function faceNormal(face: TerrainFace): [number, number, number] {
     ny = -ny
   }
   return [nx, ny, 0]
+}
+
+/** 一格四角的共享角键（奇数格坐标系的点）：NW/NE/SE/SW，与 terrain-mesh 的角序一致。 */
+function cornerKeys(cellX: number, cellY: number): [number, number][] {
+  return [
+    [cellX * 2 - 1, cellY * 2 - 1],
+    [cellX * 2 + 1, cellY * 2 - 1],
+    [cellX * 2 + 1, cellY * 2 + 1],
+    [cellX * 2 - 1, cellY * 2 + 1],
+  ]
+}
+
+/**
+ * 共享角材质混合表（本项目自定）：每个**菱形角点**把共享它的全部在图格的顶面 albedo 均值；
+ * Beach 角若共享了 Water 格 → 整角乘 0.85（湿边压暗，岸线过渡）。只混 albedo，
+ * roughness/variance 仍按本格，避免边界处材质行为漂移。
+ */
+function buildCornerBlends(
+  preview: MapPreview,
+  landTypeAt: (cellX: number, cellY: number) => LandTypeName | 'Unknown',
+  materials: ReadonlyMap<LandTypeName, TerrainMaterial> | undefined,
+): Map<string, { albedo: [number, number, number]; hasWater: boolean }> {
+  const sums = new Map<string, { r: number; g: number; b: number; n: number; water: number }>()
+  for (const cell of preview.cellByIndex.values()) {
+    const landType = landTypeAt(cell.cellX, cell.cellY)
+    const material = (landType !== 'Unknown' ? materials?.get(landType) : undefined) ?? fallbackMaterial()
+    const isWater = landType === 'Water'
+    for (const [kx, ky] of cornerKeys(cell.cellX, cell.cellY)) {
+      let bucket = sums.get(`${kx},${ky}`)
+      if (!bucket) sums.set(`${kx},${ky}`, (bucket = { r: 0, g: 0, b: 0, n: 0, water: 0 }))
+      bucket.r += material.albedo[0]
+      bucket.g += material.albedo[1]
+      bucket.b += material.albedo[2]
+      bucket.n++
+      if (isWater) bucket.water++
+    }
+  }
+  const blends = new Map<string, { albedo: [number, number, number]; hasWater: boolean }>()
+  for (const [key, bucket] of sums) {
+    const [r, g, b] = [bucket.r / bucket.n, bucket.g / bucket.n, bucket.b / bucket.n]
+    // 湿边判定按"本角被哪个格用"——blend 表只存 hasWater，压暗在取用时只对 Beach 格生效
+    blends.set(key, { albedo: [r, g, b], hasWater: bucket.water > 0 })
+  }
+  return blends
 }
