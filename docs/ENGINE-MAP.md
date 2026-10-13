@@ -1001,3 +1001,13 @@ special_2(0x7d3974)。特判 +0xc0/+0xd0 即 Verses[4]=medium、Verses[6]=wood�
 - **Can_Hit 包装器 0x6c50a0**：Get_Weapon（虚+0x39C）→ `weapon+0x110` 标志（取目标所在格修正）→ 虚+0x54（在空判定）→ In_Range(0x6c4bb0)。
 - **Should_Target 目标有效性评估 0x6c5570**（2998B，调用者 0x6c6130/0x6c6530 = Find_Target 家族）：隐身（obj+0x76）、血量（obj+0x1b）、`type+0x5dc`、hp% vs `rules+0x1360`、潜地（obj+0x32d）等十余个否决条件后按 Verses 有效性（fn-6c1380 同款）过筛。
 - **开火前走位搜索 0x4c4c30**（3.3KB；总工已记 sim 需求清单，可后置阶段 4）：双层枚举 0x7d8178~0x7d81dc 炮位偏移表 × 0x851a70 八方向，每候选 `Get_Weapon → In_Range → 0x478760(移动分区检查) → 0x42aa30(寻路长度 ≤ 射程+8)` 选定炮位，尾部虚+0x370/+0x410 下移动指令——"走位再打"手感的原版来源。
+
+### 爆炸伤害载体 = Anim 系统（2026-10-13 战斗线，假设①验证成立 + 键名清扫①）
+
+- **AnimTypeClass::Read_INI = FUN_0070e470**（fn-70e470.c；定位法：`Warhead\0` 键串 0x7ced5c → scan-ptr → 0x70e839）。键表（bool=0x50f410 / int=0x50d7f0 / double=0x50e3a0 / 按名=0x50e9a0+0x720f30）：
+  - **+0x2c8 ← Warhead=（按名 → WarheadType*，Warhead 真身）**
+  - **+0x2c4 ← DamageRadius（int）**
+  - +0x2cc ← AttachedSystem（按名）；+0x264 ← Normalized、+0x265 ← Translucent（+0x266 三 flag 合一）；+0x2d0 ← IsTiberium、+0x2a0 ← IsMeteor；+0x270 ← Elasticity(double)；+0xb0/+0xb4 ← 语音对象（new 0x1c）
+- **AnimClass::AI 爆炸分支 = FUN_00421710**（fn-421710.c）：`AnimType.DamageRadius != 0` → 爆炸；水面（cell+0xec==2）走 rules+0x9c 溅水动画；空中门控 `FUN_0055a280()+DAT_0084c6f8 ≤ z`。
+- **勘误链**：①"+0x2f0=WarheadType*"作废（fn-421710 fastcall 寄存器混淆），Warhead 真身 = +0x2c8（Read_INI 铁证），+0x2f0 语义 record_unknown（需汇编对齐 0x47e2c0 实参）；②"+0x2c4=连锁爆炸 Anim"作废，实为 DamageRadius；③fn-461de0 的 +0x264 按 Read_INI 重对 = Normalized bool（"循环引爆×N"存疑）。独立 Bullet 类无证据，弹道飞行机制阶段 3 内继续核。
+- 阶段 3 实现面：**Anim 承载伤害（AnimType{Warhead+0x2c8, DamageRadius+0x2c4, Damage 待核} → 0x47e2c0 AoE）**；instant 类全链（判定→施加→引爆）证据已齐。
