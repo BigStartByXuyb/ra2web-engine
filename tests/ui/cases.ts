@@ -503,6 +503,91 @@ export const cases: readonly UiCase[] = [
       return `?hp=45 → HUD「${wounded.trim()}」；?hp=100 → HUD「${healthy.trim()}」`
     },
   },
+  {
+    name: 'freecam：Alt+拖拽必须旋转画面并报出相机参数（本项目自定）',
+    async run(session) {
+      const page = session.page
+      const params = new URLSearchParams({
+        mix: '/pack/RA2.MIX',
+        map: '/pack/Maps01.mix',
+        index: '0',
+        battle: '1',
+        renderer: 'webgl',
+        units3d: '0',
+        anim: '0',
+        freecam: '1',
+      })
+      await page.goto(`${session.origin}/game.html?${params.toString()}`, { waitUntil: 'load' })
+      await page.waitForFunction(
+        () => /单位 \d+ 辆/.test(document.getElementById('status')?.textContent ?? ''),
+        undefined,
+        { timeout: 300000 },
+      )
+      await page.waitForTimeout(3000)
+      const camRowHidden = await page.evaluate(() => {
+        const row = document.getElementById('hud-cam-row')
+        return row === null || row.hidden
+      })
+      assert.equal(camRowHidden, false, 'freecam 下 HUD 相机行应可见')
+      const before = await session.snapshot('freecam-before')
+      // Alt+左键横向拖 120 像素 = 环绕 0.6 弧度
+      await page.keyboard.down('Alt')
+      await page.mouse.move(800, 450)
+      await page.mouse.down()
+      for (let stepX = 1; stepX <= 12; stepX++) await page.mouse.move(800 + stepX * 10, 450, { steps: 1 })
+      await page.mouse.up()
+      await page.keyboard.up('Alt')
+      const after = await session.snapshot('freecam-after')
+      const diff = diffImages(after, before)
+      assert.ok(diff.changed >= 20000, `Alt+拖拽后画面只变 ${diff.changed} 像素：环绕没生效`)
+      const readout = await page.evaluate(() => document.getElementById('hud-cam')?.textContent ?? '')
+      assert.match(readout, /方位/, `HUD 相机行应报出方位角（实际：${readout}）`)
+      return `环绕后画面变化 ${diff.changed} 像素，HUD「${readout}」`
+    },
+  },
+  {
+    name: '默认模式 Alt+拖拽 = 普通平移（freecam 关闭时零侵入）',
+    async run(session) {
+      const page = session.page
+      const params = new URLSearchParams({
+        mix: '/pack/RA2.MIX',
+        map: '/pack/Maps01.mix',
+        index: '0',
+        battle: '1',
+        renderer: 'webgl',
+        units3d: '0',
+        anim: '0',
+      })
+      const url = `${session.origin}/game.html?${params.toString()}`
+      const drag = async (withAlt: boolean): Promise<PngImage> => {
+        await page.goto(url, { waitUntil: 'load' })
+        await page.waitForFunction(
+          () => /单位 \d+ 辆/.test(document.getElementById('status')?.textContent ?? ''),
+          undefined,
+          { timeout: 300000 },
+        )
+        await page.waitForTimeout(2000)
+        if (withAlt) await page.keyboard.down('Alt')
+        await page.mouse.move(800, 450)
+        await page.mouse.down()
+        for (let stepX = 1; stepX <= 12; stepX++) await page.mouse.move(800 + stepX * 10, 450, { steps: 1 })
+        await page.mouse.up()
+        if (withAlt) await page.keyboard.up('Alt')
+        await page.waitForTimeout(400)
+        return session.snapshot(withAlt ? 'nofc-alt' : 'nofc-plain')
+      }
+      const withAlt = await drag(true)
+      const plain = await drag(false)
+      const diff = diffImages(withAlt, plain)
+      assert.ok(
+        diff.changed <= 200,
+        `默认模式 Alt+拖拽与普通拖拽结果差 ${diff.changed} 像素：Alt 修饰键改变了行为（freecam 泄漏）`,
+      )
+      const camRow = await page.evaluate(() => document.getElementById('hud-cam-row')?.hidden ?? true)
+      assert.equal(camRow, true, '默认模式 HUD 相机行应隐藏')
+      return `Alt+拖拽与普通拖拽逐像素一致（差异 ${diff.changed} 像素），相机行隐藏`
+    },
+  },
 ]
 
 export { UI_PANELS }

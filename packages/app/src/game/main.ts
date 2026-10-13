@@ -1,7 +1,7 @@
 import { RA2_ISO_VIEW, cellToScreen } from '@ra2web/render'
 import { openTheater, type AssetOverride } from '@ra2web/assets'
 import { readMap, readMixEntry, readMixIndex, type MapFile } from '@ra2web/formats'
-import { TICKS_PER_SECOND, dirFromFacing, enqueueCommand, fromFixed, step, type Cell } from '@ra2web/sim'
+import { TICKS_PER_SECOND, dirFromFacing, enqueueCommand, fromFixed, step, unitCell, type Cell } from '@ra2web/sim'
 import { createBattle, createDemoBattle, type Battle } from './battle.js'
 import { planMapBattle } from './map-battle.js'
 import { MIN_ZOOM, canvasToCell, canvasToWorld, createCamera, viewScale, zoomAt, type Camera } from './camera.js'
@@ -104,6 +104,17 @@ let hoverCell: Cell | undefined
 let pan: PanDrag | undefined
 
 canvas.addEventListener('pointerdown', (event) => {
+  // ?freecam=1：Alt+左键 = 以按下点为轴环绕（本项目自定调试视角，见下方 freeCam 块）
+  if (freecamEnabled && event.altKey && event.button === 0) {
+    canvas.setPointerCapture(event.pointerId)
+    freeCam.dragging = true
+    freeCam.startAz = freeCam.azimuth
+    freeCam.startPitch = freeCam.pitch
+    freeCam.startX = event.clientX
+    freeCam.startY = event.clientY
+    applyFreeCam({ x: event.clientX, y: event.clientY })
+    return
+  }
   if (event.button !== 0) return
   canvas.setPointerCapture(event.pointerId)
   pan = undefined
@@ -123,6 +134,12 @@ canvas.addEventListener('pointerdown', (event) => {
 
 canvas.addEventListener('pointermove', (event) => {
   hoverCell = canvasToCell(camera, VIEW, ...pointerCanvas(event))
+  if (freecamEnabled && freeCam.dragging) {
+    freeCam.azimuth = freeCam.startAz + (event.clientX - freeCam.startX) * 0.005
+    freeCam.pitch = Math.min(1.5, Math.max(0.25, freeCam.startPitch + (event.clientY - freeCam.startY) * 0.004))
+    applyFreeCam({ x: freeCam.startX, y: freeCam.startY })
+    return
+  }
   if (!pan || pan.pointerId !== event.pointerId) return
   camera.x = pan.cameraX - (event.clientX - pan.clientX) / camera.zoom
   camera.y = pan.cameraY - (event.clientY - pan.clientY) / camera.zoom
@@ -130,6 +147,10 @@ canvas.addEventListener('pointermove', (event) => {
 })
 
 canvas.addEventListener('pointerup', (event) => {
+  if (freeCam.dragging) {
+    freeCam.dragging = false
+    return
+  }
   if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId)
   const wasPanning = pan !== undefined
   pan = undefined
@@ -156,9 +177,52 @@ canvas.addEventListener(
   (event) => {
     event.preventDefault()
     zoomAt(camera, ...pointerCanvas(event), event.deltaY < 0 ? 1.15 : 1 / 1.15)
+    if (freecamEnabled) applyFreeCam()
   },
   { passive: false },
 )
+
+// —— ?freecam=1 调试自由视角（本项目自定，纯调试入口；默认视角路径零改动）——
+// Alt+左键拖 = 以按下点为轴环绕（方位角）+ 纵向拖 = 俯仰压缩；滚轮 = 推近/拉远（复用）；
+// F = 聚焦选中单位；Esc = 退出回标准视角。拾取在自由视角下会偏，仅供看模型/机位复述。
+const freecamEnabled = new URLSearchParams(location.search).get('freecam') === '1'
+const freeCam = { azimuth: 0, pitch: 1, dragging: false, startAz: 0, startPitch: 1, startX: 0, startY: 0 }
+const freeCamCanvases = [glCanvas, canvas].filter((el): el is HTMLCanvasElement => el !== null)
+const freeCamHint = document.getElementById('hint') as HTMLDivElement | null
+const freeCamReadout = document.getElementById('hud-cam') as HTMLElement | null
+const freeCamRow = document.getElementById('hud-cam-row') as HTMLElement | null
+
+function applyFreeCam(pivot?: { x: number; y: number }): void {
+  for (const el of freeCamCanvases) {
+    if (pivot) el.style.transformOrigin = `${pivot.x}px ${pivot.y}px`
+    el.style.transform = `rotate(${freeCam.azimuth}rad) scale(1, ${freeCam.pitch})`
+  }
+  if (freeCamReadout !== null) {
+    freeCamReadout.textContent = `方位 ${Math.round((freeCam.azimuth * 180) / Math.PI)}° 俯仰 ×${freeCam.pitch.toFixed(
+      2,
+    )} 距离 ×${camera.zoom.toFixed(2)}`
+  }
+}
+
+if (freecamEnabled) {
+  freeCamRow?.removeAttribute('hidden')
+  if (freeCamHint !== null) {
+    freeCamHint.textContent =
+      '[自由视角] Alt+左键拖 = 环绕/俯仰 · 滚轮 = 推近 · F = 聚焦选中 · Esc = 退出 · 拾取在本视角下可能不准'
+  }
+  window.addEventListener('keydown', (event) => {
+    if (event.key === 'f' || event.key === 'F') {
+      const selected = battle?.selectedIndex
+      const unit = selected !== undefined ? battle?.world.units[selected] : undefined
+      if (unit) centerOn(unitCell(unit).x, unitCell(unit).y)
+    } else if (event.key === 'Escape') {
+      const params = new URLSearchParams(location.search)
+      params.delete('freecam')
+      location.search = params.toString()
+    }
+  })
+  applyFreeCam()
+}
 
 window.addEventListener('resize', resizeCanvas)
 
