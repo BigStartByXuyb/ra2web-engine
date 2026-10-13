@@ -212,7 +212,7 @@ def add_frustum(
     return _finish(obj, material, bevel)
 
 
-def add_cylinder(name, center, radius, depth, material, axis="Z", vertices=24, bevel=0.0, rotation_z=0.0):
+def add_cylinder(name, center, radius, depth, material, axis="Z", vertices=24, bevel=0.0, rotation_z=0.0, rotation_y=0.0):
     import math
 
     rotation = {"Z": (0, 0, 0), "X": (0, math.pi / 2, 0), "Y": (math.pi / 2, 0, 0)}[axis]
@@ -223,6 +223,8 @@ def add_cylinder(name, center, radius, depth, material, axis="Z", vertices=24, b
     obj.name = name
     if rotation_z:
         obj.rotation_euler.rotate_axis("Z", rotation_z)
+    if rotation_y:
+        obj.rotation_euler.rotate_axis("Y", rotation_y)
     return _finish(obj, material, bevel)
 
 
