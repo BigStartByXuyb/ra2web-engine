@@ -51,6 +51,11 @@ export interface Scene {
   readonly bloom?: boolean
   /** 单位有 3D 模型时用实时 3D 画（B 路）；没有的类型照旧走精灵 */
   readonly unit3d?: ((typeId: string) => Unit3dModel | undefined) | undefined
+  /**
+   * 回退精灵的直立修正角（本项目自定，`?freecam=1` 用）：自由视角是纯 CSS rotate+scaleY，
+   * 回退贴图会被连地面转倒；GL 层按这个角绕贴地中点反转单位精灵抵消它。缺省 0 = 恒等。
+   */
+  readonly spriteYaw?: number | undefined
   /** 地貌线 terrain3d 场景（`?terrain3d=1`）：给了就由 PBR 地形画地面，地块 quads 交空 */
   readonly terrain3d?: Terrain3dScene | undefined
   /** 水面动画当前帧（`MapPreview.water` 给范围；两条绘制路径共用同一个帧号） */
@@ -103,9 +108,12 @@ export function drawScene(scene: Scene): void {
       reflections: scene.reflections,
       shadows: scene.shadows,
       fog: scene.fog,
+      spriteYaw: scene.spriteYaw,
       terrain3d: scene.terrain3d
         ? {
-            drawGround: () => scene.terrain3d!.render(scene.camera, scene.canvas.width, scene.canvas.height),
+            // 传当前水面帧号：帧号只选水色表项（原版 WaterSet 轮播口径不变，waterFrameAt 同一处算）
+            drawGround: () =>
+              scene.terrain3d!.render(scene.camera, scene.canvas.width, scene.canvas.height, scene.waterFrame ?? 0),
             zStep: TERRAIN_Z_STEP_PX,
           }
         : undefined,

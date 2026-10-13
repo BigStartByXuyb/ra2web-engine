@@ -11,11 +11,12 @@ import { fallbackMaterial, TERRAIN_PBR_STYLE, type TerrainMaterial, type Terrain
  * 这里只做换算。face corner 是"世界 y 已减 z"的屏幕坐标，反推 `worldY = corner.y + z_corner`；
  * 由此崖壁上下角 worldY 自动相等（竖直面）—— 单测钉的就是这条。
  *
- * 顶点交错 12 float：pos(3) + normal(3) + albedo(3) + roughness(1) + variance(1) + topZ(1)。
+ * 顶点交错 13 float：pos(3) + normal(3) + albedo(3) + roughness(1) + variance(1) + topZ(1) + waterFlag(1)。
  * topZ = 该面顶部的 z（墙面用来做「距崖顶」的接触带压暗；顶面同 z，无影响）。
+ * waterFlag = 水格顶面 1（任务 3：着色器走水面分支）；崖壁与陆地恒 0。
  */
 
-export const STRIDE = 12
+export const STRIDE = 13
 
 export interface Terrain3dVertexData {
   readonly vertices: Float32Array
@@ -75,6 +76,7 @@ export function buildTerrain3dGeometry(
         material.roughness,
         material.variance[0],
         faceTopZ(face, zs),
+        face.kind === 'top' && landTypeAt(face.cellX, face.cellY) === 'Water' ? 1 : 0,
       ])
       total++
     }

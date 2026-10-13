@@ -10,7 +10,7 @@ import { viewScale } from './camera.js'
 import type { MapPreview } from './map-preview.js'
 import type { MapCell } from '@ra2web/formats'
 import { buildTerrain3dGeometry, type Terrain3dVertexData } from './terrain3d-geometry.js'
-import { sampleTerrainMaterials, type MaterialSampleInput } from './terrain3d-materials.js'
+import { sampleTerrainMaterials, waterFrameAlbedos, type MaterialSampleInput, type WaterFrameInput } from './terrain3d-materials.js'
 import { TERRAIN_Z_STEP_PX } from './terrain3d-zstep.js'
 
 /**
@@ -22,7 +22,8 @@ import { TERRAIN_Z_STEP_PX } from './terrain3d-zstep.js'
  */
 
 export interface Terrain3dScene {
-  render(camera: Camera, viewportWidth: number, viewportHeight: number): void
+  /** waterFrame = 原版水面动画当前帧（`waterFrameAt` 同一口径；缺省 0 = 静止）。 */
+  render(camera: Camera, viewportWidth: number, viewportHeight: number, waterFrame?: number): void
 }
 
 /** 同一张地图只构建一次几何与采样；换图换键，自然重建。 */
@@ -49,7 +50,16 @@ export function createTerrain3dScene(
     (x, y) => cliffKindAt(preview, theater, x, y),
     (x, y) => rampTypeAt(preview, theater, x, y),
   )
-  const render = createTerrain3dRenderer(gl, geometry)
+  // 水面帧色表（任务 3）：WaterSet 逐帧地块真实像素 → 逐帧 albedo；缺集/缺帧走静态 Water 采样色
+  const frameInputs: WaterFrameInput[] = []
+  if (preview.water) {
+    for (let index = 0; index < preview.water.count; index++) {
+      frameInputs.push({ pixelIndices: tilePixels(theater.loadTile(preview.water.start + index)) })
+    }
+  }
+  const waterTable = waterFrameAlbedos(frameInputs, palette)
+  const waterFallback = materials.get('Water')?.albedo ?? fallbackMaterial().albedo
+  const render = createTerrain3dRenderer(gl, geometry, { table: waterTable, fallback: waterFallback })
   if (!render) return undefined
   const scene: Terrain3dScene = { render }
   sceneCache.set(preview, scene)
@@ -85,6 +95,20 @@ function landTypeAt(
   return landTypeOfTerrainType(sub.terrainType) ?? 'Unknown'
 }
 
+/** 一个地块的全部子块像素拼起来（水面帧采样用；多数是 1×1 单子块）。 */
+function tilePixels(tile: { readonly subTiles: readonly { readonly isEmpty: boolean; readonly pixels: Uint8Array }[] } | undefined): Uint8Array {
+  if (!tile) return new Uint8Array(0)
+  const parts = tile.subTiles.filter((sub) => !sub.isEmpty).map((sub) => sub.pixels)
+  const total = parts.reduce((sum, part) => sum + part.length, 0)
+  const merged = new Uint8Array(total)
+  let at = 0
+  for (const part of parts) {
+    merged.set(part, at)
+    at += part.length
+  }
+  return merged
+}
+
 /** 一格的坡道类型（任务 2）：TMP 子块 rampType 字节，缺图/越界按 0（非坡道）。 */
 function rampTypeAt(preview: MapPreview, theater: TheaterAssets, cellX: number, cellY: number): number {
   const cell = preview.cellByIndex.get(cellY * preview.width + cellX)
@@ -112,6 +136,7 @@ attribute vec3 a_albedo;
 attribute float a_roughness;
 attribute float a_variance;
 attribute float a_topZ;
+attribute float a_waterFlag;
 uniform vec2 u_camera;
 uniform float u_scale;
 uniform vec2 u_viewport;
@@ -122,6 +147,7 @@ varying float v_variance;
 varying vec2 v_world;
 varying float v_z;
 varying float v_topZ;
+varying float v_water;
 void main() {
   // 地形顶点已经是**世界系**（worldX、真实 worldY、抬升 z）—— 与 buildTerrainMesh 的等距
   // 世界坐标同源，直接 (x, y − z) 落屏。不能照抄 webgl-unit3d 的格空间变换 (x−y, (x+y)/2−z)：
@@ -136,6 +162,7 @@ void main() {
   v_world = a_position.xy;
   v_z = a_position.z;
   v_topZ = a_topZ;
+  v_water = a_waterFlag;
 }`
 
 const FRAGMENT_SHADER = `
@@ -148,6 +175,9 @@ varying float v_variance;
 varying vec2 v_world;
 varying float v_z;
 varying float v_topZ;
+varying float v_water;
+uniform vec3 u_waterColor;
+uniform float u_waterFrame;
 float hash(vec2 p) {
   return fract(sin(dot(p + u_noiseSeed, vec2(127.1, 311.7))) * 43758.5453);
 }
@@ -170,6 +200,14 @@ void main() {
   albedo *= mix(1.0, 0.8 + 0.3 * stripe, wallMask);
   float dropBelowTop = v_topZ - v_z;
   albedo *= mix(1.0, mix(0.72, 1.0, smoothstep(0.0, 10.0, dropBelowTop)), wallMask);
+  // 水面（任务 3，本项目自定）：帧号驱动波纹相位——帧不动画面即静止；
+  // 基色取原版该帧地块的真实采样色，菲涅尔边缘提亮，高光由 roughness 0.12 走主光照链
+  if (v_water > 0.5) {
+    vec2 ripple = vec2(sin(v_world.y * 0.35 + u_waterFrame * 0.9), cos(v_world.x * 0.31 + u_waterFrame * 1.1));
+    normal = normalize(vec3(ripple.x * 0.12, ripple.y * 0.12, 1.0));
+    albedo = u_waterColor;
+    albedo += vec3(pow(1.0 - max(0.0, dot(normal, normalize(vec3(1.0, 1.0, 1.0)))), 2.0) * 0.35);
+  }
   vec3 light = normalize(vec3(-0.25, 0.42, 0.87));
   vec3 view = normalize(vec3(1.0, 1.0, 1.0));
   float lambert = max(0.0, dot(normal, light));
@@ -192,11 +230,12 @@ function compileShader(gl: WebGLRenderingContext, type: number, source: string):
   return shader
 }
 
-/** 顶点属性步长 48 字节 = pos(3) + normal(3) + albedo(3) + roughness(1) + variance(1) + topZ(1) 个 float。 */
+/** 顶点属性步长 52 字节 = pos(3) + normal(3) + albedo(3) + roughness(1) + variance(1) + topZ(1) + waterFlag(1)。 */
 function createTerrain3dRenderer(
   gl: WebGLRenderingContext,
   geometry: Terrain3dVertexData,
-): ((camera: Camera, viewportWidth: number, viewportHeight: number) => void) | undefined {
+  water: { table: readonly (readonly [number, number, number] | undefined)[]; fallback: readonly [number, number, number] },
+): ((camera: Camera, viewportWidth: number, viewportHeight: number, waterFrame: number) => void) | undefined {
   const vertex = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER)
   const fragment = compileShader(gl, gl.FRAGMENT_SHADER, FRAGMENT_SHADER)
   if (!vertex || !fragment) return undefined
@@ -219,30 +258,46 @@ function createTerrain3dRenderer(
   const roughnessLocation = gl.getAttribLocation(program, 'a_roughness')
   const varianceLocation = gl.getAttribLocation(program, 'a_variance')
   const topZLocation = gl.getAttribLocation(program, 'a_topZ')
+  const waterFlagLocation = gl.getAttribLocation(program, 'a_waterFlag')
+  const waterColorUniform = gl.getUniformLocation(program, 'u_waterColor')
+  const waterFrameUniform = gl.getUniformLocation(program, 'u_waterFrame')
   const cameraLocation = gl.getUniformLocation(program, 'u_camera')
   const scaleLocation = gl.getUniformLocation(program, 'u_scale')
   const viewportLocation = gl.getUniformLocation(program, 'u_viewport')
   const noiseSeedLocation = gl.getUniformLocation(program, 'u_noiseSeed')
-  return (camera, viewportWidth, viewportHeight) => {
+  return (camera, viewportWidth, viewportHeight, waterFrame) => {
     gl.useProgram(program)
     gl.uniform2f(cameraLocation, camera.x, camera.y)
     gl.uniform1f(scaleLocation, viewScale(camera))
     gl.uniform2f(viewportLocation, viewportWidth, viewportHeight)
     // 固定种子：两次运行必须逐像素一致（UI 用例红线），不许用时间种子
     gl.uniform2f(noiseSeedLocation, 0, 0)
+    // 水面当前帧色（任务 3）：帧号只选色表项，不引入时间——帧不动画面即逐像素静止
+    let waterColor = water.fallback
+    if (water.table.length > 0) {
+      let index = ((Math.trunc(waterFrame) % water.table.length) + water.table.length) % water.table.length
+      for (let step = 0; step < water.table.length && water.table[index] === undefined; step++) {
+        index = (index - 1 + water.table.length) % water.table.length
+      }
+      waterColor = water.table[index] ?? water.fallback
+    }
+    gl.uniform3f(waterColorUniform, waterColor[0], waterColor[1], waterColor[2])
+    gl.uniform1f(waterFrameUniform, Math.trunc(waterFrame))
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
     gl.enableVertexAttribArray(positionLocation)
-    gl.vertexAttribPointer(positionLocation, 3, gl.FLOAT, false, 48, 0)
+    gl.vertexAttribPointer(positionLocation, 3, gl.FLOAT, false, 52, 0)
     gl.enableVertexAttribArray(normalLocation)
-    gl.vertexAttribPointer(normalLocation, 3, gl.FLOAT, false, 48, 12)
+    gl.vertexAttribPointer(normalLocation, 3, gl.FLOAT, false, 52, 12)
     gl.enableVertexAttribArray(albedoLocation)
-    gl.vertexAttribPointer(albedoLocation, 3, gl.FLOAT, false, 48, 24)
+    gl.vertexAttribPointer(albedoLocation, 3, gl.FLOAT, false, 52, 24)
     gl.enableVertexAttribArray(roughnessLocation)
-    gl.vertexAttribPointer(roughnessLocation, 1, gl.FLOAT, false, 48, 36)
+    gl.vertexAttribPointer(roughnessLocation, 1, gl.FLOAT, false, 52, 36)
     gl.enableVertexAttribArray(varianceLocation)
-    gl.vertexAttribPointer(varianceLocation, 1, gl.FLOAT, false, 48, 40)
+    gl.vertexAttribPointer(varianceLocation, 1, gl.FLOAT, false, 52, 40)
     gl.enableVertexAttribArray(topZLocation)
-    gl.vertexAttribPointer(topZLocation, 1, gl.FLOAT, false, 48, 44)
+    gl.vertexAttribPointer(topZLocation, 1, gl.FLOAT, false, 52, 44)
+    gl.enableVertexAttribArray(waterFlagLocation)
+    gl.vertexAttribPointer(waterFlagLocation, 1, gl.FLOAT, false, 52, 48)
     // 地形不透明：关混合整批画；画完恢复 —— 后续倒影/阴影/物体 pass 依赖混合
     gl.disable(gl.BLEND)
     gl.drawArrays(gl.TRIANGLES, 0, geometry.vertexCount)

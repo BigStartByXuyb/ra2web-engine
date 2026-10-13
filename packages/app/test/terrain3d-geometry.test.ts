@@ -28,8 +28,8 @@ function flatMap(width: number, height: number, zOf: (x: number, y: number) => n
 const allClear = () => 'Clear' as const
 const noMaterials = undefined
 
-test('常量：交错步长 12', () => {
-  assert.equal(STRIDE, 12)
+test('常量：交错步长 13', () => {
+  assert.equal(STRIDE, 13)
 })
 
 test('平地图：只有顶面，z 全 0，法线全朝上', () => {
@@ -198,4 +198,14 @@ test('坡道：rampTypeAt 给坡道时顶面成斜面，与高邻格之间无墙
   assert.equal(data.vertexCount / 6, 2, '坡格接高格应只有两个顶面、零崖壁')
   const zs = [0, 1, 2, 3].map((c) => data.vertices[c * STRIDE + 2]!)
   assert.ok(new Set(zs).size > 1, `坡面四角 z 应不全同，实际 ${zs}`)
+})
+
+test('水格标记：Water 顶面 waterFlag=1，陆地 0，崖壁恒 0（STRIDE 13）', () => {
+  const data = buildTerrain3dGeometry(flatMap(2, 2, () => 0), 10, (x, y) => (x === 0 ? 'Water' : 'Clear'), undefined)
+  // 面序 = 格遍历序（行序）：顶点0-5=(0,0)顶、6-11=(1,0)顶、12-17=(0,1)顶、18-23=(1,1)顶
+  const flag = (vertex: number) => data.vertices[vertex * STRIDE + 12]!
+  assert.equal(flag(0), 1, '水格 (0,0) 顶面 waterFlag 应为 1')
+  assert.equal(flag(6), 0, '陆地格 (1,0) 顶面 waterFlag 应为 0')
+  assert.equal(flag(12), 1, '水格 (0,1) 顶面 waterFlag 应为 1')
+  assert.equal(STRIDE, 13)
 })
