@@ -42,6 +42,8 @@ export function hashWorld(world: World): string {
     stream.pushInt32(unit.x)
     stream.pushInt32(unit.y)
     stream.pushInt32(unit.health)
+    stream.pushInt32(unit.attackTargetId ?? -1)
+    stream.pushInt32(unit.cooldown)
     stream.pushInt32(unit.pathIndex)
     stream.pushInt32(unit.path.length)
     for (const cell of unit.path) {
@@ -52,12 +54,27 @@ export function hashWorld(world: World): string {
   stream.pushInt32(world.pending.length)
   for (const command of world.pending) {
     stream.pushInt32(command.tick)
-    stream.pushInt32(command.kind === 'move' ? 1 : 2)
+    stream.pushInt32(command.kind === 'move' ? 1 : command.kind === 'stop' ? 2 : 3)
     stream.pushInt32(command.unitId)
     if (command.kind === 'move') {
       stream.pushInt32(command.target.x)
       stream.pushInt32(command.target.y)
     }
+    if (command.kind === 'attack') {
+      stream.pushInt32(command.targetUnitId)
+    }
+  }
+  stream.pushInt32(world.shells.length)
+  for (const shell of world.shells) {
+    stream.pushInt32(shell.ownerId)
+    stream.pushInt32(shell.x0)
+    stream.pushInt32(shell.y0)
+    stream.pushInt32(shell.z0)
+    stream.pushInt32(shell.x1)
+    stream.pushInt32(shell.y1)
+    stream.pushInt32(shell.z1)
+    stream.pushInt32(shell.startTick)
+    stream.pushInt32(shell.duration)
   }
   // 迷雾是单向累积的世界状态：进哈希，保证"同输入同结果"包含它
   stream.pushInt32(world.shroud.ownerCount)

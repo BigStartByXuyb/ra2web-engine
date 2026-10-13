@@ -139,3 +139,23 @@ export function applyExplosion(
 ): number[] {
   return targets.map((target) => applyVerses(damageBase, an.verses, target.armorIndex))
 }
+
+/**
+ * 单位武器规格（战斗线阶段 1/3 已核字段的 sim 投影；数据由调用方从 packages/rules 传入）。
+ *
+ * - `range`/`minRange` = WeaponType+0xb4/+0xb8（格，fn-733220.md）
+ * - `rof` = WeaponType+0xb0（帧；sim 的 tick）
+ * - `damage` = WeaponType+0xa4（int）
+ * - `verses` = 弹头 Verses 表（WarheadType+0xa0，11 项）——武器与其弹头的组合由调用方完成
+ * - `cellSpread` = Warhead+0x124（float 格；fn-7204e0.md）——AoE 半径
+ * - `airRangeBonus` = TechnoType+0x5b4（对空射程加成，键名待核）
+ */
+export interface UnitWeapon {
+  readonly range: number
+  readonly minRange: number
+  readonly rof: number
+  readonly damage: number
+  readonly verses: readonly number[]
+  readonly cellSpread: number
+  readonly airRangeBonus?: number
+}

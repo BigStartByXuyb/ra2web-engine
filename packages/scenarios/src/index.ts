@@ -10,8 +10,13 @@ export const SCENARIO_TICKS = 200
 /** Node 端确认过的末态哈希；浏览器端跑出别的值就说明存在平台相关的不确定性。
  * 2026-10-13 三次有意更新（53571976 → edb928d4，总工派单取证后待批）：转向时序改为
  * 原版口径——朝向未对齐本步方向时只转不走（fn-4a2670 转向分支，见 ENGINE-MAP
- * 「转向时序」），移动 tick 时序随之变化。这条钉的是"跨端一致"。 */
-export const GOLDEN_FINAL_HASH = 'edb928d4'
+ * 「转向时序」），移动 tick 时序随之变化。这条钉的是"跨端一致"。
+ *
+ * 2026-10-14 第四次有意更新（edb928d4 → 46bc7078，总工预批准随战斗集成提交）：
+ * **战斗行为首次进 world.step**——单位新增战斗状态（attackTargetId/cooldown）与
+ * 飞行弹体（shells）进入状态哈希；场景单位无武器故行为不变、末态字节流因新字段而变。
+ * 因果与证据见 docs/COMBAT-STAGE3-CLOSURE.md 与 combat-step.test.ts（7/7 绿）。 */
+export const GOLDEN_FINAL_HASH = '46bc7078'
 
 export function buildScenarioWorld(): World {
   return createWorld({

@@ -1,3 +1,5 @@
+import type { UnitWeapon } from './combat.js'
+import { advanceShells, combatAim, combatFire, type Shell } from './combat-step.js'
 import { type Command, type CommandInput } from './command.js'
 import { advanceFacing, setFacingTarget, TURRET_FOLLOW_RATE } from './facing.js'
 import { fromFixed } from './fixed.js'
@@ -35,6 +37,10 @@ export interface UnitSpec {
   readonly sight?: number
   /** 炮塔独立旋转门控（原版 Type+0xaed `TurretSpins`）；缺省 false */
   readonly turretSpins?: boolean
+  /** 武器规格（战斗线）；不给 = 无武器（不能开火） */
+  readonly weapon?: UnitWeapon
+  /** 护甲下标（TechnoType+0x9c，0..10；Verses 查表用）；缺省 0 = none */
+  readonly armorIndex?: number
 }
 
 /** 伤车慢速参数：血量百分比 ≤ threshold 时移速 ×factor。
@@ -59,6 +65,8 @@ export interface WorldOptions {
   readonly heights?: Int8Array
   /** 伤车慢速（ConditionYellow ×0.75）；不给就不做伤车判定 */
   readonly crippled?: CrippledRule
+  /** 弹道散布上限（原版 rules+0x139c `BallisticScatter`，int）；不给按 0（不散布） */
+  readonly ballisticScatter?: number
   /** 坡度乘数（rules.ini [General] Tracked/Wheeled Uphill/Downhill，实测 1.0/1.2/1.0/1.2）；
    *  爬坡乘 Up、下坡乘 Down，按 `Unit.slopeClass` 选组。静态数据，不进哈希；不给就不乘。 */
   readonly slopeFactors?: SlopeFactors
@@ -89,6 +97,10 @@ export interface World {
   slopeFactors: SlopeFactors | undefined
   /** 伤车慢速规则（静态数据，不进哈希）；undefined = 不做伤车判定 */
   readonly crippled: CrippledRule | undefined
+  /** 弹道散布上限（静态数据；world.rng 是唯一随机源） */
+  readonly ballisticScatter: number
+  /** 飞行中的弹体（visible shell：起点→终点定时插值；动态状态，进哈希） */
+  shells: Shell[]
   pending: Command[]
   /** 入队序号，用于同 tick 指令的稳定排序 */
   sequence: number
@@ -116,6 +128,8 @@ export function createWorld(options: WorldOptions): World {
   )
   for (let index = 0; index < units.length; index++) {
     units[index]!.slopeClass = options.units[index]!.slopeClass
+    units[index]!.weapon = options.units[index]!.weapon
+    units[index]!.armorIndex = options.units[index]!.armorIndex ?? 0
   }
   const ownerCount = units.reduce((max, unit) => Math.max(max, unit.owner + 1), 1)
   const shroud = createShroud(ownerCount, options.width, options.height)
@@ -130,6 +144,8 @@ export function createWorld(options: WorldOptions): World {
     heights: options.heights,
     slopeFactors: options.slopeFactors,
     crippled: options.crippled,
+    ballisticScatter: options.ballisticScatter ?? 0,
+    shells: [],
     pending: [],
     sequence: 0,
   }
@@ -140,7 +156,9 @@ export function enqueueCommand(world: World, tick: number, input: CommandInput):
   const command: Command =
     input.kind === 'move'
       ? { sequence, tick, kind: 'move', unitId: input.unitId, target: input.target }
-      : { sequence, tick, kind: 'stop', unitId: input.unitId }
+      : input.kind === 'attack'
+        ? { sequence, tick, kind: 'attack', unitId: input.unitId, targetUnitId: input.targetUnitId }
+        : { sequence, tick, kind: 'stop', unitId: input.unitId }
   world.pending.push(command)
 }
 
@@ -158,6 +176,11 @@ function applyDueCommands(world: World): void {
     if (command.kind === 'stop') {
       unit.path = []
       unit.pathIndex = 0
+      continue
+    }
+    if (command.kind === 'attack') {
+      // 攻击命令：设目标（有效性由战斗步进逐 tick 检查）；不打断现有移动
+      unit.attackTargetId = command.targetUnitId
       continue
     }
     const from = { x: fromFixed(unit.x), y: fromFixed(unit.y) }
@@ -245,13 +268,6 @@ export function step(world: World): void {
       }
     }
     advanceAlongPath(unit, effective, zOf, world.tick)
-    // 炮塔（双 FacingClass 的第二份，原版实例 @+0x2f8）每 tick 独立推进：
-    // 无战斗目标时追随车体当前朝向；TurretSpins=yes 不自动追随（**本项目自定口径**，
-    // 原版 TurretSpins 语义待核）。战斗线瞄准层将来直接 setFacingTarget(unit.turret, ...)。
-    if (!unit.turretSpins) {
-      setFacingTarget(unit.turret, unit.hull.current, TURRET_FOLLOW_RATE, world.tick)
-    }
-    advanceFacing(unit.turret, world.tick)
     occupancy.delete(occupiedIndex(world.grid, unit))
     if (unit.path.length > 0) {
       occupancy.set(occupiedIndex(world.grid, unit), unit.id)
@@ -259,6 +275,32 @@ export function step(world: World): void {
       unit.target = undefined
     }
   }
+
+  // 战斗段（独立循环——不受移动段 continue 影响：被挡/无路径的单位照样瞄准与开火）。
+  // 链路口径见 combat-step.ts 头注释（瞄准 → 炮塔推进 → 对齐开火 → 冷却）。
+  for (const unit of world.units) {
+    if (unit.health <= 0) continue
+    // ROF 冷却递减放在开火判定之前：开火 tick 设满 rof、次 tick 起递减，
+    // 保证两次开火间隔恰为 rof 个 tick
+    if (unit.cooldown > 0) unit.cooldown -= 1
+    const attackTarget =
+      unit.attackTargetId !== undefined
+        ? world.units.find((candidate) => candidate.id === unit.attackTargetId)
+        : undefined
+    const aiming = combatAim(unit, attackTarget, false, world.tick)
+    // 炮塔（双 FacingClass 第二份 @+0x2f8）：有目标在射程内 → 瞄目标；
+    // 否则追随车体（TurretSpins=yes 不追随——本项目自定口径，原版语义待核）。
+    if (!aiming && !unit.turretSpins) {
+      setFacingTarget(unit.turret, unit.hull.current, TURRET_FOLLOW_RATE, world.tick)
+    }
+    advanceFacing(unit.turret, world.tick)
+    if (aiming) {
+      const shell = combatFire(unit, attackTarget, world.tick, world.rng, world.ballisticScatter)
+      if (shell !== undefined) world.shells.push(shell)
+    }
+  }
+  // 弹体推进与引爆（visible shell = 起点→终点定时插值；到点 AoE 扣血）
+  world.shells = advanceShells(world.shells, world.units, world.tick)
 
   updateShroud(world.shroud, world.units)
 }

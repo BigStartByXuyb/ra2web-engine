@@ -1,3 +1,4 @@
+import type { UnitWeapon } from './combat.js'
 import { dirFromDelta, facingFromDir, FACING_PER_STEP } from './direction.js'
 import { advanceFacing, createFacing, setFacingTarget, type FacingState } from './facing.js'
 import { isqrt, ONE } from './fixed.js'
@@ -47,6 +48,14 @@ export interface Unit {
   target: Cell | undefined
   /** 连续被挡的 tick 数（碰撞等待计数） */
   blockedTicks: number
+  /** 攻击目标单位 id；undefined = 无攻击任务（战斗线：开火决策链的目标槽投影） */
+  attackTargetId: number | undefined
+  /** 武器规格；undefined = 无武器（不能开火）。静态数据，由 world 从 spec 装入 */
+  weapon: UnitWeapon | undefined
+  /** 开火冷却剩余 tick（原版 ROF = WeaponType+0xb0，帧；0 = 可开火） */
+  cooldown: number
+  /** 护甲下标（TechnoType+0x9c，0..10；Verses 查表用）。静态数据，缺省 0 = none */
+  armorIndex: number
 }
 
 /** 默认每 tick 转向量：45°/tick（本项目自定；原版转速与 rules `ROT=` 的换算未核，待对齐）。 */
@@ -84,6 +93,10 @@ export function createUnit(
     pathIndex: 0,
     target: undefined,
     blockedTicks: 0,
+    attackTargetId: undefined,
+    weapon: undefined,
+    cooldown: 0,
+    armorIndex: 0,
   }
 }
 

@@ -65,6 +65,16 @@ export type { Shroud } from './shroud.js'
 export { hashWorld } from './hash.js'
 export { LEPTONS_PER_CELL, TICKS_PER_SECOND, speedToMovementPerTick } from './movement-scale.js'
 export { applyVerses, canDamage, versesMultiplier, VERSES_COUNT } from './combat.js'
+export type { UnitWeapon } from './combat.js'
+export {
+  SHELL_FLIGHT_TICKS,
+  TURRET_AIM_RATE,
+  advanceShells,
+  combatAim,
+  combatFire,
+  turretAimError,
+} from './combat-step.js'
+export type { Shell } from './combat-step.js'
 export {
   ANGLE16_TO_RADIANS,
   ARC_FIXED_ANGLE,

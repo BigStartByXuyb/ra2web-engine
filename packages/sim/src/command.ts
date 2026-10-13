@@ -13,7 +13,15 @@ export type Command =
       readonly target: { readonly x: number; readonly y: number }
     }
   | { readonly sequence: number; readonly tick: number; readonly kind: 'stop'; readonly unitId: number }
+  | {
+      readonly sequence: number
+      readonly tick: number
+      readonly kind: 'attack'
+      readonly unitId: number
+      readonly targetUnitId: number
+    }
 
 export type CommandInput =
   | { readonly kind: 'move'; readonly unitId: number; readonly target: { readonly x: number; readonly y: number } }
   | { readonly kind: 'stop'; readonly unitId: number }
+  | { readonly kind: 'attack'; readonly unitId: number; readonly targetUnitId: number }
