@@ -29,6 +29,9 @@ export const ARC_FIXED_ANGLE = 0.78538225
  * @param heightDiff 目标高差 dz（+ = 目标更高）
  * @param gravity 重力 g（原版 rules+0x1320）
  * @param projectileSpeed 弹速 v
+ *
+ * **注意：原版 fn-47f9b0 的输入不含弹速（2026-10-14 定案，提交 6356bbf）**——
+ * 本函数的"含弹速标准式"是本项目对弧线武器的**自定建模**，勿当作原版公式。
  */
 export function solveArcAngle(
   horizontalDist: number,
