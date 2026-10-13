@@ -143,6 +143,14 @@
       <div class="row"><span>地图序号</span><input id="map-index" type="number" min="0" value="0" /></div>
       <button id="demo-battle" type="button">内置示例战场（无素材）</button>
       <label class="row"
+        >画面模式
+        <select id="visual-mode">
+          <option value="remaster">重制 3D（高清材质 + 3D 单位）</option>
+          <option value="classic">经典原版（像素材质 + 8 朝向贴图）</option>
+          <option value="custom" disabled>自定义</option>
+        </select>
+      </label>
+      <label class="row"
         >画质预设
         <select id="quality">
           <option value="pixel">原版像素风</option>

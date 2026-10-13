@@ -75,6 +75,7 @@ const fitButton = document.getElementById('fit-map') as HTMLButtonElement
 const mapBattleButton = document.getElementById('battle-on-map') as HTMLButtonElement
 const qualitySelect = document.getElementById('quality') as HTMLSelectElement
 const units3dSelect = document.getElementById('units3d') as HTMLSelectElement
+const visualModeSelect = document.getElementById('visual-mode') as HTMLSelectElement
 const packInput = document.getElementById('pack-file') as HTMLInputElement
 const status = document.getElementById('status')!
 const notice = document.getElementById('notice') as HTMLDivElement
@@ -318,6 +319,46 @@ units3dSelect.addEventListener('change', () => {
   }
   if (units3d && battle) void loadUnit3dModels(battle)
 })
+
+// —— 画面模式（总工 2026-10-13 批）：经典原版（逐像素标尺/怀旧档）↔ 重制 3D（默认档）——
+// 画质预设/单位画法两个下拉保留为高级微调；手改任一项 → 模式显示"自定义"。
+// URL `?mode=classic|remaster|custom`（可分享）；切换即时生效，需 GL 时沿用带参重载。
+let applyingVisualMode = false
+
+function syncVisualModeUrl(): void {
+  const params = new URLSearchParams(location.search)
+  params.set('mode', visualModeSelect.value)
+  params.set('units3d', units3d ? '3d' : '2d')
+  if (visualModeSelect.value !== 'custom') params.set('quality', qualitySelect.value)
+  const next = `?${params.toString()}`
+  if (next !== location.search) history.replaceState(null, '', next)
+}
+
+function applyVisualMode(mode: 'classic' | 'remaster'): void {
+  const preset = mode === 'classic' ? CLASSIC_PRESET : REMASTER_PRESET
+  visualModeSelect.value = mode
+  // 先同步 URL（units3d 处理器可能带参重载，重载后要能从 mode 参数恢复）
+  syncVisualModeUrl()
+  applyingVisualMode = true
+  qualitySelect.value = preset.quality
+  units3dSelect.value = preset.units3d ? '3d' : '2d'
+  // 复用既有处理器：画质重画美术（即时生效）；单位画法必要时自动带 renderer=webgl 重载
+  qualitySelect.dispatchEvent(new Event('change'))
+  units3dSelect.dispatchEvent(new Event('change'))
+  applyingVisualMode = false
+}
+
+visualModeSelect.addEventListener('change', () => {
+  const value = visualModeSelect.value
+  if (value === 'classic' || value === 'remaster') applyVisualMode(value)
+})
+for (const select of [qualitySelect, units3dSelect]) {
+  select.addEventListener('change', () => {
+    if (applyingVisualMode) return
+    visualModeSelect.value = 'custom'
+    syncVisualModeUrl()
+  })
+}
 
 // 素材包：换包就重新装载当前地图（地块/覆盖物/建筑都要按新包重取）
 packInput.addEventListener('change', () => {
@@ -800,7 +841,38 @@ terrain3dEnabled = new URLSearchParams(location.search).get('terrain3d') === '1'
 decalsEnabled = new URLSearchParams(location.search).get('decals') !== '0'
 // 3D 单位默认开：重制画面就是默认档，模型缺失的类型自动退回 8 朝向贴图。
 // 要比对"原版精灵"那条线（两条绘制路径逐像素一致、逐帧位置判据）时用 `?units3d=0`。
-units3d = new URLSearchParams(location.search).get('units3d') !== '0'
+// 画面模式（总工 2026-10-13 批）接管这套默认：见下方 `visualMode` 解析块。
+const visualModeParams = new URLSearchParams(location.search)
+const visualModeParam = visualModeParams.get('mode')
+const visualModeQualityParam = visualModeParams.get('quality')
+const visualModeUnitsParam = visualModeParams.get('units3d')
+/** 经典档 = 逐像素口径标尺（pixel + 8 朝向贴图），**语义冻结**（总工：测试标尺 + 怀旧档双身份） */
+const CLASSIC_PRESET = { quality: 'pixel', units3d: false } as const
+/** 重制档 = 高清材质 + 3D 单位（默认档，总工批复 2026-10-13） */
+const REMASTER_PRESET = { quality: 'hd', units3d: true } as const
+/** 旧默认（显式参数在场的兼容基线）：pixel + 3D 单位——显式传参的老用例逐像素不变 */
+const LEGACY_PRESET = { quality: 'pixel', units3d: true } as const
+const visualModePreset =
+  visualModeParam === 'classic'
+    ? CLASSIC_PRESET
+    : visualModeParam === 'remaster'
+      ? REMASTER_PRESET
+      : visualModeQualityParam !== null || visualModeUnitsParam !== null
+        ? LEGACY_PRESET // 显式参数优先于默认档（老用例/高级微调）
+        : REMASTER_PRESET
+quality = toQualityPreset(visualModeQualityParam ?? visualModePreset.quality)
+qualitySelect.value = quality
+units3d =
+  visualModeUnitsParam !== null
+    ? visualModeUnitsParam !== '0' && visualModeUnitsParam !== '2d'
+    : visualModePreset.units3d
+// 下拉显示与生效值同源：匹配哪档显示哪档，其余"自定义"
+visualModeSelect.value =
+  quality === 'pixel' && !units3d
+    ? 'classic'
+    : quality === 'hd' && units3d
+      ? 'remaster'
+      : 'custom'
 // 水面动画默认开（原版水面本来就在动）。要逐像素比对（同一机位两次运行一致）时用 `?anim=0` ——
 // 动画是按墙钟推进的，开着就不可能跨次截图逐像素相同。
 animateWater = new URLSearchParams(location.search).get('anim') !== '0'

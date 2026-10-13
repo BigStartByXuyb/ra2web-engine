@@ -1043,6 +1043,54 @@ export const cases: readonly UiCase[] = [
       return `选中「${selected.trim()}」，敌方 ${info.enemyId} 血量 ${info.enemyHealth} → ${after}；连拍 ${shots.join('、')}`
     },
   },
+  {
+    name: '画面模式两档：经典原版=逐像素标尺 / 重制 3D=高清+3D 单位（?mode=）',
+    async run(session) {
+      // 身份特征判据（不只断 URL）：
+      // ① 经典档 ≡ 显式原版参数基线（逐像素口径标尺语义冻结，差异应在容差内）；
+      // ② 两档画面必须明显不同（重制 = 高清材质 + 3D 单位）；
+      // ③ 下拉显示与 URL 同源（切档 UI 可见、可分享）。
+      const classic = await session.capture({ name: 'mode-classic', query: 'renderer=webgl&anim=0&mode=classic' })
+      const ruler = await session.capture(GL_BASE)
+      const diffRuler = diffImages(classic, ruler)
+      assert.ok(
+        diffRuler.changed <= DIFF_TOLERANCE,
+        `经典档应保持逐像素口径（与显式原版基线差异 ${diffRuler.changed}，上限 ${DIFF_TOLERANCE}）`,
+      )
+      const remaster = await session.capture({ name: 'mode-remaster', query: 'renderer=webgl&anim=0&mode=remaster' })
+      const diffModes = diffImages(classic, remaster)
+      assert.ok(diffModes.changed >= 500, `重制档与经典档应明显不同，实际只差 ${diffModes.changed} 像素`)
+      const page = session.page
+      const uiState = await page.evaluate(() => ({
+        selected: (document.getElementById('visual-mode') as HTMLSelectElement).value,
+        urlMode: new URLSearchParams(location.search).get('mode'),
+        units3d: (document.getElementById('units3d') as HTMLSelectElement).value,
+        quality: (document.getElementById('quality') as HTMLSelectElement).value,
+      }))
+      assert.equal(uiState.selected, 'remaster', `下拉应显示重制档（实际 ${uiState.selected}）`)
+      assert.equal(uiState.urlMode, 'remaster', `URL 应带 mode=remaster（实际 ${uiState.urlMode}）`)
+      assert.equal(uiState.units3d, '3d', `重制档单位画法应为 3D（实际 ${uiState.units3d}）`)
+      assert.equal(uiState.quality, 'hd', `重制档画质应为高清（实际 ${uiState.quality}）`)
+      // 切换即时生效（不刷新页面）：下拉切经典档，画面应落到经典档（与经典基线一致）
+      await page.selectOption('#visual-mode', 'classic')
+      await page.waitForTimeout(1200)
+      const switched = await session.snapshot('mode-switch-classic')
+      const diffSwitch = diffImages(switched, classic)
+      assert.ok(
+        diffSwitch.changed <= DIFF_TOLERANCE,
+        `页面内切到经典档后画面应即时落到经典档（差异 ${diffSwitch.changed}，上限 ${DIFF_TOLERANCE}）`,
+      )
+      const afterSwitch = await page.evaluate(() => ({
+        selected: (document.getElementById('visual-mode') as HTMLSelectElement).value,
+        urlMode: new URLSearchParams(location.search).get('mode'),
+        units3d: (document.getElementById('units3d') as HTMLSelectElement).value,
+      }))
+      assert.equal(afterSwitch.selected, 'classic')
+      assert.equal(afterSwitch.urlMode, 'classic', `切换后 URL 应同步 mode=classic（实际 ${afterSwitch.urlMode}）`)
+      assert.equal(afterSwitch.units3d, '2d')
+      return `经典↔标尺差异 ${diffRuler.changed}（≤${DIFF_TOLERANCE}）；两档差异 ${diffModes.changed}；UI=${uiState.selected}/${uiState.quality}/${uiState.units3d}；页内切换差异 ${diffSwitch.changed}`
+    },
+  },
 ]
 
 export { UI_PANELS }
