@@ -22,6 +22,7 @@ const RULES = loadRules([
       'TechLevel=2',
       'Primary=120mm',
       'Turret=yes',
+      'TurretSpins=yes',
       'Owner=Russians,Confederation,Africans,Arabs',
       'Prerequisite=NAWEAP',
       'FutureField=whatever',
@@ -48,6 +49,7 @@ test('核心字段被解析为强类型', () => {
   assert.equal(unit.armor, 'heavy')
   assert.equal(unit.primary, '120mm')
   assert.equal(unit.turret, true)
+  assert.equal(unit.turretSpins, true)
   assert.deepEqual(unit.owners, ['Russians', 'Confederation', 'Africans', 'Arabs'])
   assert.deepEqual(unit.prerequisites, ['NAWEAP'])
   assert.deepEqual(unit.issues, [])

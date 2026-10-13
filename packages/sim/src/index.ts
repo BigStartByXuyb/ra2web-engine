@@ -36,6 +36,17 @@ export {
 } from './direction.js'
 export { advanceAlongPath, createUnit, unitCell } from './unit.js'
 export type { Unit } from './unit.js'
+export {
+  TURRET_FOLLOW_RATE,
+  advanceFacing,
+  createFacing,
+  facingDelta,
+  facingIsIdle,
+  facingRadians,
+  normalizeFacing,
+  setFacingTarget,
+} from './facing.js'
+export type { FacingState } from './facing.js'
 export type { Command, CommandInput } from './command.js'
 export { createWorld, enqueueCommand, run, step } from './world.js'
 export type { UnitSpec, World, WorldOptions } from './world.js'

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createFacing } from '../src/facing.js'
 import { test } from 'node:test'
 import { ONE } from '../src/fixed.js'
 import { FACING_PER_STEP } from '../src/direction.js'
@@ -29,7 +30,7 @@ test('斜向移动是直线：一个 tick 里 x 与 y 同时前进', () => {
   // 半格速度；单位初始朝向已对齐东南（排除转向 tick），测推进 tick——
   // 直线推进两轴各前进 ~90；曼哈顿式只前进 x（128, 0）
   const world = worldWith({ x: 4, y: 4 }, ONE / 2)
-  world.units[0]!.facing = 3 * FACING_PER_STEP // 已朝东南
+  world.units[0]!.hull = createFacing(3 * FACING_PER_STEP) // 已朝东南
   const unit = world.units[0]!
   const before = { x: unit.x, y: unit.y }
   step(world) // 推进 tick
@@ -43,9 +44,9 @@ test('斜向移动是直线：一个 tick 里 x 与 y 同时前进', () => {
 test('单位有朝向且转向移动方向：向东走最终朝向 0x4000', () => {
   const world = worldWith({ x: 8, y: 2 })
   const unit = world.units[0]!
-  assert.equal(unit.facing, 0, '初始朝向北')
+  assert.equal(unit.hull.current, 0, '初始朝向北')
   for (let i = 0; i < 40; i++) step(world)
-  assert.equal(unit.facing, 2 * FACING_PER_STEP, '走完后朝向 = 东（0x4000）')
+  assert.equal(unit.hull.current, 2 * FACING_PER_STEP, '走完后朝向 = 东（0x4000）')
   assert.deepEqual(unitCell(unit), { x: 8, y: 2 })
 })
 
@@ -54,8 +55,8 @@ test('转向是渐进的：中途朝向介于起点与终点之间', () => {
   const unit = world.units[0]!
   step(world)
   step(world)
-  assert.ok(unit.facing > 0, `已开始顺时针转（实际 ${unit.facing}）`)
-  assert.ok(unit.facing < 4 * FACING_PER_STEP, '还没转到正东')
+  assert.ok(unit.hull.current > 0, `已开始顺时针转（实际 ${unit.hull.current}）`)
+  assert.ok(unit.hull.current < 4 * FACING_PER_STEP, '还没转到正东')
 })
 
 test('转向时序：朝向未对齐前不位移（原版先转后走，fn-4a2670 转向分支）', () => {
@@ -64,10 +65,10 @@ test('转向时序：朝向未对齐前不位移（原版先转后走，fn-4a267
   const posAfter = (): { x: number; y: number; z: number } => ({ x: unit.x, y: unit.y, z: unit.z })
   step(world) // 应用指令并推进第一个 tick
   // 朝向 0（北）→ 目标东（0x4000）差 90°；每 tick 转 45°，第一个 tick 还没对齐
-  assert.equal(unit.facing, FACING_PER_STEP, '第一个 tick 在转向')
+  assert.equal(unit.hull.current, FACING_PER_STEP, '第一个 tick 在转向')
   assert.deepEqual(posAfter(), { x: 2 * ONE + ONE / 2, y: 2 * ONE + ONE / 2, z: 0 }, '转向 tick 不位移')
   step(world)
-  assert.equal(unit.facing, 2 * FACING_PER_STEP, '第二个 tick 转到位')
+  assert.equal(unit.hull.current, 2 * FACING_PER_STEP, '第二个 tick 转到位')
   assert.deepEqual(posAfter(), { x: 2 * ONE + ONE / 2, y: 2 * ONE + ONE / 2, z: 0 }, '刚对齐也先不位移，下一 tick 起步')
   step(world)
   const before = { x: unit.x, y: unit.y }
@@ -75,20 +76,22 @@ test('转向时序：朝向未对齐前不位移（原版先转后走，fn-4a267
   assert.equal(unit.x, before.x + ONE, '对齐后按速度直线推进')
 })
 
-test('炮塔朝向：无战斗目标时跟随车体（独立字段，战斗目标追踪归战斗线）', () => {
+test('炮塔（双 FacingClass 第二份）：无战斗目标时按自定速率追随车体、且滞后于车体', () => {
   const world = worldWith({ x: 8, y: 2 })
   const unit = world.units[0]!
-  assert.equal(unit.turretFacing, 0, '初始炮塔与车体同向（北）')
-  step(world)
-  step(world)
-  assert.equal(unit.turretFacing, unit.facing, '车体转向时炮塔跟随')
-  assert.notEqual(unit.turretFacing, 0, '已跟随到新方向')
+  assert.equal(unit.turret.current, 0, '初始炮塔与车体同向（北）')
+  step(world) // 车体：目标东 16384、一步 8192；炮塔：目标 8192、一步 4096
+  step(world) // 车体：到点 16384；炮塔：4096 → 8192
+  assert.equal(unit.hull.current, 2 * FACING_PER_STEP, '车体两个 tick 转到正东（16384）')
+  assert.equal(unit.turret.current, FACING_PER_STEP, '炮塔滞后一档（TURRET_FOLLOW_RATE=4096 自定）')
+  for (let i = 0; i < 3; i++) step(world)
+  assert.equal(unit.turret.current, unit.hull.current, '随后收敛到车体朝向')
 })
 
 test('向南走朝向 0x8000，向西走朝向 0xc000（顺时针口径）', () => {
   const south = worldWith({ x: 2, y: 8 })
   for (let i = 0; i < 40; i++) step(south)
-  assert.equal(south.units[0]!.facing, 8 * (FACING_PER_STEP / 2))
+  assert.equal(south.units[0]!.hull.current, 8 * (FACING_PER_STEP / 2))
 
   const westWorld = createWorld({
     width: 16,
@@ -98,5 +101,5 @@ test('向南走朝向 0x8000，向西走朝向 0xc000（顺时针口径）', () 
   })
   enqueueCommand(westWorld, 1, { kind: 'move', unitId: 1, target: { x: 2, y: 4 } })
   for (let i = 0; i < 40; i++) step(westWorld)
-  assert.equal(westWorld.units[0]!.facing, 12 * (FACING_PER_STEP / 2))
+  assert.equal(westWorld.units[0]!.hull.current, 12 * (FACING_PER_STEP / 2))
 })

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createFacing } from '../src/facing.js'
 import { test } from 'node:test'
 import { ONE } from '../src/fixed.js'
 import { createWorld, enqueueCommand, step } from '../src/world.js'
@@ -32,7 +33,7 @@ function worldWith(
     ...(crippled ? { crippled } : {}),
   })
   // 移动目标在正东：初始朝向对齐东（0x4000），排除转向 tick 的干扰
-  world.units[0]!.facing = 16384
+  world.units[0]!.hull = createFacing(16384)
   return world
 }
 

@@ -594,7 +594,7 @@ function frame(now: number): void {
 /** 朝向读模拟层的 facing（16 位角顺时针 0=北），折成渲染帧序号。 */
 function updateFacings(active: Battle): void {
   active.world.units.forEach((unit, index) => {
-    const dir = dirFromFacing(unit.facing)
+    const dir = dirFromFacing(unit.hull.current)
     // sim 的 0 = 北；渲染器的帧 0 = 模型前方 +x（东）。北=帧 6、东=帧 0，故 +6 对齐。
     // 这个偏移对应渲染器的自定约定（原版 HVA 朝向编号对应关系未核，见 render 包 README）。
     active.facingByUnit[index] = (dir + 6) % 8

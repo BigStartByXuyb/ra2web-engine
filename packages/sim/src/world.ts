@@ -1,4 +1,5 @@
 import { type Command, type CommandInput } from './command.js'
+import { advanceFacing, setFacingTarget, TURRET_FOLLOW_RATE } from './facing.js'
 import { fromFixed } from './fixed.js'
 import { createGrid, type Cell, type Grid } from './grid.js'
 import { findPath } from './path.js'
@@ -32,6 +33,8 @@ export interface UnitSpec {
   readonly slopeClass?: 'track' | 'other'
   /** 视野半径（格）；不给按客户端缺省值 1 */
   readonly sight?: number
+  /** 炮塔独立旋转门控（原版 Type+0xaed `TurretSpins`）；缺省 false */
+  readonly turretSpins?: boolean
 }
 
 /** 伤车慢速参数：血量百分比 ≤ threshold 时移速 ×factor。
@@ -108,6 +111,7 @@ export function createWorld(options: WorldOptions): World {
       undefined,
       spec.maxHealth,
       zOf !== undefined ? zOf(spec.cell) : 0,
+      spec.turretSpins ?? false,
     ),
   )
   for (let index = 0; index < units.length; index++) {
@@ -240,7 +244,14 @@ export function step(world: World): void {
         effective = Math.floor(effective * (track ? factors.downTrack : factors.downOther))
       }
     }
-    advanceAlongPath(unit, effective, zOf)
+    advanceAlongPath(unit, effective, zOf, world.tick)
+    // 炮塔（双 FacingClass 的第二份，原版实例 @+0x2f8）每 tick 独立推进：
+    // 无战斗目标时追随车体当前朝向；TurretSpins=yes 不自动追随（**本项目自定口径**，
+    // 原版 TurretSpins 语义待核）。战斗线瞄准层将来直接 setFacingTarget(unit.turret, ...)。
+    if (!unit.turretSpins) {
+      setFacingTarget(unit.turret, unit.hull.current, TURRET_FOLLOW_RATE, world.tick)
+    }
+    advanceFacing(unit.turret, world.tick)
     occupancy.delete(occupiedIndex(world.grid, unit))
     if (unit.path.length > 0) {
       occupancy.set(occupiedIndex(world.grid, unit), unit.id)

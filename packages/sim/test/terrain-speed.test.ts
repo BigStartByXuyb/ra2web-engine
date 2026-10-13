@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createFacing } from '../src/facing.js'
 import { test } from 'node:test'
 import { ONE } from '../src/fixed.js'
 import { unitCell } from '../src/unit.js'
@@ -21,7 +22,7 @@ function worldOn(factor: number | undefined, speed = ONE) {
     ...(terrainSpeed ? { terrainSpeed } : {}),
   })
   // 目标在正东：初始朝向对齐东（0x4000），排除转向 tick 的干扰
-  world.units[0]!.facing = 16384
+  world.units[0]!.hull = createFacing(16384)
   enqueueCommand(world, 1, { kind: 'move', unitId: 1, target: { x: 7, y: 4 } })
   return world
 }

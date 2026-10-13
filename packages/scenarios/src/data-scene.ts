@@ -76,6 +76,8 @@ export function buildDataDrivenScene(
         ? { slopeClass: (type.speedType === 'Track' ? 'track' : 'other') as 'track' | 'other' }
         : {}),
       ...(type.sight !== undefined ? { sight: type.sight } : {}),
+      // 炮塔独立旋转门控（原版 Type+0xaed TurretSpins）：sim 用它在无战斗目标时决定炮塔是否追随车体
+      ...(type.turretSpins ? { turretSpins: true } : {}),
     }
   })
   const world = createWorld({

@@ -17,7 +17,7 @@ for (let i = 0; i < 90; i++) {
   const u = world.units[0]!
   const gx = (u.x / ONE).toFixed(2)
   const gy = (u.y / ONE).toFixed(2)
-  rows.push(`tick ${String(i + 1).padStart(2)}: x=${gx} y=${gy} facing=${u.facing}`)
+  rows.push(`tick ${String(i + 1).padStart(2)}: x=${gx} y=${gy} facing=${u.hull.current}`)
   if (u.path.length === 0 && i > 5) break
 }
 console.log(rows.join('\n'))

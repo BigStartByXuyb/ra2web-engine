@@ -28,6 +28,8 @@ export interface UnitType {
   /** 移动方式（rules.ini `SpeedType=`：Track/Wheel/Foot/Hover/Float/…），坡度乘数选组用 */
   readonly speedType: string | undefined
   readonly turret: boolean
+  /** 炮塔独立旋转（原版 Type 字段 +0xaed `TurretSpins`；战斗线 fn-6daf60 取证） */
+  readonly turretSpins: boolean
   readonly owners: readonly string[]
   readonly prerequisites: readonly string[]
   /** 原始键值，供核对与未映射字段使用 */
@@ -62,6 +64,11 @@ export function parseUnitType(rules: RawRules, id: string): UnitType | undefined
   if (turretValue !== undefined && parseBoolean(turretValue) === undefined) {
     issues.push({ key: 'Turret', value: turretValue, reason: 'not a boolean' })
   }
+  const turretSpinsValue = lookup('turretspins')
+  const turretSpins = parseBoolean(turretSpinsValue) ?? false
+  if (turretSpinsValue !== undefined && parseBoolean(turretSpinsValue) === undefined) {
+    issues.push({ key: 'TurretSpins', value: turretSpinsValue, reason: 'not a boolean' })
+  }
 
   return {
     id,
@@ -80,6 +87,7 @@ export function parseUnitType(rules: RawRules, id: string): UnitType | undefined
     secondary: optional('Secondary', lookup('secondary'), issues),
     speedType: optional('SpeedType', lookup('speedtype'), issues),
     turret,
+    turretSpins,
     owners: parseList(lookup('owner')),
     prerequisites: parseList(lookup('prerequisite')),
     raw: section.values,

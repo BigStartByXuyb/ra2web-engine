@@ -1,4 +1,5 @@
-import { dirFromDelta, facingFromDir, FACING_FULL, FACING_PER_STEP } from './direction.js'
+import { dirFromDelta, facingFromDir, FACING_PER_STEP } from './direction.js'
+import { advanceFacing, createFacing, setFacingTarget, type FacingState } from './facing.js'
 import { isqrt, ONE } from './fixed.js'
 import type { Cell } from './grid.js'
 
@@ -23,14 +24,20 @@ export interface Unit {
   readonly speed: number
   /** 视野半径（格）；迷雾按它揭开 */
   readonly sight: number
-  /** 朝向：16 位角，顺时针，0 = 北，每 45° = 8192 */
-  facing: number
+  /** 车体朝向（FacingClass 第一份，原版实例 @+0x2e0）：16 位角，顺时针，0 = 北 */
+  hull: FacingState
   /** 每 tick 最大转向量（16 位角单位）。原版转速与 rules `ROT=` 的换算未核，此默认值是本项目自定。 */
   readonly turnRate: number
   /** 满血值（原版单位类型的 Strength）；伤车判定用它算血量百分比。缺省按创建时的 health。 */
   readonly maxHealth: number
-  /** 炮塔朝向：16 位角，口径同 facing。无战斗目标时跟随车体；目标追踪归战斗线。 */
-  turretFacing: number
+  /**
+   * 炮塔朝向（FacingClass 第二份，原版实例 @+0x2f8）：无战斗目标时按 `TURRET_FOLLOW_RATE`
+   * 追随车体；战斗线瞄准层将来直接改 `turret.target`。TurretSpins=yes 时不做自动追随
+   * （**本项目自定口径**，原版 TurretSpins 的确切语义待核）。
+   */
+  turret: FacingState
+  /** 炮塔独立旋转门控（原版 Type 字段 +0xaed `TurretSpins`；缺省 false） */
+  readonly turretSpins: boolean
   /** 坡度乘数选组（fn-4a2670 按 techno+0x5a4==1 选 Tracked 组）；缺省 other 组 */
   slopeClass: 'track' | 'other' | undefined
   /** 剩余路径（格子），空表示无移动任务 */
@@ -56,6 +63,7 @@ export function createUnit(
   turnRate = DEFAULT_TURN_RATE,
   maxHealth = 0,
   z = 0,
+  turretSpins = false,
 ): Unit {
   return {
     id,
@@ -66,10 +74,11 @@ export function createUnit(
     health,
     speed,
     sight,
-    facing: ((facing % FACING_FULL) + FACING_FULL) % FACING_FULL,
+    hull: createFacing(facing, turnRate),
     turnRate,
     maxHealth: maxHealth > 0 ? maxHealth : health,
-    turretFacing: ((facing % FACING_FULL) + FACING_FULL) % FACING_FULL,
+    turret: createFacing(facing, 0),
+    turretSpins,
     slopeClass: undefined,
     path: [],
     pathIndex: 0,
@@ -83,14 +92,6 @@ export function unitCell(unit: Unit): Cell {
   return { x: Math.trunc(unit.x / ONE), y: Math.trunc(unit.y / ONE) }
 }
 
-/** 朝向向目标角转一格（最短方向，环形），最多 rate。 */
-function rotateToward(facing: number, target: number, rate: number): number {
-  let diff = (((target - facing + FACING_FULL / 2) % FACING_FULL) + FACING_FULL) % FACING_FULL
-  diff -= FACING_FULL / 2
-  if (Math.abs(diff) <= rate) return ((target % FACING_FULL) + FACING_FULL) % FACING_FULL
-  return (((facing + Math.sign(diff) * rate) % FACING_FULL) + FACING_FULL) % FACING_FULL
-}
-
 /**
  * 朝当前路径点直线推进一 tick。
  *
@@ -101,7 +102,12 @@ function rotateToward(facing: number, target: number, rate: number): number {
  * `effectiveSpeed` 由 world 给（地表/坡度系数折算后的本 tick 速度），缺省用 unit.speed。
  * `heights` 提供每格高度级（一级 = 90 lepton）；不给就按平地（z 不变）。
  */
-export function advanceAlongPath(unit: Unit, effectiveSpeed: number = unit.speed, zOf?: (cell: Cell) => number): void {
+export function advanceAlongPath(
+  unit: Unit,
+  effectiveSpeed: number = unit.speed,
+  zOf?: (cell: Cell) => number,
+  tick = 0,
+): void {
   let budget = effectiveSpeed
   while (budget > 0 && unit.pathIndex < unit.path.length) {
     const waypoint = unit.path[unit.pathIndex]!
@@ -120,10 +126,11 @@ export function advanceAlongPath(unit: Unit, effectiveSpeed: number = unit.speed
     // 未对齐就 Face_Direction 后直接 return；转向由 0x4b8be0 插值器逐 tick 渐进。
     if (dx !== 0 || dy !== 0) {
       const targetFacing = facingFromDir(dirFromDelta(dx, dy))
-      if (unit.facing !== targetFacing) {
-        unit.facing = rotateToward(unit.facing, targetFacing, unit.turnRate)
-        // 炮塔跟随（无战斗目标时与 hull 同向；目标追踪口径归战斗线）
-        unit.turretFacing = unit.facing
+      if (unit.hull.current !== targetFacing) {
+        // 转向 = FacingClass 起步打点（0x4b8a30）+ 本 tick 推进（0x4b8b10 语义）；
+        // 炮塔不在这一支里跟——它是独立的一份 FacingClass，在 world.step 里各自推进。
+        setFacingTarget(unit.hull, targetFacing, unit.turnRate, tick)
+        advanceFacing(unit.hull, tick)
         return
       }
     }

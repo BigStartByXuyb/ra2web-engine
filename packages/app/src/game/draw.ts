@@ -1,5 +1,14 @@
 import { RA2_ISO_VIEW, cellToScreen, compareDepthOrder, footprintDepth, snapSpriteOrigin } from '@ra2web/render'
-import { fromFixed, fromFixedExact, isExplored, isVisible, unitCell, type Unit } from '@ra2web/sim'
+import {
+  facingDelta,
+  facingRadians,
+  fromFixed,
+  fromFixedExact,
+  isExplored,
+  isVisible,
+  unitCell,
+  type Unit,
+} from '@ra2web/sim'
 import type { Battle } from './battle.js'
 import { viewScale, visibleCellRange, type Camera } from './camera.js'
 import { drawMapPreview, sortedStructures, structureDepth, structureOrigin, type MapPreview } from './map-preview.js'
@@ -307,7 +316,7 @@ function collectUnits(
       // 叠在车体朝向上。分件模型的炮塔/炮管组用它做独立偏转（本项目自定，原版口径归战斗线）。
       turretFacing:
         (battle.facingByUnit[index] ?? 0) * (Math.PI / 4) +
-        (((unit.turretFacing - unit.facing + 32768) % 65536) - 32768) * ((Math.PI * 2) / 65536),
+        facingRadians(facingDelta(unit.turret.current, unit.hull.current)),
       slopePitch: tilt?.pitch,
       slopeRoll: tilt?.roll,
     })
