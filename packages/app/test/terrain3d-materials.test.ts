@@ -4,6 +4,7 @@ import { paletteColor, type Palette } from '@ra2web/formats'
 import {
   fallbackMaterial,
   sampleTerrainMaterials,
+  waterFrameAlbedos,
   TERRAIN_PBR_STYLE,
   type MaterialSampleInput,
 } from '../src/game/terrain3d-materials.js'
@@ -87,4 +88,28 @@ test('崖集分档采样：cliffSet 子块另立档位键，与 terrainType 桶�
   assert.ok(near(materials.get('waterCliff')!.albedo, [0, 1, 0]), 'waterCliff 档应只吃绿像素')
   assert.ok(near(materials.get('cliff')!.albedo, [0, 0, 1]), 'cliff 档应只吃蓝像素')
   assert.deepEqual(materials.get('Cliff')!.albedo, [1, 0, 0], 'terrainType 桶只应含未标崖集的子块')
+})
+
+test('水面帧色表：每帧取该帧像素均值，透明 0 不计', () => {
+  const frames = [
+    { pixelIndices: Uint8Array.from([1, 1]) }, // 纯红
+    { pixelIndices: Uint8Array.from([2, 2]) }, // 纯绿
+    { pixelIndices: Uint8Array.from([3]) },    // 纯蓝
+  ]
+  const table = waterFrameAlbedos(frames, TEST_PALETTE)
+  assert.equal(table.length, 3)
+  assert.deepEqual(table[0], [1, 0, 0])
+  assert.deepEqual(table[1], [0, 1, 0])
+  assert.deepEqual(table[2], [0, 0, 1])
+})
+
+test('水面帧色表：空像素帧给 undefined 占位（调用方回落前一帧）', () => {
+  const frames = [{ pixelIndices: Uint8Array.from([1]) }, { pixelIndices: Uint8Array.from([]) }]
+  const table = waterFrameAlbedos(frames, TEST_PALETTE)
+  assert.deepEqual(table[0], [1, 0, 0])
+  assert.equal(table[1], undefined)
+})
+
+test('水面帧色表：全空返回空表（缺 WaterSet 图时调用方走静态 Water 采样）', () => {
+  assert.equal(waterFrameAlbedos([], TEST_PALETTE).length, 0)
 })

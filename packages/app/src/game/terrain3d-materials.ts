@@ -101,3 +101,35 @@ export const TERRAIN_PBR_STYLE: Readonly<
 export function fallbackMaterial(): TerrainMaterial {
   return { albedo: [0.42, 0.46, 0.35], variance: [0.02, 0.02, 0.02] }
 }
+
+/** 水面一帧的输入：该帧地块全部子块的菱形像素索引（调用方按 WaterSet 逐帧凑）。 */
+export interface WaterFrameInput {
+  readonly pixelIndices: Uint8Array
+}
+
+/**
+ * 水面帧色表（任务 3）：WaterSet 每帧地块的真实像素 → 该帧 albedo 均值（证据=原版档案+调色板）。
+ * 原版水面 = 集内地块号逐帧轮播（`water-animation.ts` 口径不动）；这里给出逐帧颜色供 PBR 渲染取用——
+ * 机制仍是逐帧播放，只是把"贴图轮播"换成"材质帧"。
+ * 帧内全透明（0）→ undefined 占位（调用方回落前一有效帧）；全空输入返回空表。
+ */
+export function waterFrameAlbedos(
+  frames: readonly WaterFrameInput[],
+  palette: Palette,
+): readonly (readonly [number, number, number] | undefined)[] {
+  return frames.map((frame) => {
+    let r = 0
+    let g = 0
+    let b = 0
+    let count = 0
+    for (const index of frame.pixelIndices) {
+      if (index === 0) continue
+      const color = paletteColor(palette, index)
+      r += color.r / 255
+      g += color.g / 255
+      b += color.b / 255
+      count++
+    }
+    return count === 0 ? undefined : ([r / count, g / count, b / count] as const)
+  })
+}
