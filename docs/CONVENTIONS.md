@@ -75,3 +75,10 @@ Ghidra 对 `__fastcall`/`__thiscall`（ECX/EDX 传参）的伪代码**寄存器-
 
 反编译器伪代码只作线索，不得单独支撑"字段 X 存于偏移 Y"的结论。两层冲突时以
 Read_INI 实录为准，汇编定运行时行为；冲突本身记进证据文件（勘误链）。
+
+**实际战绩（2026-10-13 战斗线，两次同源纠错的案例指针）**：本注记当天回本两次——
+① `AnimType+0x2f0` 被反编译 fastcall 混淆显示为 Warhead，键解析实录纠正为 +0x2c8
+（后又被双源印证推翻为平行 schema，见下）；② 真解析器 fn-4258d3 的键表证明 `0x2c4`
+是 ExpireAnim 而非 DamageRadius、`Warhead=→+0x2f0`。两次都因"键解析实录 > 反编译
+寄存器推断"而避免硬编错误结论。证据文件：work/decompiled/ra2-engine/fn-4258d3.c、
+combat-fireloop-notes.md「终九」节，ENGINE-MAP「爆炸伤害载体」勘误块。
