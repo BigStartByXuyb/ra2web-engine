@@ -60,7 +60,7 @@ const ranked = [...histogram.values()].sort((left, right) => right.count - left.
 const isAccentHue = (color: readonly [number, number, number]): boolean =>
   color[0] - Math.max(color[1], color[2]) > 40
 const greyRanked = ranked.filter((entry) => !isAccentHue(entry.color))
-const main = greyRanked[0] ?? ranked[0]
+const main = (greyRanked[0] ?? ranked[0])!
 const mainLum = luminance(main.color)
 /** 在某个亮度区间里找出现最多的那一簇（只在灰阶簇里找）。 */
 const pickWhere = (
