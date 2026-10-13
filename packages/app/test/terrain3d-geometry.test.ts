@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { MapCell, MapFile } from '@ra2web/formats'
 import type { LandTypeName } from '@ra2web/assets'
-import type { TerrainMaterial } from '../src/game/terrain3d-materials.js'
+import type { TerrainMaterial, TerrainMaterialKey } from '../src/game/terrain3d-materials.js'
 import { buildMapPreview, type MapPreview } from '../src/game/map-preview.js'
 import { buildTerrain3dGeometry, STRIDE } from '../src/game/terrain3d-geometry.js'
 
@@ -28,8 +28,8 @@ function flatMap(width: number, height: number, zOf: (x: number, y: number) => n
 const allClear = () => 'Clear' as const
 const noMaterials = undefined
 
-test('常量：交错步长 11', () => {
-  assert.equal(STRIDE, 11)
+test('常量：交错步长 12', () => {
+  assert.equal(STRIDE, 12)
 })
 
 test('平地图：只有顶面，z 全 0，法线全朝上', () => {
@@ -163,4 +163,39 @@ test('岸线湿边：Beach 与 Water 共享的角压暗 ×0.85', () => {
   // 先与 Water 混合 (0.5,0.4,0.8) 再整角压暗 ×0.85
   assert.ok(near(albedo(1), [0.425, 0.34, 0.68]), `E 角应先混合再压暗，实际 ${albedo(1)}`)
   assert.ok(near(albedo(0), [1.0, 0.8, 0.6]), `W 角应保持纯 Beach，实际 ${albedo(0)}`)
+})
+
+test('崖壁选材：cliffKindAt 命中水崖集 → 墙用 waterCliff 档 albedo；未命中回落本格材质', () => {
+  const materials = new Map<TerrainMaterialKey, TerrainMaterial>([
+    ['Clear', { albedo: [1, 1, 1] as const, variance: [0, 0, 0] as const }],
+    ['waterCliff', { albedo: [0.1, 0.2, 0.3] as const, variance: [0.02, 0.02, 0.02] as const }],
+  ])
+  // (x,0) 高 1、(x,1) 高 0 → 南墙存在；cliffKindAt 只对 (0,0) 命中
+  const data = buildTerrain3dGeometry(
+    flatMap(2, 2, (_x, y) => (y === 0 ? 1 : 0)),
+    10,
+    () => 'Clear',
+    materials,
+    (x, y) => (x === 0 && y === 0 ? 'waterCliff' : undefined),
+  )
+  const albedo = (vertex: number) => [0, 1, 2].map((c) => data.vertices[vertex * STRIDE + 6 + c]!)
+  const near = (v: number[], want: number[]) => v.every((c, i) => Math.abs(c - want[i]!) < 1e-6)
+  // 面序：cell(0,0) 顶面(面0)、cell(0,0) 南墙(面1)、cell(1,0) 顶面(面2)、cell(1,0) 南墙(面3)…
+  // 面1 = (0,0) 的墙：应吃 waterCliff；面3 = (1,0) 的墙：未命中 → 回落 Clear（墙 roughness 仍 Cliff 档）
+  assert.ok(near(albedo(6), [0.1, 0.2, 0.3]), `(0,0) 墙应用水崖集档，实际 ${albedo(6)}`)
+  assert.ok(near(albedo(3 * 6), [1, 1, 1]), `(1,0) 墙应回落本格 Clear，实际 ${albedo(18)}`)
+})
+
+test('坡道：rampTypeAt 给坡道时顶面成斜面，与高邻格之间无墙', () => {
+  const data = buildTerrain3dGeometry(
+    flatMap(2, 1, (x) => x),
+    10,
+    allClear,
+    noMaterials,
+    undefined,
+    (x, y) => (x === 0 && y === 0 ? 1 : 0),
+  )
+  assert.equal(data.vertexCount / 6, 2, '坡格接高格应只有两个顶面、零崖壁')
+  const zs = [0, 1, 2, 3].map((c) => data.vertices[c * STRIDE + 2]!)
+  assert.ok(new Set(zs).size > 1, `坡面四角 z 应不全同，实际 ${zs}`)
 })

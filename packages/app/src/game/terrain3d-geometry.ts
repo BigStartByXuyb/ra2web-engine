@@ -1,8 +1,8 @@
 import { buildTerrainMesh, RA2_ISO_VIEW, type TerrainFace } from '@ra2web/render'
 import type { MapCell } from '@ra2web/formats'
-import type { LandTypeName } from '@ra2web/assets'
+import type { CliffSetKind, LandTypeName } from '@ra2web/assets'
 import type { MapPreview } from './map-preview.js'
-import { fallbackMaterial, TERRAIN_PBR_STYLE, type TerrainMaterial } from './terrain3d-materials.js'
+import { fallbackMaterial, TERRAIN_PBR_STYLE, type TerrainMaterial, type TerrainMaterialKey } from './terrain3d-materials.js'
 
 /**
  * 地貌线任务 1：把 `buildTerrainMesh` 的面片转成带 z/法线/材质的 3D 顶点。
@@ -11,10 +11,11 @@ import { fallbackMaterial, TERRAIN_PBR_STYLE, type TerrainMaterial } from './ter
  * 这里只做换算。face corner 是"世界 y 已减 z"的屏幕坐标，反推 `worldY = corner.y + z_corner`；
  * 由此崖壁上下角 worldY 自动相等（竖直面）—— 单测钉的就是这条。
  *
- * 顶点交错 11 float：pos(3) + normal(3) + albedo(3) + roughness(1) + variance(1)。
+ * 顶点交错 12 float：pos(3) + normal(3) + albedo(3) + roughness(1) + variance(1) + topZ(1)。
+ * topZ = 该面顶部的 z（墙面用来做「距崖顶」的接触带压暗；顶面同 z，无影响）。
  */
 
-export const STRIDE = 11
+export const STRIDE = 12
 
 export interface Terrain3dVertexData {
   readonly vertices: Float32Array
@@ -25,7 +26,9 @@ export function buildTerrain3dGeometry(
   preview: MapPreview,
   zStep: number,
   landTypeAt: (cellX: number, cellY: number) => LandTypeName | 'Unknown',
-  materials: ReadonlyMap<LandTypeName, TerrainMaterial> | undefined,
+  materials: ReadonlyMap<TerrainMaterialKey, TerrainMaterial> | undefined,
+  cliffKindAt?: (cellX: number, cellY: number) => CliffSetKind | undefined,
+  rampTypeAt?: (cellX: number, cellY: number) => number,
 ): Terrain3dVertexData {
   const cells = [...preview.cellByIndex.values()] as readonly MapCell[]
   const levelByIndex = new Map<number, number>()
@@ -35,14 +38,15 @@ export function buildTerrain3dGeometry(
     zStep,
     cells,
     levelAt: (cellX, cellY) => levelByIndex.get(cellY * preview.width + cellX),
+    rampTypeAt,
   })
   const chunks: number[][] = []
   let total = 0
   // 边界混合（本项目自定）：共享角把相邻格 albedo 均值，地块边界不再是硬色块；岸线湿边在角级做
   const blends = buildCornerBlends(preview, landTypeAt, materials)
   for (const face of faces) {
-    const zs = faceZs(face, levelByIndex, preview, zStep)
-    const material = materialFor(face, landTypeAt, materials)
+    const zs = face.zs
+    const material = materialFor(face, landTypeAt, materials, cliffKindAt)
     const faceCorners =
       face.kind === 'top' ? cornerKeys(face.cellX, face.cellY) : undefined
     for (const index of [0, 1, 2, 0, 2, 3]) {
@@ -70,6 +74,7 @@ export function buildTerrain3dGeometry(
         albedo[2],
         material.roughness,
         material.variance[0],
+        faceTopZ(face, zs),
       ])
       total++
     }
@@ -83,26 +88,19 @@ export function buildTerrain3dGeometry(
   return { vertices, vertexCount: total }
 }
 
-/** 每角 z：顶面四角同高；崖壁下两角 = 上两角 z − drop（drop 由 y 差恢复，见模块注释）。 */
-function faceZs(
-  face: TerrainFace,
-  levelByIndex: Map<number, number>,
-  preview: MapPreview,
-  zStep: number,
-): [number, number, number, number] {
-  const zTop = (levelByIndex.get(face.cellY * preview.width + face.cellX) ?? 0) * zStep
-  if (face.kind === 'top') return [zTop, zTop, zTop, zTop]
-  const drop = face.corners[2]!.y - face.corners[1]!.y
-  return [zTop, zTop, zTop - drop, zTop - drop]
-}
-
 function materialFor(
   face: TerrainFace,
   landTypeAt: (cellX: number, cellY: number) => LandTypeName | 'Unknown',
-  materials: ReadonlyMap<LandTypeName, TerrainMaterial> | undefined,
+  materials: ReadonlyMap<TerrainMaterialKey, TerrainMaterial> | undefined,
+  cliffKindAt?: (cellX: number, cellY: number) => CliffSetKind | undefined,
 ): { albedo: readonly [number, number, number]; roughness: number; variance: readonly [number, number, number] } {
   const landType = landTypeAt(face.cellX, face.cellY)
-  const sampled = (landType !== 'Unknown' ? materials?.get(landType) : undefined) ?? fallbackMaterial()
+  // 墙面优先崖集档（CliffSet/WaterCliffs/DestroyableCliffs 各自采样，任务 2），未命中回落本格类型
+  const cliffKind = face.kind === 'wall' ? cliffKindAt?.(face.cellX, face.cellY) : undefined
+  const sampled =
+    (cliffKind !== undefined ? materials?.get(cliffKind) : undefined) ??
+    (landType !== 'Unknown' ? materials?.get(landType) : undefined) ??
+    fallbackMaterial()
   // 崖壁一律 Cliff 档 roughness（任务 2「崖壁与过渡」再细化）；顶面按格类型，未认识编号回 Clear
   const style =
     (face.kind === 'wall' ? TERRAIN_PBR_STYLE.Cliff : landType !== 'Unknown' ? TERRAIN_PBR_STYLE[landType] : undefined) ??
@@ -151,7 +149,7 @@ function cornerKeys(cellX: number, cellY: number): [number, number][] {
 function buildCornerBlends(
   preview: MapPreview,
   landTypeAt: (cellX: number, cellY: number) => LandTypeName | 'Unknown',
-  materials: ReadonlyMap<LandTypeName, TerrainMaterial> | undefined,
+  materials: ReadonlyMap<TerrainMaterialKey, TerrainMaterial> | undefined,
 ): Map<string, { albedo: [number, number, number]; hasWater: boolean }> {
   const sums = new Map<string, { r: number; g: number; b: number; n: number; water: number }>()
   for (const cell of preview.cellByIndex.values()) {
@@ -175,4 +173,9 @@ function buildCornerBlends(
     blends.set(key, { albedo: [r, g, b], hasWater: bucket.water > 0 })
   }
   return blends
+}
+
+/** 该面顶部的 z：墙面取上两角（顺序 上左/上右/下右/下左），顶面四角同高取 zs[0]。 */
+function faceTopZ(face: TerrainFace, zs: readonly number[]): number {
+  return face.kind === 'wall' ? Math.max(zs[0]!, zs[1]!) : zs[0]!
 }

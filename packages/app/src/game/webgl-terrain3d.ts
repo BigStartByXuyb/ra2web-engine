@@ -7,7 +7,8 @@ import {
 } from '@ra2web/assets'
 import type { Camera } from './camera.js'
 import { viewScale } from './camera.js'
-import type { MapCell, MapPreview } from './map-preview.js'
+import type { MapPreview } from './map-preview.js'
+import type { MapCell } from '@ra2web/formats'
 import { buildTerrain3dGeometry, type Terrain3dVertexData } from './terrain3d-geometry.js'
 import { sampleTerrainMaterials, type MaterialSampleInput } from './terrain3d-materials.js'
 import { TERRAIN_Z_STEP_PX } from './terrain3d-zstep.js'
@@ -40,7 +41,14 @@ export function createTerrain3dScene(
   const palette = loadTheaterPalette(archiveBytes, theaterName, 'iso')
   if (!theater || !palette) return undefined
   const materials = sampleTerrainMaterials(theaterSubTiles(theater), palette)
-  const geometry = buildTerrain3dGeometry(preview, TERRAIN_Z_STEP_PX, (x, y) => landTypeAt(preview, theater, x, y), materials)
+  const geometry = buildTerrain3dGeometry(
+    preview,
+    TERRAIN_Z_STEP_PX,
+    (x, y) => landTypeAt(preview, theater, x, y),
+    materials,
+    (x, y) => cliffKindAt(preview, theater, x, y),
+    (x, y) => rampTypeAt(preview, theater, x, y),
+  )
   const render = createTerrain3dRenderer(gl, geometry)
   if (!render) return undefined
   const scene: Terrain3dScene = { render }
@@ -55,7 +63,8 @@ function* theaterSubTiles(theater: TheaterAssets): Iterable<MaterialSampleInput>
     if (!tile) continue
     for (const sub of tile.subTiles) {
       if (sub.isEmpty) continue
-      yield { terrainType: sub.terrainType, pixelIndices: sub.pixels }
+      const cliffSet = theater.isCliffSetTile(index)
+      yield { terrainType: sub.terrainType, pixelIndices: sub.pixels, cliffSet }
     }
   }
 }
@@ -76,12 +85,33 @@ function landTypeAt(
   return landTypeOfTerrainType(sub.terrainType) ?? 'Unknown'
 }
 
+/** 一格的坡道类型（任务 2）：TMP 子块 rampType 字节，缺图/越界按 0（非坡道）。 */
+function rampTypeAt(preview: MapPreview, theater: TheaterAssets, cellX: number, cellY: number): number {
+  const cell = preview.cellByIndex.get(cellY * preview.width + cellX)
+  if (!cell) return 0
+  const sub = theater.loadTile((cell as MapCell).tileIndex)?.subTiles[(cell as MapCell).subTile]
+  return sub?.rampType ?? 0
+}
+
+/** 一格的崖集档位（任务 2）：崖壁材质按 CliffSet/WaterCliffs/DestroyableCliffs 分档。 */
+function cliffKindAt(
+  preview: MapPreview,
+  theater: TheaterAssets,
+  cellX: number,
+  cellY: number,
+): ReturnType<TheaterAssets['isCliffSetTile']> {
+  const cell = preview.cellByIndex.get(cellY * preview.width + cellX)
+  if (!cell) return undefined
+  return theater.isCliffSetTile((cell as MapCell).tileIndex)
+}
+
 const VERTEX_SHADER = `
 attribute vec3 a_position;
 attribute vec3 a_normal;
 attribute vec3 a_albedo;
 attribute float a_roughness;
 attribute float a_variance;
+attribute float a_topZ;
 uniform vec2 u_camera;
 uniform float u_scale;
 uniform vec2 u_viewport;
@@ -90,6 +120,8 @@ varying vec3 v_albedo;
 varying float v_roughness;
 varying float v_variance;
 varying vec2 v_world;
+varying float v_z;
+varying float v_topZ;
 void main() {
   // 地形顶点已经是**世界系**（worldX、真实 worldY、抬升 z）—— 与 buildTerrainMesh 的等距
   // 世界坐标同源，直接 (x, y − z) 落屏。不能照抄 webgl-unit3d 的格空间变换 (x−y, (x+y)/2−z)：
@@ -102,6 +134,8 @@ void main() {
   v_roughness = a_roughness;
   v_variance = a_variance;
   v_world = a_position.xy;
+  v_z = a_position.z;
+  v_topZ = a_topZ;
 }`
 
 const FRAGMENT_SHADER = `
@@ -112,6 +146,8 @@ varying vec3 v_albedo;
 varying float v_roughness;
 varying float v_variance;
 varying vec2 v_world;
+varying float v_z;
+varying float v_topZ;
 float hash(vec2 p) {
   return fract(sin(dot(p + u_noiseSeed, vec2(127.1, 311.7))) * 43758.5453);
 }
@@ -127,6 +163,13 @@ void main() {
   float noise = valueNoise(v_world * 0.05) * 0.65 + valueNoise(v_world * 0.21) * 0.35;
   vec3 albedo = v_albedo + (noise - 0.5) * 2.0 * v_variance;
   vec3 normal = normalize(v_normal);
+  // 墙面岩理（本项目自定，任务 2）：沿墙走向的竖向条纹 + 距崖顶约一级内的接触带压暗
+  float wallMask = 1.0 - smoothstep(0.5, 0.9, abs(normal.z));
+  float along = dot(v_world, vec2(-normal.y, normal.x));
+  float stripe = valueNoise(vec2(along * 0.12, v_z * 0.3));
+  albedo *= mix(1.0, 0.8 + 0.3 * stripe, wallMask);
+  float dropBelowTop = v_topZ - v_z;
+  albedo *= mix(1.0, mix(0.72, 1.0, smoothstep(0.0, 10.0, dropBelowTop)), wallMask);
   vec3 light = normalize(vec3(-0.25, 0.42, 0.87));
   vec3 view = normalize(vec3(1.0, 1.0, 1.0));
   float lambert = max(0.0, dot(normal, light));
@@ -149,7 +192,7 @@ function compileShader(gl: WebGLRenderingContext, type: number, source: string):
   return shader
 }
 
-/** 顶点属性步长 44 字节 = pos(3) + normal(3) + albedo(3) + roughness(1) + variance(1) 个 float。 */
+/** 顶点属性步长 48 字节 = pos(3) + normal(3) + albedo(3) + roughness(1) + variance(1) + topZ(1) 个 float。 */
 function createTerrain3dRenderer(
   gl: WebGLRenderingContext,
   geometry: Terrain3dVertexData,
@@ -175,6 +218,7 @@ function createTerrain3dRenderer(
   const albedoLocation = gl.getAttribLocation(program, 'a_albedo')
   const roughnessLocation = gl.getAttribLocation(program, 'a_roughness')
   const varianceLocation = gl.getAttribLocation(program, 'a_variance')
+  const topZLocation = gl.getAttribLocation(program, 'a_topZ')
   const cameraLocation = gl.getUniformLocation(program, 'u_camera')
   const scaleLocation = gl.getUniformLocation(program, 'u_scale')
   const viewportLocation = gl.getUniformLocation(program, 'u_viewport')
@@ -188,15 +232,17 @@ function createTerrain3dRenderer(
     gl.uniform2f(noiseSeedLocation, 0, 0)
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
     gl.enableVertexAttribArray(positionLocation)
-    gl.vertexAttribPointer(positionLocation, 3, gl.FLOAT, false, 44, 0)
+    gl.vertexAttribPointer(positionLocation, 3, gl.FLOAT, false, 48, 0)
     gl.enableVertexAttribArray(normalLocation)
-    gl.vertexAttribPointer(normalLocation, 3, gl.FLOAT, false, 44, 12)
+    gl.vertexAttribPointer(normalLocation, 3, gl.FLOAT, false, 48, 12)
     gl.enableVertexAttribArray(albedoLocation)
-    gl.vertexAttribPointer(albedoLocation, 3, gl.FLOAT, false, 44, 24)
+    gl.vertexAttribPointer(albedoLocation, 3, gl.FLOAT, false, 48, 24)
     gl.enableVertexAttribArray(roughnessLocation)
-    gl.vertexAttribPointer(roughnessLocation, 1, gl.FLOAT, false, 44, 36)
+    gl.vertexAttribPointer(roughnessLocation, 1, gl.FLOAT, false, 48, 36)
     gl.enableVertexAttribArray(varianceLocation)
-    gl.vertexAttribPointer(varianceLocation, 1, gl.FLOAT, false, 44, 40)
+    gl.vertexAttribPointer(varianceLocation, 1, gl.FLOAT, false, 48, 40)
+    gl.enableVertexAttribArray(topZLocation)
+    gl.vertexAttribPointer(topZLocation, 1, gl.FLOAT, false, 48, 44)
     // 地形不透明：关混合整批画；画完恢复 —— 后续倒影/阴影/物体 pass 依赖混合
     gl.disable(gl.BLEND)
     gl.drawArrays(gl.TRIANGLES, 0, geometry.vertexCount)

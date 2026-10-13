@@ -1,5 +1,5 @@
 import { paletteColor, type Palette } from '@ra2web/formats'
-import { landTypeOfTerrainType, type LandTypeName } from '@ra2web/assets'
+import { landTypeOfTerrainType, type CliffSetKind, type LandTypeName } from '@ra2web/assets'
 
 /**
  * 地貌线任务 1：地块类型 → 程序化 PBR 材质的**颜色证据**。
@@ -15,7 +15,12 @@ export interface MaterialSampleInput {
   readonly terrainType: number
   /** 该子块菱形像素的调色板索引；0 = 透明（原版约定），不计入统计 */
   readonly pixelIndices: Uint8Array
+  /** 该子块所属地块命中崖集档位时给出（任务 2）：样本只进该档位桶，不再进 terrainType 桶 */
+  readonly cliffSet?: CliffSetKind | undefined
 }
+
+/** 材质键：地块类型，或崖集档位（任务 2：崖壁按 CliffSet/WaterCliffs/DestroyableCliffs 分档采样）。 */
+export type TerrainMaterialKey = LandTypeName | CliffSetKind
 
 /** 一种地块类型的采样结果：albedo 均值与每通道标准差（0..1 线性）。 */
 export interface TerrainMaterial {
@@ -27,16 +32,17 @@ export interface TerrainMaterial {
 export function sampleTerrainMaterials(
   inputs: Iterable<MaterialSampleInput>,
   palette: Palette,
-): ReadonlyMap<LandTypeName, TerrainMaterial> {
+): ReadonlyMap<TerrainMaterialKey, TerrainMaterial> {
   const sums = new Map<
-    LandTypeName,
+    TerrainMaterialKey,
     { count: number; r: number; g: number; b: number; rr: number; gg: number; bb: number }
   >()
   for (const input of inputs) {
-    const landType = landTypeOfTerrainType(input.terrainType)
-    if (!landType) continue
-    let bucket = sums.get(landType)
-    if (!bucket) sums.set(landType, (bucket = { count: 0, r: 0, g: 0, b: 0, rr: 0, gg: 0, bb: 0 }))
+    // 命中崖集的地块只进档位桶：崖壁材质要的是崖面美术的色，不能与地面类型均色互混
+    const key: TerrainMaterialKey | undefined = input.cliffSet ?? landTypeOfTerrainType(input.terrainType)
+    if (!key) continue
+    let bucket = sums.get(key)
+    if (!bucket) sums.set(key, (bucket = { count: 0, r: 0, g: 0, b: 0, rr: 0, gg: 0, bb: 0 }))
     for (const index of input.pixelIndices) {
       if (index === 0) continue
       const color = paletteColor(palette, index)
@@ -52,7 +58,7 @@ export function sampleTerrainMaterials(
       bucket.bb += b * b
     }
   }
-  const materials = new Map<LandTypeName, TerrainMaterial>()
+  const materials = new Map<TerrainMaterialKey, TerrainMaterial>()
   for (const [landType, bucket] of sums) {
     if (bucket.count === 0) continue
     const mean = [bucket.r / bucket.count, bucket.g / bucket.count, bucket.b / bucket.count]

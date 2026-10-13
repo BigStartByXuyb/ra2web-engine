@@ -153,3 +153,54 @@ describe('坡道插值', () => {
     assert.equal(interpolateRampHeight(0.75, 0.5, 1), 0.75)
   })
 })
+
+describe('坡道（rampTypeAt，任务 2 加法扩展）', () => {
+  it('坡道连接高低两格：坡面顶为斜面，两侧都不生成崖壁', () => {
+    const faces = buildTerrainMesh({
+      view: RA2_ISO_VIEW,
+      zStep: Z_STEP,
+      cells: [
+        { cellX: 0, cellY: 0 },
+        { cellX: 1, cellY: 0 },
+      ],
+      levelAt: (x, y) => new Map([['0,0', 0], ['1,0', 1]]).get(`${x},${y}`),
+      // rampType 1：[0,0,1,1] 四角=0,0,1,1 → 角序映射后 E 侧两角抬 1 级
+      rampTypeAt: (x, y) => (x === 0 && y === 0 ? 1 : 0),
+    })
+    assert.equal(faces.filter((face) => face.kind === 'wall').length, 0, '坡道右侧接高格、左侧无邻格，都不该有墙')
+    const rampTop = faces.find((face) => face.kind === 'top' && face.cellX === 0)!
+    assert.notEqual(rampTop.zs[0], rampTop.zs[1], '坡面四角 z 应不全同（斜面）')
+    assert.equal(rampTop.zs[1], Z_STEP)
+    assert.equal(rampTop.zs[0], 0)
+  })
+
+  it('对照：同几何没有 rampTypeAt 时是平顶 + 一格崖壁（证明坡道判据确实改变了几何）', () => {
+    const faces = buildTerrainMesh({
+      view: RA2_ISO_VIEW,
+      zStep: Z_STEP,
+      cells: [
+        { cellX: 0, cellY: 0 },
+        { cellX: 1, cellY: 0 },
+      ],
+      levelAt: (x, y) => new Map([['0,0', 0], ['1,0', 1]]).get(`${x},${y}`),
+    })
+    assert.equal(faces.filter((face) => face.kind === 'wall').length, 1)
+    const flatTop = faces.find((face) => face.kind === 'top' && face.cellX === 0)!
+    assert.deepEqual(flatTop.zs, [0, 0, 0, 0])
+  })
+
+  it('坡道下行方向（低邻格）不生成假墙', () => {
+    const faces = buildTerrainMesh({
+      view: RA2_ISO_VIEW,
+      zStep: Z_STEP,
+      cells: [
+        { cellX: 0, cellY: 0 },
+        { cellX: -1, cellY: 0 },
+      ],
+      levelAt: (x, y) => new Map([['0,0', 0], ['-1,0', 0]]).get(`${x},${y}`),
+      rampTypeAt: (x) => (x === 0 ? 1 : 0),
+    })
+    // 坡格高侧朝 E、低侧朝 W；W 邻同高 0 级 → 无墙（坡面铺到地平）
+    assert.equal(faces.filter((face) => face.kind === 'wall').length, 0)
+  })
+})

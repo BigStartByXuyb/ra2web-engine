@@ -75,3 +75,16 @@ test('自定 PBR 参数表覆盖全部 11 种地块类型，roughness 落在 0..
 test('空输入返回空表（调用方走回退档）', () => {
   assert.equal(sampleTerrainMaterials([], TEST_PALETTE).size, 0)
 })
+
+test('崖集分档采样：cliffSet 子块另立档位键，与 terrainType 桶互不混', () => {
+  const inputs: MaterialSampleInput[] = [
+    { terrainType: 15, pixelIndices: Uint8Array.from([1]) }, // Cliff 型像素 → Cliff 桶
+    { terrainType: 15, pixelIndices: Uint8Array.from([2]), cliffSet: 'waterCliff' }, // 水崖集 → waterCliff 桶
+    { terrainType: 15, pixelIndices: Uint8Array.from([3]), cliffSet: 'cliff' },
+  ]
+  const materials = sampleTerrainMaterials(inputs, TEST_PALETTE)
+  const near = (v: readonly number[], want: number[]) => v.every((c, i) => Math.abs(c - want[i]!) < 1e-6)
+  assert.ok(near(materials.get('waterCliff')!.albedo, [0, 1, 0]), 'waterCliff 档应只吃绿像素')
+  assert.ok(near(materials.get('cliff')!.albedo, [0, 0, 1]), 'cliff 档应只吃蓝像素')
+  assert.deepEqual(materials.get('Cliff')!.albedo, [1, 0, 0], 'terrainType 桶只应含未标崖集的子块')
+})
