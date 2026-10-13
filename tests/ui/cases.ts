@@ -192,6 +192,34 @@ export const cases: readonly UiCase[] = [
     },
   },
   {
+    name: '崖图 terrain3d：开关上屏且确定性（MULTI.MIX 第 7 张，218 格悬崖）',
+    async run(session) {
+      const base = await session.capture({
+        name: 'cliff-base',
+        map: 'MULTI.MIX',
+        mapIndex: 7,
+        query: 'renderer=webgl&units3d=0&anim=0',
+      })
+      const terrain = await session.capture({
+        name: 'cliff-terrain3d',
+        map: 'MULTI.MIX',
+        mapIndex: 7,
+        query: 'renderer=webgl&terrain3d=1&units3d=0&anim=0',
+      })
+      const diff = diffImages(base, terrain)
+      assert.ok(diff.changed >= 500, `崖图开 terrain3d 只改了 ${diff.changed} 像素，等于没上屏`)
+      const repeat = await session.capture({
+        name: 'cliff-terrain3d-repeat',
+        map: 'MULTI.MIX',
+        mapIndex: 7,
+        query: 'renderer=webgl&terrain3d=1&units3d=0&anim=0',
+      })
+      const repeatDiff = diffImages(terrain, repeat)
+      assert.ok(repeatDiff.changed === 0, `崖图 terrain3d 两次运行差 ${repeatDiff.changed} 像素（坡道/崖壁必须确定性）`)
+      return `崖图 terrain3d 改变 ${diff.changed} 像素`
+    },
+  },
+  {
     name: '雨夜后处理作用在整幅画面上',
     async run(session) {
       const glWet = await session.capture({
