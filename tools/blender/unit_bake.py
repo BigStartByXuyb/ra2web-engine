@@ -327,13 +327,15 @@ def finish_and_export_baked(
     pivots: dict[str, tuple[float, float, float]] | None = None,
     cube_size_overrides: dict[str, float] | None = None,
     reference_glb: str | None = None,
+    deck_z: float | None = None,
     bake_size: int = 512,
 ) -> int:
     """写实线的收口：分件合并 → 跨件 UV 打包 → 烘焙 → 对齐 → 自检 → 枢轴 → 导出。
 
     buckets 给了就按前缀分件（root/hull/turret/barrel 层级，引擎按节点名做炮塔
-    转向与炮管俯仰），不给就合为单件 UNIT。自检三条与 unit_build.finish_and_export
-    同一口径：车长（±9，炮管比参考长的已知差）、屏幕轮廓（±1.5px）、横向看穿缝。
+    转向与炮管俯仰），不给就合为单件 UNIT。deck_z 给了就检查"炮塔体底 ≥ 炮塔足迹
+    内甲板件顶 + 0.30"（P2 配合公差：有炮塔的单位量产通用，甲板件伸进足迹下方必穿插）。
+    自检三条与 unit_build.finish_and_export 同一口径：车长、屏幕轮廓、横向看穿缝。
     """
     from unit_build import (
         LENGTH_TOLERANCE,
@@ -343,6 +345,38 @@ def finish_and_export_baked(
         join_and_smooth,
     )
     from unit_audit import measure, screen_extremes, see_through_bands, silhouette
+
+    # 炮塔-甲板配合公差（分件前按部件名查明——join 后名字就没了）
+    clearance_problems: list[str] = []
+    if buckets and deck_z is not None:
+        turret_prefixes = buckets.get("turret", ())
+        turret_parts = [
+            obj for obj in bpy.context.scene.objects if obj.type == "MESH" and obj.name.startswith(turret_prefixes)
+        ]
+        turret_points = [obj.matrix_world @ vertex.co for obj in turret_parts for vertex in obj.data.vertices]
+        body = [point for point in turret_points if point.z >= deck_z]
+        if body:
+            turret_low = min(point.z for point in body)
+            fx = (min(p.x for p in turret_points), max(p.x for p in turret_points))
+            fy = (min(p.y for p in turret_points), max(p.y for p in turret_points))
+            print(f"[建车] 炮塔配合：足迹 x[{fx[0]:.1f}..{fx[1]:.1f}] y[{fy[0]:.1f}..{fy[1]:.1f}]，体底 z={turret_low:.2f}")
+            barrel_prefixes = buckets.get("barrel", ())
+            for obj in bpy.context.scene.objects:
+                if obj.type != "MESH" or obj.name.startswith(turret_prefixes) or obj.name.startswith(barrel_prefixes):
+                    continue
+                points = [obj.matrix_world @ vertex.co for vertex in obj.data.vertices]
+                top = max(point.z for point in points)
+                if top <= deck_z:
+                    continue
+                if max(point.x for point in points) < fx[0] or min(point.x for point in points) > fx[1]:
+                    continue
+                if max(point.y for point in points) < fy[0] or min(point.y for point in points) > fy[1]:
+                    continue
+                gap = turret_low - top
+                mark = "  ← 低于 0.30" if gap < 0.3 - 1e-6 else ""
+                print(f"[建车] 炮塔配合：{obj.name:<16} 顶 z={top:.2f}  间隙 {gap:+.2f}{mark}")
+                if gap < 0.3 - 1e-6:
+                    clearance_problems.append(f"炮塔配合：{obj.name} 顶 z={top:.2f} 低于炮塔体底 {turret_low:.2f} 不足 0.30")
 
     if buckets:
         built = join_buckets(buckets)
@@ -368,7 +402,7 @@ def finish_and_export_baked(
     low, high = measure()
     size = high - low
 
-    problems: list[str] = []
+    problems: list[str] = list(clearance_problems)
     reference_size = reference_high - reference_low
     if abs(size.x - reference_size.x) > LENGTH_TOLERANCE:
         problems.append(f"车长 {size.x:.2f} 偏离参考 {reference_size.x:.2f}（上限 {LENGTH_TOLERANCE}）")

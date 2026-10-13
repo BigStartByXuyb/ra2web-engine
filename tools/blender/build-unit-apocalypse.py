@@ -164,9 +164,11 @@ add_box("RearPlate", (-24.6, 0.0, 7.2), (2.6, sponson_inner * 2 - 1.9, 7.0), arm
 # 上层（第二层）：几乎全宽（|y|90≈12.5），天启的上层就是巨型堡垒
 add_box("Superstructure", (-2.0, 0.0, (hull_top + deck_top) / 2), (44.0, 25.2, deck_top - hull_top), armor_light, bevel=0.55, taper=0.995)
 add_box("FrontDeck", (17.0, 0.0, deck_top + 0.3), (8.0, 22.0, 0.6), armor_light, bevel=0.25)
-add_box("EngineDeck", (-19.0, 0.0, deck_top + 0.4), (9.0, 21.0, 0.9), armor_light, bevel=0.3)
-for index in range(6):
-    add_box("Grille" + str(index), (-22.6 + index * 1.75, 0.0, deck_top + 0.85), (1.0, 17.0, 0.3), bare_metal)
+# 发动机甲板与栅格收在炮塔足迹（x≈-16.5）之后：P2 配合公差——甲板件顶高于
+# 炮塔体底-0.3 且伸进足迹下方必穿插（实测 EngineDeck/末位栅格曾 -1.00）
+add_box("EngineDeck", (-21.3, 0.0, deck_top + 0.4), (7.0, 21.0, 0.9), armor_light, bevel=0.3)
+for index in range(4):
+    add_box("Grille" + str(index), (-23.05 + index * 2.0, 0.0, deck_top + 0.85), (1.0, 17.0, 0.3), bare_metal)
 # 首上机枪与车灯
 add_cylinder("BowMgMount", (23.4, 5.8, 8.2), 1.05, 1.7, armor_light, axis="X", vertices=16, bevel=0.15)
 add_cylinder("BowMgBarrel", (25.1, 5.8, 8.2), 0.34, 2.8, bare_metal, axis="X", vertices=12)
@@ -261,6 +263,7 @@ sys.exit(
         pivots={"turret": (-5.0, 0.0, 14.3), "barrel": (8.9, 0.0, 14.9)},
         cube_size_overrides={"turret": 192.0},
         reference_glb=reference_glb,
+        deck_z=deck_top,
         bake_size=512,
     )
 )

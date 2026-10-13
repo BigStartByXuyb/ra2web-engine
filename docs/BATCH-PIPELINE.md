@@ -51,5 +51,8 @@ npx tsx tools/dump-soviet-units.ts D:/AI_GAME/work/assets/pack/RA2.MIX \
 
 - 分件层级 root/hull/turret/barrel，枢轴=炮塔环中心/耳轴（脚本固化）
 - 分层剖面对照 mean|Δ|>2 拒导出；屏幕轮廓按车长差补偿
+- **炮塔配合公差：炮塔体底 ≥ 炮塔 XY 足迹内甲板件顶 + 0.30 体素**（甲板平面本身与
+  炮塔环是设计接口，不计入；`finish_and_export_baked(deck_z=...)` 按部件名自动查，
+  低于 0.30 拒导出——P2 实测 HTNK −0.60 / APOC −1.00 均由此抓获）
 - 贴图内嵌、逐面采样零暗面；Blender GUI 直开
 - 金属度：BareMetal ≤0.45、TrackLink ≤0.35（发黑修复红线）

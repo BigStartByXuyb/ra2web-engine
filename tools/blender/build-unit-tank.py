@@ -220,11 +220,13 @@ add_box("RearPlate", (-21.8, 0.0, 6.1), (2.4, sponson_inner * 2 - 1.8, 6.4), arm
 add_box("Superstructure", (-4.0, 0.0, (hull_top + deck_top) / 2), (35.0, 26.0, deck_top - hull_top), armor_light, bevel=0.5, taper=0.99)
 # 首上甲板与发动机甲板（甲板顶面）
 add_box("FrontDeck", (13.6, 0.0, deck_top + 0.25), (7.6, sponson_inner * 2 - 3.4, 0.5), armor_light, bevel=0.22)
-add_box("EngineDeck", (-17.5, 0.0, deck_top + 0.25), (10.6, sponson_inner * 2 - 3.6, 0.9), armor_light, bevel=0.3)
+# 发动机甲板与前压条收在炮塔足迹（x≈-12.8）之后：P2 配合公差——甲板件顶不得高于
+# 炮塔体底-0.3，伸进足迹下方必穿插（实测 GrilleRailF 曾 -0.60）
+add_box("EngineDeck", (-18.7, 0.0, deck_top + 0.25), (8.2, sponson_inner * 2 - 3.6, 0.9), armor_light, bevel=0.3)
 # 发动机甲板栅格（5 条板缝 + 两根压条）
 for index in range(5):
     add_box("Grille" + str(index), (-21.2 + index * 1.9, 0.0, deck_top + 0.75), (1.05, 18.4, 0.3), bare_metal)
-add_box("GrilleRailF", (-12.6, 0.0, deck_top + 0.7), (0.9, 19.0, 0.4), bare_metal)
+add_box("GrilleRailF", (-14.4, 0.0, deck_top + 0.7), (0.9, 19.0, 0.4), bare_metal)
 add_box("GrilleRailR", (-22.1, 0.0, deck_top + 0.7), (0.9, 19.0, 0.4), bare_metal)
 # 尾部排气：两只圆头排气口（斜出，装在甲板后沿）
 for index, offset in enumerate((-6.0, -2.6)):
@@ -346,6 +348,7 @@ sys.exit(
         # 炮塔是大块光滑铸造面：立方投影密度 64→192，平铺底图的板缝/磨损频率降到 1/3
         cube_size_overrides={"turret": 192.0},
         reference_glb=reference_glb,
+        deck_z=deck_top,
         bake_size=512,
     )
 )
