@@ -994,3 +994,10 @@ special_2(0x7d3974)。特判 +0xc0/+0xd0 即 Verses[4]=medium、Verses[6]=wood�
 - **射程判定 = 0x6c4bb0**（In_Range：`Range==−512` 哨兵直通；目标在空中 → Range += **TechnoType+0x5b4 射程加成**；`MinRange(+0xb8) > 3D 欧氏距离 → false`；3D 距离 dx²+dy²+dz²）。
 - **弹道视线**：0x47f8b0（包装）+ 0x47f9b0（核心）——可直击判定 + 命中方向角（16 位角）输出；rules+0x1320（int）参与换算，键名待核。
 - **开火链全貌**：Get_Weapon → 0x6c4bb0 射程 → 虚+0x1d8 视线 → Has_Turret → 发射。**发射本体（Bullet 构造调用点）未定位**（0x463990 已证伪为音效 CoCreateInstance）——下轮从 0x6c4xxx/0x6c5xxx 开火方法群或 BulletClass ctor 正面攻。
+
+### 目标选择/开火前置判定（2026-10-13 战斗线续，证据 work/decompiled/ra2-engine/fn-*.c）
+
+- **散布内判定 0x6c4f60**（漏识别已建函数）：经虚槽 229（+0x394）取 warhead，`CellSpread(0x124) − Warhead+0x128(float，内圈扣除，键名待核)` 与目标格心水平距离比较。
+- **Can_Hit 包装器 0x6c50a0**：Get_Weapon（虚+0x39C）→ `weapon+0x110` 标志（取目标所在格修正）→ 虚+0x54（在空判定）→ In_Range(0x6c4bb0)。
+- **Should_Target 目标有效性评估 0x6c5570**（2998B，调用者 0x6c6130/0x6c6530 = Find_Target 家族）：隐身（obj+0x76）、血量（obj+0x1b）、`type+0x5dc`、hp% vs `rules+0x1360`、潜地（obj+0x32d）等十余个否决条件后按 Verses 有效性（fn-6c1380 同款）过筛。
+- **开火前走位搜索 0x4c4c30**（3.3KB；总工已记 sim 需求清单，可后置阶段 4）：双层枚举 0x7d8178~0x7d81dc 炮位偏移表 × 0x851a70 八方向，每候选 `Get_Weapon → In_Range → 0x478760(移动分区检查) → 0x42aa30(寻路长度 ≤ 射程+8)` 选定炮位，尾部虚+0x370/+0x410 下移动指令——"走位再打"手感的原版来源。
