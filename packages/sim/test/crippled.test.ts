@@ -16,7 +16,7 @@ function worldWith(
   maxHealth: number | undefined,
   crippled: { threshold: number; factor: number } | undefined,
 ) {
-  return createWorld({
+  const world = createWorld({
     width: 8,
     height: 8,
     units: [
@@ -31,6 +31,9 @@ function worldWith(
     seed: 1,
     ...(crippled ? { crippled } : {}),
   })
+  // 移动目标在正东：初始朝向对齐东（0x4000），排除转向 tick 的干扰
+  world.units[0]!.facing = 16384
+  return world
 }
 
 function moveDelta(world: ReturnType<typeof createWorld>): number {

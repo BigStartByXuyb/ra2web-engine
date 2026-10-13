@@ -20,6 +20,8 @@ function worldOn(factor: number | undefined, speed = ONE) {
     seed: 1,
     ...(terrainSpeed ? { terrainSpeed } : {}),
   })
+  // 目标在正东：初始朝向对齐东（0x4000），排除转向 tick 的干扰
+  world.units[0]!.facing = 16384
   enqueueCommand(world, 1, { kind: 'move', unitId: 1, target: { x: 7, y: 4 } })
   return world
 }

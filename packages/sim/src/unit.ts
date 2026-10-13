@@ -112,9 +112,15 @@ export function advanceAlongPath(unit: Unit, effectiveSpeed: number = unit.speed
       unit.pathIndex++
       continue
     }
-    // 朝向先转：目标角 = 段方向的中心角（渐进，不瞬变；朝向只看平面分量）
+    // 转向时序（原版 fn-4a2670 转向分支，地址级证据见 ENGINE-MAP「转向时序」）：
+    // 朝向未对齐本步方向时，本 tick 只转不走——推进核心每 tick 先查对齐，
+    // 未对齐就 Face_Direction 后直接 return；转向由 0x4b8be0 插值器逐 tick 渐进。
     if (dx !== 0 || dy !== 0) {
-      unit.facing = rotateToward(unit.facing, facingFromDir(dirFromDelta(dx, dy)), unit.turnRate)
+      const targetFacing = facingFromDir(dirFromDelta(dx, dy))
+      if (unit.facing !== targetFacing) {
+        unit.facing = rotateToward(unit.facing, targetFacing, unit.turnRate)
+        return
+      }
     }
 
     const dist = isqrt(dx * dx + dy * dy + dz * dz)

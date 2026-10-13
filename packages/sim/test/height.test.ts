@@ -70,6 +70,8 @@ function moved3d(world: ReturnType<typeof createWorld>, targetX?: number): numbe
   const u = world.units[0]!
   const before = { x: u.x, y: u.y, z: u.z }
   const target = targetX ?? (unitCell(u).x > 4 ? 1 : 7)
+  // 初始朝向对齐目标方向（东西向），排除转向 tick 的干扰
+  u.facing = target > unitCell(u).x ? 16384 : 49152
   enqueueCommand(world, world.tick + 1, { kind: 'move', unitId: u.id, target: { x: target, y: 4 } })
   step(world)
   const dx = u.x - before.x
