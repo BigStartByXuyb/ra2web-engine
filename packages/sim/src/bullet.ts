@@ -48,7 +48,12 @@ export function solveArcAngle(
 }
 
 /**
- * fn-47f9b0 主分支的 1:1 转写（变量名 = Ghidra 输出，参数按位置 p2..p5）。
+ * fn-47f9b0 主分支的 1:1 转写（变量名 = Ghidra 输出，参数按 Ghidra 位置 p2..p5）。
+ *
+ * **2026-10-14 注**：Ghidra 签名的 int/double 拼法已被字节级厘正——真签名 =
+ * `(ECX char flag, EDX int A, 栈: int B, int C, double D(Gravity), out*)`，
+ * 45° 门控 = 第 2 个栈 int > 0。**本转写的变量到物理参数的映射相应待重排**
+ * （等 0x4ba410 多返回值展开后落定），当前转写仅作形态参照。
  *
  * **未验证、勿依赖**：转写忠实于 Ghidra 表达式（见 fn-47f9b0.c），但物理参数语义
  * 未闭合（对上文 record_unknown）。保留此函数供未来与汇编级参数追踪拼图。
