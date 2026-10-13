@@ -91,3 +91,23 @@ tsx tools/re/propagate-subsystems.ts <functions-detail.tsv> docs/engine/function
 - 伪代码只作为**行为依据**，不逐行翻译进 `sim`。
 - 每条实现规则在代码注释里标注函数地址与证据文件，便于复核。
 - 逆向产物不进 npm 包，不随发行版分发。
+
+### 6. 静态字节解码（无 Ghidra 通道）
+
+Ghidra/rea 因资源竞争、JDK 探测、快照失配等不可用时，INI 键名与字段偏移的机械核对
+可直接在 PE 字节上完成——比反编译快，且零依赖：
+
+**键名 → 偏移**：全 .text 扫「`push imm32`（imm 指向 .data 键串区 0x7cxxxx~0x80xxxx）→
+`call 读值函数` → `mov/fstp [reg+disp32]`」，把每个目标偏移的存储点与其前 ≤0x100 字节内
+最近一次键串 push 配对，即得键名（读值函数：bool=FUN_0050f410 / int=FUN_0050d7f0 /
+float=FUN_0050e3a0 / 按名=FUN_0050e9a0）。注意：**call 不清除配对**（读值调用在 push 与
+存储之间）；fstp（DD/D9 9x）= float/double 存储形态。
+
+**偏移 → 写入者**：扫 `mov [reg+disp32], r`（89 mod=10）或 `mov [reg+disp32], imm`（C7）
+定位写入点，用 functions-detail.tsv 映射所属函数；落在 gap 时用序言字节
+（`55 8B EC` / `6A FF 68` SEH 型）向后猎函数入口。
+
+实战战绩（2026-10-13 战斗线）：rules 7 键（C4Warhead/Gravity/MaxDamage/AllyReveal/
+HunterSeekerDescentSpeed 等）一次性核完，未开 Ghidra；+0x2f0 写入者（真 AnimType 解析器
+0x4258d3，SEH 序言猎取）亦由该通道发现。脚本示例见 work/decompiled/scan-*.ps1 与
+会话沉淀的 python 配对扫描（可复用，见 combat-fireloop-notes.md 终十节）。
