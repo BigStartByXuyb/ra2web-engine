@@ -54,15 +54,21 @@ for (const voxel of model.voxels) {
 const luminance = (color: readonly [number, number, number]): number =>
   0.299 * color[0] + 0.587 * color[1] + 0.114 * color[2]
 const ranked = [...histogram.values()].sort((left, right) => right.count - left.count)
-const main = ranked[0]!
+/** 识别色系（红/橙：R 显著高于 G/B）不参与灰阶聚类——金属/履带/暗部要的是灰阶簇，
+ * 红色识别标记再大再暗也会把"更暗的一簇"抢走（天启 14.2% 红被分给 BareMetal 的实例）。
+ * Accent 自己仍从全量 ranked 里挑。 */
+const isAccentHue = (color: readonly [number, number, number]): boolean =>
+  color[0] - Math.max(color[1], color[2]) > 40
+const greyRanked = ranked.filter((entry) => !isAccentHue(entry.color))
+const main = greyRanked[0] ?? ranked[0]
 const mainLum = luminance(main.color)
-/** 在某个亮度区间里找出现最多的那一簇。 */
+/** 在某个亮度区间里找出现最多的那一簇（只在灰阶簇里找）。 */
 const pickWhere = (
   test: (luminance: number) => boolean,
   fallback: readonly [number, number, number],
   factor: number,
 ): [number, number, number] => {
-  const hit = ranked.find((entry) => test(luminance(entry.color) / mainLum))
+  const hit = greyRanked.find((entry) => test(luminance(entry.color) / mainLum))
   return hit
     ? [hit.color[0], hit.color[1], hit.color[2]]
     : [fallback[0] * factor, fallback[1] * factor, fallback[2] * factor]
