@@ -149,9 +149,23 @@ static func step(world) -> void
 
 ## 2. 对照测试清单（先移测试，后移实现）
 
+**测试跑法（已实测，2026-10-13）**——零依赖、无 GUT、可 CI：
+
+```bash
+# 首次（或 class_name 变更后）：导入一次生成全局类缓存
+Godot_v4.7.2-stable_win64_console.exe --headless --path <项目> --import
+# 跑测试（断言失败 quit(1)，全过 quit(0)）
+Godot_v4.7.2-stable_win64_console.exe --headless --path <项目> --script res://tests/test_xxx.gd
+```
+
+测试脚本 `extends SceneTree`，`_init()` 里逐条断言、末尾 `quit(0/1)`。
+**实测证据**：`work/tmp-godot-sim/` 里两个真实切片（direction 换算 + xorshift128 RNG）
+与 TS 参考实现 **18/18 逐位一致**（含 uint32 回绕遮罩与移位语义——移植最大陷阱已排除）。
+注意：不先 `--import` 直接 `--script` 会报 `Identifier "X" not declared`（全局类缓存缺失）。
+
 | TS 测试 | 覆盖 | GDScript 移植目标 |
 | --- | --- | --- |
-| `direction.test.ts` | 八方向表/换算 | `test_direction.gd` |
+| `direction.test.ts` | 八方向表/换算 | `test_direction.gd` ✅ 切片已验证 |
 | `facing-state.test.ts` | FacingState 打点/推进/到点 | `test_facing.gd` |
 | `facing.test.ts` | 转向时序（先转后走）+ 炮塔滞后 | `test_facing_时序.gd` |
 | `path.test.ts` | A* 成本/防切角 | `test_path.gd` |
