@@ -55,3 +55,77 @@ export function applyVerses(damage: number, verses: readonly number[], armorInde
 export function canDamage(verses: readonly number[], armorIndex: number): boolean {
   return versesMultiplier(verses, armorIndex) !== 0
 }
+
+/**
+ * 武器射程口径（阶段 3「开火判定」）。
+ *
+ * 原版证据（fn-6c4bb0.c，0x6c4bb0 = In_Range；Range/MinRange 偏移见 fn-733220.md）：
+ * - `Range == -512` 哨兵 → 无限程直通；
+ * - 目标在空中（虚 +0x54）→ Range += TechnoType+0x5b4（对空射程加成，键名待核）；
+ * - `MinRange（+0xb8）> 3D 距离` → 拒发（太近打不了）；
+ * - 距离为 3D 欧氏（dx²+dy²+dz² 取整，fn-6c4bb0 的 FUN_004ba410+FUN_0077f110）。
+ * 本函数由调用方传入已算好的 3D 距离；比较用 `<=`（原版上限比较的相等分支归属
+ * 未逐指令核对，取含等号口径——本项目自定）。
+ */
+
+/** 无限射程哨兵（fn-6c4bb0：Range == -0x200 直通）。 */
+export const UNLIMITED_RANGE = -512
+
+export interface WeaponRange {
+  /** WeaponType+0xb4，格 */
+  readonly range: number
+  /** WeaponType+0xb8，格 */
+  readonly minRange: number
+}
+
+/** 目标是否在武器射程内（0x6c4bb0 口径）。`airRangeBonus` = TechnoType+0x5b4。 */
+export function isInRange(
+  weapon: WeaponRange,
+  dist3D: number,
+  airborne: boolean,
+  airRangeBonus: number,
+): boolean {
+  if (weapon.range === UNLIMITED_RANGE) return true
+  const maxRange = weapon.range + (airborne ? airRangeBonus : 0)
+  if (dist3D < weapon.minRange) return false
+  return dist3D <= maxRange
+}
+
+/**
+ * 爆炸承载（Anim 系统，阶段 3）。
+ *
+ * 原版证据（fn-421710.c AnimClass::AI 爆炸分支 + fn-70e470.c AnimTypeClass::Read_INI）：
+ * - **AnimType+0x2c8 ← Warhead=**（按名 → WarheadType\*，Warhead 真身）；
+ * - **AnimType+0x2c4 ← DamageRadius（int）**；爆炸分支门控 = `DamageRadius != 0`
+ *   （0x4219fc-0x421a04 TEST/JZ，与 Read_INI 双源印证）；
+ * - 引爆走 FUN_0047e2c0（AoE：CellSpread 半径收集目标 → 逐目标伤害）。
+ * 伤害计算 = 本模块 `applyVerses`（Warhead 的 Verses 表 × 基础伤害）。
+ * **距离衰减（fn-47e1c0）与 CellSpread 半径筛选的精确口径归阶段 4**，未落。
+ */
+
+/** 爆炸动画承载的伤害三件套（AnimType 字段的 sim 投影）。 */
+export interface ExplosionAnim {
+  /** Warhead 的 Verses 表（WarheadType+0xa0，11 项） */
+  readonly verses: readonly number[]
+  /** AnimType+0x2c4；0 = 该动画不造成伤害 */
+  readonly damageRadius: number
+}
+
+/** 该爆炸动画是否造成伤害（fn-421710 的 DamageRadius != 0 门控）。 */
+export function hasDamage(an: ExplosionAnim): boolean {
+  return an.damageRadius !== 0
+}
+
+/**
+ * 爆炸对每个目标结算 Verses 修正伤害。
+ *
+ * `targets` 由调用方按 CellSpread 半径筛好（半径筛选口径归阶段 4，未落）；
+ * 顺序与输入一致，逐目标 `applyVerses`（不取整，见模块头注释）。
+ */
+export function applyExplosion(
+  an: ExplosionAnim,
+  damageBase: number,
+  targets: readonly { readonly armorIndex: number }[],
+): number[] {
+  return targets.map((target) => applyVerses(damageBase, an.verses, target.armorIndex))
+}
