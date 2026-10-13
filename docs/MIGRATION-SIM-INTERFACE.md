@@ -149,19 +149,24 @@ static func step(world) -> void
 
 ## 2. 对照测试清单（先移测试，后移实现）
 
-**测试跑法（已实测，2026-10-13）**——零依赖、无 GUT、可 CI：
+**测试跑法（已实测定型，2026-10-13）**——零依赖、无 GUT、可 CI、**免 --import**：
 
 ```bash
-# 首次（或 class_name 变更后）：导入一次生成全局类缓存
-Godot_v4.7.2-stable_win64_console.exe --headless --path <项目> --import
-# 跑测试（断言失败 quit(1)，全过 quit(0)）
-Godot_v4.7.2-stable_win64_console.exe --headless --path <项目> --script res://tests/test_xxx.gd
+Godot_v4.7.2-stable_win64_console.exe --headless --path <项目> --quit-after 600 --script res://tests/test_xxx.gd
 ```
 
-测试脚本 `extends SceneTree`，`_init()` 里逐条断言、末尾 `quit(0/1)`。
-**实测证据**：`work/tmp-godot-sim/` 里两个真实切片（direction 换算 + xorshift128 RNG）
-与 TS 参考实现 **18/18 逐位一致**（含 uint32 回绕遮罩与移位语义——移植最大陷阱已排除）。
-注意：不先 `--import` 直接 `--script` 会报 `Identifier "X" not declared`（全局类缓存缺失）。
+- 测试脚本 `extends SceneTree`，`_init()` 逐条断言、末尾 `quit(0/1)`；
+- **加载用 preload 链、sim 文件不写 `class_name`**：全局类缓存（--import）对 headless 是负担且有坑
+  （缓存过期报 `Identifier "X" not declared`；headless 编辑器实例会挂住不退出）。preload 零依赖直达。
+- **`--quit-after 600` 是保险丝**：脚本编译/运行中途出错时 SceneTree 会空转不退——有它必退，
+  CI 不会挂死（代价是编译错误要自己看日志，退出码不保真）。
+- **移植坑（已实测踩过并排除）**：
+  ① GDScript int 是 64 位有符号、不回绕 uint32——每步 `& 0xFFFFFFFF`（RNG/哈希第一坑）；
+  ② **无两参 `ceili()`**——整数上取整手工写 `(a + b - 1) / b`（b>0、a≥0）；
+  ③ 负数的 `/` 向零截断（与 TS `Math.trunc` 同）——仍建议测试钉一条负数用例。
+
+**已验证切片**：`work/tmp-godot-sim/` —— direction（18 断言）+ facing（26 断言，对应 TS 十条 test）
+**与 TS 参考实现逐位一致全过**；RNG/双 FacingClass 语义（含平移/绕环/静止化）实锤。
 
 | TS 测试 | 覆盖 | GDScript 移植目标 |
 | --- | --- | --- |
