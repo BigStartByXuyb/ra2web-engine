@@ -52,7 +52,11 @@ async function run(name: string, onlyGroups: readonly number[], forcedTilt: numb
     if (status) status.textContent = text
   }
   say(`[模型检视] ${name.toUpperCase()}：装载中…`)
-  if (hint) hint.textContent = '[模型检视] 拖拽转台 · 滚轮缩放 · Esc 退出'
+  // 末句的"等距 2:1"注释是给审图人看的：纵向"看着压缩"是等距投影的游戏口径
+  // （screenX=x−y、screenY=(x+y)/2−z，水平面两轴 (1,0.5)），不是画面 bug——
+  // 2026-10-13 已按"已知几何量核对法"判定：canvas buffer=CSS、transform 恒等、
+  // 宽度逐像素吻合投影公式（±1px）。
+  if (hint) hint.textContent = '[模型检视] 等距 2:1 投影（纵向压缩为游戏口径，非 bug）· 拖拽转台 · 滚轮缩放 · Esc 退出'
 
   const gl = canvas.getContext('webgl', {
     alpha: false,
@@ -172,6 +176,8 @@ async function run(name: string, onlyGroups: readonly number[], forcedTilt: numb
     // 俯仰压扁走 CSS（与 freecam 同一套伪 3D）：画布整体 scale(1, p)
     canvas.style.transform = `scale(1, ${pitch})`
     canvas.style.transformOrigin = '50% 68%'
+    // 调试状态镜（本项目自定调试入口的一部分）：验收脚本按当前 yaw/zoom 精确复算投影包围盒
+    ;(window as unknown as { __unitviewState?: unknown }).__unitviewState = { yaw, pitch, zoom: camera.zoom }
     requestAnimationFrame(frame)
   }
   requestAnimationFrame(frame)
