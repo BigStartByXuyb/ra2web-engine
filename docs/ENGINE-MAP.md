@@ -1078,3 +1078,28 @@ special_2(0x7d3974)。特判 +0xc0/+0xd0 即 Verses[4]=medium、Verses[6]=wood�
 - **弹道数学**：**0x47f9b0 = 抛射角双解解算**（θ=atan((v²±√(v⁴−g(g·d²+2·dz·v²)))/(g·d))，
   g=rules+0x1320 Gravity，v=弹速；g>0 分支→45°）；0x47f8b0=双解选择包装；0x47fb70=×1.2
   换算（_DAT_0079dda8）。**visible shell 弧线机制全通。**
+
+### 武器链终版全图（2026-10-13，阶段 3 收口）
+
+```
+【判定层】选武器 Get_Weapon(虚槽231/+0x39C → 0x44d980，精英优先)
+  → 射程 In_Range(0x6c4bb0：Range −512 哨兵 / 空中 +TechnoType+0x5b4 / MinRange)
+  → 视线/弹道选解(0x47f8b0 包装 + 0x47f9b0 解算；输 16 位角)
+  → 散布内(0x6c4f60) / Can_Hit(0x6c50a0) / Should_Target(0x6c5570)
+【执行层】开火执行体 0x4bcd50（走位→面向→扣扳机；FUN_004bcd50 直击链）
+  建筑/多炮塔开火 FUN_006ca890（炮塔实例 0x60aa70×1~3 + 炮口闪光 Anim）
+【飞行体】BulletClass 构造器 FUN_007213a0（0x208B，vtable 0x7aecd0，散布表 sqrt
+  300 项 @0xaf9620 + sin/cos 表 @0xaf91e4 烧制；门控 type+0x10c）
+  → 弹道：0x47f9b0 双解（Gravity=rules+0x1320）/ 直线 + 散布
+  → 飞行更新/引爆端 fn-461de0（+0x88 坐标 / +0xf4 目标 / +0x98=BulletType*）
+【伤害层】施加 0x6d7e20（直击：虚槽230/+0x398 或 Type+0xae4 取武器 →
+  WeaponType+0xac=WarheadType* → 施放 0x463990）→ 引爆 0x462110 → AoE 0x47e2c0
+  （CellSpread 收集 → 逐目标 Verses；Gravity 参与弹道，MaxDamage=rules+0x1330 上限）
+【爆炸载体】Anim 系统：AnimType{Warhead=+0x2f0 / DamageRadius=+0x2f4 / Damage=+0x270}
+  （解析器 0x4258d3）→ AnimClass::AI 爆炸分支 0x421710 → 0x47e2c0
+【弹体类型】BulletTypeClass::Read_INI = 0x70e470（Warhead=+0x2c8 / DamageRadius=+0x2c4
+  / Normalized+0x264 / Elasticity+0x270 / AttachedSystem+0x2cc…）
+```
+
+sim 落地对照（packages/sim）：`combat.ts`（Verses/射程/爆炸承载）、`bullet.ts`（抛射角
+双解，标准式建模=自定，原版参数化 record_unknown）。**tick 集成等合龙窗口**（总工排期）。
