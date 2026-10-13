@@ -53,3 +53,4 @@ export {
 export type { Shroud } from './shroud.js'
 export { hashWorld } from './hash.js'
 export { LEPTONS_PER_CELL, TICKS_PER_SECOND, speedToMovementPerTick } from './movement-scale.js'
+export { applyVerses, canDamage, versesMultiplier, VERSES_COUNT } from './combat.js'
