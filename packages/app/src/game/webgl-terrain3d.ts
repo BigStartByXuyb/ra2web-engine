@@ -10,7 +10,13 @@ import { viewScale } from './camera.js'
 import type { MapPreview } from './map-preview.js'
 import type { MapCell } from '@ra2web/formats'
 import { buildTerrain3dGeometry, type Terrain3dVertexData } from './terrain3d-geometry.js'
-import { sampleTerrainMaterials, waterFrameAlbedos, type MaterialSampleInput, type WaterFrameInput } from './terrain3d-materials.js'
+import {
+  fallbackMaterial,
+  sampleTerrainMaterials,
+  waterFrameAlbedos,
+  type MaterialSampleInput,
+  type WaterFrameInput,
+} from './terrain3d-materials.js'
 import { TERRAIN_Z_STEP_PX } from './terrain3d-zstep.js'
 
 /**
