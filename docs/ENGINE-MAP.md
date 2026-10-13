@@ -1103,3 +1103,10 @@ sim 落地对照（packages/sim）：`combat.ts`（Verses/射程/爆炸承载）
 输出角用于转炮/转车体）。输入 (水平距离, Δz, Gravity)、**不含弹速**——**RA2 可见弹道 =
 "瞄准角演出 + 命中于目标"（配合 BallisticScatter 随机落点），非逐帧抛物线积分**；
 `Gravity>0 → 45° 演出`、失败→默认角。"弹速积分本体"的存在性随之存疑（下轮验证）。
+
+**追加定案（2026-10-14，终十七）**：**弹速逐帧积分本体不存在**——FUN_004616b0（Bullet 发射
+初始化）在发射时写起点/快照/并**定死散布后的弹道终点**（`r=RNG(0,scatter×2)×dist/WeaponType.Range`，
+门控 BulletType+0x273/+0x26e；Bulllet 实例 +0x98=BulletType\*、+0x118=WeaponType\* 实锤）；
+**BulletClass::AI = 0x423d20 = 空实现（return 0）**。**visible shell 全貌 = 瞄准角演出
+（0x47f9b0）+ 定时插值（起点→终点，时长=0x47fb70 飞行时间换算）+ 发射时定散布终点**。
+插值器本体候选 FUN_00499a90（下轮可选深挖）。
