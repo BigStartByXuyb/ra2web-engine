@@ -70,6 +70,8 @@ export interface Scene {
   readonly terrain3d?: Terrain3dScene | undefined
   /** 方向性投影阴影（渲染线任务 4）：有 3D 模型的单位的影子（替代其椭圆 blob） */
   readonly projectedShadows?: ((units: readonly GlUnitQuad[]) => void) | undefined
+  /** 接触暗角（渲染线任务 5）：与影子叠加的贴地暗角 */
+  readonly contactAo?: ((units: readonly GlUnitQuad[]) => void) | undefined
   /** 水面动画当前帧（`MapPreview.water` 给范围；两条绘制路径共用同一个帧号） */
   readonly waterFrame?: number | undefined
 }
@@ -136,6 +138,7 @@ export function drawScene(scene: Scene): void {
           }
         : undefined,
       projectedShadows: scene.projectedShadows,
+      contactAo: scene.contactAo,
     })
   }
   // 2D 后处理（泛光、雨夜那套调色/雨丝/暗角）画在 2D 画布上，而 GPU 层是另一块画布：

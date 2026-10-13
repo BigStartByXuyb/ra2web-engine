@@ -8,6 +8,7 @@ import {
   dirFromFacing,
   enqueueCommand,
   fromFixed,
+  fromFixedExact,
   step,
   unitCell,
   type Cell,
@@ -15,7 +16,7 @@ import {
 import { LOCAL_OWNER } from './draw.js'
 import { createBattle, createDemoBattle, type Battle } from './battle.js'
 import { planMapBattle } from './map-battle.js'
-import { MIN_ZOOM, canvasToCell, canvasToWorld, createCamera, viewScale, zoomAt, type Camera } from './camera.js'
+import { MAX_ZOOM, MIN_ZOOM, canvasToCell, canvasToWorld, createCamera, viewScale, zoomAt, type Camera } from './camera.js'
 import { drawScene } from './draw.js'
 import { createHud } from './hud.js'
 import { buildMapPreview, type MapPreview } from './map-preview.js'
@@ -27,6 +28,7 @@ import { openTileLayer } from './tile-layer.js'
 import { loadHdTiles } from './hd-tiles.js'
 import { pickUnit } from './picking.js'
 import { FXAA_FRAGMENT } from './fxaa.js'
+import { createContactAoRenderer, type ContactAoRenderer } from './contact-ao.js'
 import { createProjectedShadowRenderer, type ProjectedShadowRenderer } from './projected-shadows.js'
 import { createRenderPipeline } from './render-pipeline.js'
 import { TONEMAP_DEFAULTS, TONEMAP_FRAGMENT } from './tonemap.js'
@@ -116,6 +118,8 @@ let terrain3dEnabled = false
 let terrain3dScene: Terrain3dScene | undefined
 /** 方向性投影阴影（渲染线任务 4，本项目自定）：`?shadowmap=1` 开 */
 let projectedShadowRenderer: ProjectedShadowRenderer | undefined
+/** 接触暗角（渲染线任务 5，本项目自定）：`?ssao=1` 开 */
+let contactAoRenderer: ContactAoRenderer | undefined
 /** 地貌细节层开关（车辙/踩痕/污渍，本项目自定）：`?decals=0` 关，默认开 */
 let decalsEnabled = true
 /** 真 3D 单位（B 路，默认关闭）：`?units3d=1`，模型从 `/packs/units3d/<单位>.glb` 取 */
@@ -646,6 +650,9 @@ function frame(now: number): void {
     projectedShadows: projectedShadowRenderer
       ? (units) => projectedShadowRenderer!.draw(camera, units, canvas.width, canvas.height)
       : undefined,
+    contactAo: contactAoRenderer
+      ? (units) => contactAoRenderer!.draw(camera, units, canvas.width, canvas.height)
+      : undefined,
     unit3d: (typeId) => (units3d ? glTiles?.unit3d(typeId) : undefined),
     waterFrame: waterFrameAt(now, mapPreview?.water, animateWater),
     // 自由视角下的回退精灵直立修正：CSS rotate(az)scale(p) 会把贴图转倒，
@@ -797,6 +804,9 @@ if (new URLSearchParams(location.search).get('renderer') === 'webgl') {
   if (glTiles && new URLSearchParams(location.search).get('shadowmap') === '1') {
     projectedShadowRenderer = createProjectedShadowRenderer(glTiles.gl)
   }
+  if (glTiles && new URLSearchParams(location.search).get('ssao') === '1') {
+    contactAoRenderer = createContactAoRenderer(glTiles.gl)
+  }
 }
 // 渲染现代化管线（渲染线任务 2）：`?pipeline=1` 时场景走离屏 + 合成链（色调映射挂这里）。
 // 缺省关：直绘路径一个分支不动。`?tonemap=0` 关色调映射（管线内），`?exposure=` 调曝光。
@@ -906,11 +916,40 @@ if (new URLSearchParams(location.search).get('expose') === '1') {
     get world() {
       return battle?.world
     },
-    /** 世界坐标（lepton）→ 画布 CSS 像素（canvasToWorld 的逆：world = canvas/scale + camera.x）。 */
+    /** 世界坐标（lepton）→ 画布 CSS 像素（格坐标先经 iso 投影，camera 的 x/y 在 iso 域）。 */
     canvasOf: (worldX: number, worldY: number) => {
       const scale = viewScale(camera)
-      return { x: (worldX / ONE - camera.x) * scale, y: (worldY / ONE - camera.y) * scale }
+      const iso = cellToScreen(VIEW, { x: worldX / ONE, y: worldY / ONE })
+      return { x: (iso.x - camera.x) * scale, y: (iso.y - camera.y) * scale }
     },
+    /**
+     * 相机对焦：把世界点（lepton）放到画布中心并按需设置缩放（调试句柄专用，只读变换）。
+     * 供 UI 测试/演示录制确定性地取景——不依赖鼠标滚轮/拖拽的物理模拟。
+     */
+    focusOn: (worldX: number, worldY: number, zoom?: number | 'decrease') => {
+      if (zoom === 'decrease') camera.zoom = Math.max(MIN_ZOOM, camera.zoom * 0.8)
+      else if (typeof zoom === 'number') camera.zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom))
+      const scale = viewScale(camera)
+      // 格坐标须经 iso 投影（cellToScreen）再定位——camera 的 x/y 在 iso 域
+      const iso = cellToScreen(VIEW, { x: worldX / ONE, y: worldY / ONE })
+      camera.x = iso.x - canvas.clientWidth / 2 / scale
+      camera.y = iso.y - canvas.clientHeight / 2 / scale
+    },
+    /** 各单位的"拾取同判据"点击点（贴图中心，pickUnit 的 ground.y−height/2 与半径同源）。 */
+    unitsForDemo: () =>
+      battle?.world.units.map((unit, index) => {
+        const art = artByUnit[index]
+        const ground = cellToScreen(VIEW, { x: fromFixedExact(unit.x), y: fromFixedExact(unit.y) })
+        const height = art?.frames[0]?.canvas.height ?? 20
+        const scale = viewScale(camera)
+        return {
+          id: unit.id,
+          owner: unit.owner,
+          health: unit.health,
+          pickX: (ground.x - camera.x) * scale,
+          pickY: (ground.y - height / 2 - camera.y) * scale,
+        }
+      }),
   }
 }
 /** `?debug=1`（本项目自定调试口）：每帧把单位朝向状态写进 window.__battleUnits，供验收脚本核对 */

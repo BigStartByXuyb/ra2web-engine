@@ -75,6 +75,8 @@ export interface GlFrameEffects {
    * 单位的椭圆 blob 阴影（无模型对象仍走 blob）。次序与 blob 相同（倒影后、物体前）。
    */
   readonly projectedShadows?: ((units: readonly GlUnitQuad[]) => void) | undefined
+  /** 接触暗角（渲染线任务 5，`?ssao=1`，默认关闭）：有 3D 模型单位脚下一枚紧凑深色椭圆 */
+  readonly contactAo?: ((units: readonly GlUnitQuad[]) => void) | undefined
   /**
    * 回退精灵的直立修正角（本项目自定，`?freecam=1` 用）：自由视角是纯 CSS `rotate+scaleY`，
    * 会把"站着"的回退贴图连地面一起转倒（纸片坦克趴地）。逐顶点给单位精灵绕贴地中点
@@ -924,6 +926,9 @@ export function createGlTileLayer(canvas: HTMLCanvasElement): GlTileLayer | unde
       if (effects.shadows) drawShadows(camera, grounded.filter((quad) => quad.model === undefined))
       if (effects.projectedShadows) {
         effects.projectedShadows(context.units.filter((unit) => unit.model !== undefined))
+      }
+      if (effects.contactAo) {
+        effects.contactAo(context.units.filter((unit) => unit.model !== undefined))
       }
       drawOrderedObjects(camera, structures, context.units)
       if (effects.fog) drawFog()
