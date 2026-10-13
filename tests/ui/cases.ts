@@ -258,6 +258,50 @@ export const cases: readonly UiCase[] = [
     },
   },
   {
+    name: 'terrain3d 地貌细节：车辙/踩痕随单位行走进画面（本项目自定层，?decals=0 可关）',
+    async run(session) {
+      const page = session.page
+      const run = async (decals: string, name: string): Promise<PngImage> => {
+        const params = new URLSearchParams({
+          mix: '/pack/RA2.MIX',
+          map: '/pack/Maps01.mix',
+          index: '0',
+          battle: '1',
+          renderer: 'webgl',
+          terrain3d: '1',
+          units3d: '0',
+          anim: '0',
+          decals,
+        })
+        await page.goto(`${session.origin}/game.html?${params.toString()}`, { waitUntil: 'load' })
+        await page.waitForFunction(
+          () => /单位 \d+ 辆/.test(document.getElementById('status')?.textContent ?? ''),
+          undefined,
+          { timeout: 300000 },
+        )
+        await page.waitForTimeout(3000)
+        const box = await page.locator('#stage').boundingBox()
+        assert.ok(box, '找不到战场画布')
+        // 选中一个单位（照「选中与移动指令」用例的偏移搜索法），再往右下下令让它走一段
+        for (const offset of [0, -40, 40, -80, 80, -120]) {
+          await page.mouse.click(box.x + box.width / 2 + offset, box.y + box.height / 2)
+          await page.waitForTimeout(400)
+          const selected = await page.evaluate(() => document.getElementById('hud-selected')?.textContent ?? '')
+          if (selected.trim() !== '' && selected.trim() !== '-') break
+        }
+        await page.mouse.click(box.x + box.width / 2 + 90, box.y + box.height / 2 + 40, { button: 'right' })
+        // 等车走一段路，痕迹随行进累积
+        await page.waitForTimeout(6000)
+        return session.snapshot(name)
+      }
+      const withDecals = await run('1', 'decals-on')
+      const without = await run('0', 'decals-off')
+      const diff = diffImages(withDecals, without)
+      assert.ok(diff.changed >= 300, `decals 开关只差 ${diff.changed} 像素：车辙/踩痕层没上屏`)
+      return `decals 开关差异 ${diff.changed} 像素`
+    },
+  },
+  {
     name: '雨夜后处理作用在整幅画面上',
     async run(session) {
       const glWet = await session.capture({
