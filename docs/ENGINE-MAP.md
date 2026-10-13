@@ -947,3 +947,25 @@ special_2(0x7d3974)。特判 +0xc0/+0xd0 即 Verses[4]=medium、Verses[6]=wood�
   清单吸收不单列，字节已读核（0x7dae30 处 `52 4f 46 00`）。
 - **勘误**：`FUN_0077f110` 是 float→int64 取整（ftol 变体），**不是 RNG**——上文"被挡等待 RNG"
   引用该地址疑误，归移动线复核。
+
+## 武器运行时链与炮塔朝向（2026-10-13 战斗线取证，证据 work/decompiled/ra2-engine/fn-*.c）
+
+### 武器槽（Type 层）
+
+- `Weapon[i]` = WeaponTypeClass* 指针数组 @ **+0x74c，步长 4**（微访问器 `0x6df5c0`：`mov reg,[reg+reg*4+0x74c]`）。
+- `EliteWeapon[i]` = **28 字节槽结构 @ +0x8f4，步长 0x1c**（`0x6df5e0`：`lea reg,[reg+0x8f4+idx*0x1c]`）——精英槽是 7-dword 结构，非裸指针。
+- **`0x6d8540` = 老兵/精英武器选择器**（fn-6d8540.c）：先取精英槽，非空用之，否则回退 `Weapon[idx]`；前置游戏模式检查 `0x713420`。
+- **`TechnoTypeClass` 构造器 = `0x6d9b40`**（fn-6d9b40.c）：结尾 vtable = **0x7ad080**（与 Read_INI 虚表一致），注册进全局类型表（DAT_00ac0cb0 / DAT_00a40ab8）。**纠正：+0x4d0/+0x4d4（dword 0x134/0x135，缺省 −1）是 TechnoType 字段，不是实例目标槽**；0x4fdaf0 里两字段相等比较是 Type 层口径。
+- "能否开火"判定形态（`0x4f64c0`）：武器槽[0] 非空 + `对象+0x5408 + rules+0xbe4 ≤ 当前帧` 冷却 + 0..7 邻格占用循环（+0x1b4==this）。部分字段语义待核。
+
+### 移动/任务运行时（补充上一节）
+
+- 任务状态机 `0x4fcbc0`（case 入口重置 `+0x530=当前帧、+0x534、+0x538`）；移动步进 `0x4fbfc0`（到点判定、**行进中桥标志翻转 cell+0x140&0x100 ↔ 单位+0x79**——Z 轴链旁证、面向增量字段）；运动控制器 `0x4fdaf0`（**+0x48 期望/+0x50 当前速度 double 加减速**，加速上限 DAT_0079a708 ÷（rules+0x500/+0x508）× DAT_0079b608，目标速度倍率 rules+0x4f8 double，**到点阈值 256 lepton**）。离格清理 `0x4c7220`（8 邻格 cell+0x122 占用标记递减）。
+- **已证伪**：0x6a0000~0x6ab000 簇与 0x4c1010 是 Tactical 渲染层（其 +0xb0/+0xb4 为视口坐标，勿当武器 ROF/Range）；0x6cf3c0=速度状态分类；`MuzzleFlash` 串（0x7d0fc4）仅 Type 层艺术键解析（0x459d74）引用。
+
+### 炮塔（引擎线实现口径，总工派单）
+
+- **Type 字段**（fn-6daf60.c）：TurretCount→+0x704、IsChargeTurret→+0x70c、**Turret=yes→+0xaab**、**TurretSpins→+0xaed**、TurretRecoil→+0xaad（待字节核）、TurretTravel→+0xab0、TurretCompressFrames→+0xab4（min1）、TurretRecoverFrames→+0xab8（min1）、TurretHoldFrames→+0xabc（min1）、TurretOffset→+0x63c；解析后 +0xab0~0xac0 拷入 **+0xac4 起 5×int 运行时动画计时器**。**`TurretRate` 键不存在于 GAME.EXE**（全文件无串）——炮塔转向速率来源待核（候选：与车体 ROT 共用或硬编码）。
+- **实例朝向 = FacingClass 内嵌结构（24B）**：{+0x00 当前朝向 short、+0x04 目标朝向 short、+0x08 起始帧 int（−1=静止）、+0x10 时长帧 int、+0x14 每帧转量 short}；插值器三件 **0x4b8be0**（读）/ **0x4b8b10**（带游戏速度因子推进）/ **0x4b8a30**（起始帧打点）（fn-4b8a30/4b8b10/4b8be0.c）。
+- **偏移：车体 FacingClass @ +0x2e0、炮塔 FacingClass @ +0x2f8**（调用点 `mov ecx,[obj+8]; add ecx,0x2e0/0x2f8` 字节扫描；车体=移动核心 0x4a2670/0x4fbfc0 全部 +0x2e0，+0x2f8 与 +0x2e0 在 0x4bfxxx 瞄准函数混用）；第三份 @ +0x2c8（0x41/0x43 区 UI/预览用，归属待核）。TurretSpins 门控独立旋转；追踪时机 = 瞄准函数（0x4bfxxx）在开火链内调用，接火循环闭环后补精确时序。
+- **开火循环拉扳机函数仍未定位**（证据工作笔记 combat-fireloop-notes.md「2026-10-13 补充」节：已核事实/已证伪/下一步三段）。弹药实例化与命中判定按队列归阶段 3/4。
