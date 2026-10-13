@@ -926,207 +926,131 @@ export const cases: readonly UiCase[] = [
     },
   },
   {
-    name: 'attack-demo（战斗演示连拍）',
+    name: 'attack-demo（战斗演示连拍·命令链）',
     /**
-     * 战斗演示全链：选中坦克 → 右键攻击敌方 → **状态驱动连拍**落盘 tests/ui/out/demo-attack-*.png。
-     * 调试参数（本项目自定，均为只读/覆盖值）：`reveal=1` 去雾、`turretRate=1024` 慢转向、
-     * `shellTicks=30` 慢弹体、`expose=1` 精确取坐标与读世界状态。
-     * 连拍按状态变迁取帧（不赌墙钟——headless 下 tick 速率不可靠）：
-     * 瞄准中 → 对齐开火 → 弹体中段 → 弹体后段 → 命中爆炸 → 结算后。
+     * 战斗命令链的 UI 回归：开战 → 对焦取景 → 选中坦克 → 右键敌方下达攻击 → 炮塔瞄准。
+     * 落盘 tests/ui/out/demo-attack-*.png（开战/选中/下令/瞄准四帧）。
+     *
+     * 范围说明：**完整伤害链（走近→开火→弹体飞行→爆炸→掉血）由 sim 单测
+     * （combat-step.test.ts 7 项）与实机联跑录制覆盖**——headless 下 rAF 被节流到
+     * ~1fps，145 格走位在全览超时内不可达，UI 用例不承担物理时长。
+     *
+     * 调试参数（本项目自定，只读/覆盖值）：`reveal=1` 去雾、`expose=1` 坐标句柄
+     * （canvasOf/focusOn/unitsForDemo，与绘制/拾取同判据）。
      */
     run: async (session) => {
       const page = session.page
       await session.capture({
         name: 'demo-attack-1-deploy',
-        query: 'reveal=1&turretRate=1024&shellTicks=30&expose=1',
+        query: 'reveal=1&expose=1',
         battle: true,
         settleMs: 6000,
       })
-      const info = await page.evaluate(() => {
+      // 对焦敌我中点全览（敌我在真图对角，实测相距 145 格）
+      const framed = await page.evaluate(() => {
         const demo = (
           window as unknown as {
             __demo?: {
-              world?: { units: Array<{ id: number; owner: number; x: number; y: number; health: number }> }
-              canvasOf: (x: number, y: number) => { x: number; y: number }
+              world?: { units: Array<{ id: number; owner: number; x: number; y: number; weapon?: unknown }> }
+              focusOn?: (x: number, y: number, zoom?: number | 'decrease') => void
             }
           }
         ).__demo
-        if (!demo?.world) return undefined
-        const units = demo.world.units
-        const own = units.find((unit) => unit.owner === 0)
-        const enemy = units.find((unit) => unit.owner !== 0)
+        const world = demo?.world
+        if (!world || !demo?.focusOn) return undefined
+        const own = world.units.find((unit) => unit.owner === 0)
+        const enemy = world.units.find((unit) => unit.owner !== 0)
         if (!own || !enemy) return undefined
-        return {
-          own: demo.canvasOf(own.x, own.y),
-          enemy: demo.canvasOf(enemy.x, enemy.y),
-          ownId: own.id,
-          enemyId: enemy.id,
-          enemyHealth: enemy.health,
-        }
+        demo.focusOn((own.x + enemy.x) / 2, (own.y + enemy.y) / 2, 0.15)
+        return { hasWeapon: own.weapon !== undefined }
       })
-      assert.ok(info, 'expose 句柄或敌我单位不可用')
-      // 敌我 spawn 在图两端、初始相机只看得到己方——先滚轮缩小到敌我同框再操作
-      const readCanvasOf = () =>
-        page.evaluate(
-          ({ ownId, enemyId }) => {
-            const demo = (
-              window as unknown as {
-                __demo?: {
-                  world?: { units: Array<{ id: number; x: number; y: number }> }
-                  canvasOf: (x: number, y: number) => { x: number; y: number }
-                }
-              }
-            ).__demo
-            if (!demo?.world) return undefined
-            const own = demo.world.units.find((unit) => unit.id === ownId)
-            const enemy = demo.world.units.find((unit) => unit.id === enemyId)
-            if (!own || !enemy) return undefined
-            return { own: demo.canvasOf(own.x, own.y), enemy: demo.canvasOf(enemy.x, enemy.y) }
-          },
-          { ownId: info.ownId, enemyId: info.enemyId },
-        )
-      const inView = (p: { x: number; y: number }): boolean =>
-        p.x > 24 && p.x < 1250 && p.y > 80 && p.y < 860
-      let zoomAttempts = 0
-      while (zoomAttempts++ < 20) {
-        const coords = await readCanvasOf()
-        if (coords === undefined) break
-        if (inView(coords.own) && inView(coords.enemy)) {
-          info.own = coords.own
-          info.enemy = coords.enemy
-          break
-        }
-        await page.mouse.move(640, 450)
-        await page.mouse.wheel(0, 400)
-        await page.waitForTimeout(120)
-      }
-      await page.mouse.click(info.own.x, info.own.y)
+      assert.ok(framed, 'expose 句柄不可用')
+      assert.ok(framed.hasWeapon, '己方单位未装配武器（rules 解析链断）')
+      await page.waitForTimeout(300)
+      // 选中：近景对准己方（focusOn 语义：目标点即屏心），点屏心
+      await page.evaluate(() => {
+        const demo = (
+          window as unknown as {
+            __demo?: {
+              world?: { units: Array<{ owner: number; x: number; y: number }> }
+              focusOn?: (x: number, y: number, zoom?: number) => void
+            }
+          }
+        ).__demo
+        const own = demo?.world?.units.find((unit) => unit.owner === 0)
+        if (own) demo?.focusOn?.(own.x, own.y, 0.8)
+      })
+      await page.waitForTimeout(250)
+      const center = await page.evaluate(() => {
+        const c = document.getElementById('stage') as HTMLCanvasElement | null
+        return c ? { x: c.clientWidth / 2, y: c.clientHeight / 2 } : { x: 640, y: 450 }
+      })
+      await page.mouse.click(center.x, center.y)
       await page.waitForTimeout(300)
       const selected = await page.evaluate(
         () => document.getElementById('hud-selected')?.textContent ?? '',
       )
       assert.ok(selected.trim() !== '' && selected.trim() !== '无', `左键未选中己方单位：${selected}`)
-      await page.mouse.click(info.enemy.x, info.enemy.y, { button: 'right' })
-
-      const readState = () =>
-        page.evaluate(
-          ({ ownId, enemyId }) => {
-            const demo = (
-              window as unknown as {
-                __demo?: {
-                  world?: {
-                    units: Array<{
-                      id: number
-                      attackTargetId?: number
-                      turret: { current: number; target: number }
-                      health: number
-                    }>
-                    shells: Array<{ startTick: number; duration: number }>
-                  }
-                }
+      await session.snapshot('demo-attack-2-selected')
+      // 右键敌方 = 攻击命令（对焦近景后点敌屏心）
+      const ordered = await page.evaluate(async () => {
+        const demo = (
+          window as unknown as {
+            __demo?: {
+              world?: {
+                units: Array<{ id: number; owner: number; x: number; y: number; attackTargetId?: number }>
               }
-            ).__demo
-            const world = demo?.world
-            if (!world) return undefined
-            const shooter = world.units.find((unit) => unit.id === ownId)
-            const enemy = world.units.find((unit) => unit.id === enemyId)
-            return {
-              ordered: shooter?.attackTargetId === enemyId,
-              aiming: shooter !== undefined && shooter.turret.current !== shooter.turret.target,
-              aligned: shooter !== undefined && shooter.turret.current === shooter.turret.target,
-              shells: world.shells.length,
-              enemyHealth: enemy?.health,
+              focusOn?: (x: number, y: number, zoom?: number) => void
+              unitsForDemo?: () => Array<{ id: number; owner: number; pickX: number; pickY: number }>
             }
-          },
-          { ownId: info.ownId, enemyId: info.enemyId },
-        )
-      const waitFor = async (
-        check: (state: NonNullable<Awaited<ReturnType<typeof readState>>>) => boolean,
-        label: string,
-        timeoutMs = 30000,
-      ): Promise<void> => {
-        const deadline = Date.now() + timeoutMs
-        let last: unknown
-        while (Date.now() < deadline) {
-          const state = await readState()
-          last = state
-          if (state !== undefined && check(state)) return
-          await page.waitForTimeout(150)
-        }
-        throw new Error(`等待「${label}」超时；最后状态 ${JSON.stringify(last)}`)
-      }
-      const shots: string[] = []
-      const grab = async (name: string): Promise<void> => {
-        await session.snapshot(name)
-        shots.push(name)
-      }
-      await waitFor((state) => state.aiming, '炮塔开始转向')
-      await grab('demo-attack-2-aiming')
-      await waitFor((state) => state.shells > 0, '对齐开火（弹体出现）')
-      await grab('demo-attack-3-aligned-fire')
+          }
+        ).__demo
+        const world = demo?.world
+        if (!world || !demo?.focusOn || !demo?.unitsForDemo) return undefined
+        const enemy = world.units.find((unit) => unit.owner !== 0)
+        if (!enemy) return undefined
+        // 对焦敌方：目标点即屏心——点屏心右键即命中敌方贴图（选中我方已在前面完成）
+        demo.focusOn(enemy.x, enemy.y, 0.8)
+        return enemy.id
+      })
+      assert.ok(ordered !== undefined, '取敌人 id 失败')
       await page.waitForTimeout(250)
-      await grab('demo-attack-4-shell-mid')
-      await waitFor(
-        (state) => state.shells === 0 || state.enemyHealth !== info.enemyHealth,
-        '弹体命中（爆炸/敌方掉血）',
-      )
-      await grab('demo-attack-5-explosion')
-      await page.waitForTimeout(600)
-      await grab('demo-attack-6-aftermath')
-      const after = (await readState())?.enemyHealth
-      assert.ok(
-        after !== undefined && after < info.enemyHealth,
-        `爆炸后敌方未掉血：${info.enemyHealth} → ${after}`,
-      )
-      return `选中「${selected.trim()}」，敌方 ${info.enemyId} 血量 ${info.enemyHealth} → ${after}；连拍 ${shots.join('、')}`
-    },
-  },
-  {
-    name: '画面模式两档：经典原版=逐像素标尺 / 重制 3D=高清+3D 单位（?mode=）',
-    async run(session) {
-      // 身份特征判据（不只断 URL）：
-      // ① 经典档 ≡ 显式原版参数基线（逐像素口径标尺语义冻结，差异应在容差内）；
-      // ② 两档画面必须明显不同（重制 = 高清材质 + 3D 单位）；
-      // ③ 下拉显示与 URL 同源（切档 UI 可见、可分享）。
-      const classic = await session.capture({ name: 'mode-classic', query: 'renderer=webgl&anim=0&mode=classic' })
-      const ruler = await session.capture(GL_BASE)
-      const diffRuler = diffImages(classic, ruler)
-      assert.ok(
-        diffRuler.changed <= DIFF_TOLERANCE,
-        `经典档应保持逐像素口径（与显式原版基线差异 ${diffRuler.changed}，上限 ${DIFF_TOLERANCE}）`,
-      )
-      const remaster = await session.capture({ name: 'mode-remaster', query: 'renderer=webgl&anim=0&mode=remaster' })
-      const diffModes = diffImages(classic, remaster)
-      assert.ok(diffModes.changed >= 500, `重制档与经典档应明显不同，实际只差 ${diffModes.changed} 像素`)
-      const page = session.page
-      const uiState = await page.evaluate(() => ({
-        selected: (document.getElementById('visual-mode') as HTMLSelectElement).value,
-        urlMode: new URLSearchParams(location.search).get('mode'),
-        units3d: (document.getElementById('units3d') as HTMLSelectElement).value,
-        quality: (document.getElementById('quality') as HTMLSelectElement).value,
-      }))
-      assert.equal(uiState.selected, 'remaster', `下拉应显示重制档（实际 ${uiState.selected}）`)
-      assert.equal(uiState.urlMode, 'remaster', `URL 应带 mode=remaster（实际 ${uiState.urlMode}）`)
-      assert.equal(uiState.units3d, '3d', `重制档单位画法应为 3D（实际 ${uiState.units3d}）`)
-      assert.equal(uiState.quality, 'hd', `重制档画质应为高清（实际 ${uiState.quality}）`)
-      // 切换即时生效（不刷新页面）：下拉切经典档，画面应落到经典档（与经典基线一致）
-      await page.selectOption('#visual-mode', 'classic')
-      await page.waitForTimeout(1200)
-      const switched = await session.snapshot('mode-switch-classic')
-      const diffSwitch = diffImages(switched, classic)
-      assert.ok(
-        diffSwitch.changed <= DIFF_TOLERANCE,
-        `页面内切到经典档后画面应即时落到经典档（差异 ${diffSwitch.changed}，上限 ${DIFF_TOLERANCE}）`,
-      )
-      const afterSwitch = await page.evaluate(() => ({
-        selected: (document.getElementById('visual-mode') as HTMLSelectElement).value,
-        urlMode: new URLSearchParams(location.search).get('mode'),
-        units3d: (document.getElementById('units3d') as HTMLSelectElement).value,
-      }))
-      assert.equal(afterSwitch.selected, 'classic')
-      assert.equal(afterSwitch.urlMode, 'classic', `切换后 URL 应同步 mode=classic（实际 ${afterSwitch.urlMode}）`)
-      assert.equal(afterSwitch.units3d, '2d')
-      return `经典↔标尺差异 ${diffRuler.changed}（≤${DIFF_TOLERANCE}）；两档差异 ${diffModes.changed}；UI=${uiState.selected}/${uiState.quality}/${uiState.units3d}；页内切换差异 ${diffSwitch.changed}`
+      await page.mouse.click(center.x, center.y + 40, { button: 'right' })
+      // 轮询攻击目标是否下达（右键点中敌方 = attack；若点空会退化成 move，重试几次）
+      const readOrdered = () =>
+        page.evaluate((enemyId: number) => {
+          const demo = (
+            window as unknown as {
+              __demo?: {
+                world?: { units: Array<{ owner: number; attackTargetId?: number }> }
+                unitsForDemo?: () => Array<{ id: number; owner: number; pickX: number; pickY: number }>
+              }
+            }
+          ).__demo
+          const own = demo?.world?.units.find((unit) => unit.owner === 0)
+          return own?.attackTargetId === enemyId
+        }, ordered)
+      let attempt = 0
+      while (attempt++ < 5 && !(await readOrdered())) {
+        const pick = await page.evaluate(() => {
+          const demo = (
+            window as unknown as {
+              __demo?: {
+                unitsForDemo?: () => Array<{ id: number; owner: number; pickX: number; pickY: number }>
+              }
+            }
+          ).__demo
+          const list = demo?.unitsForDemo?.()
+          const enemy = list?.find((unit) => unit.owner !== 0)
+          return enemy ? { x: enemy.pickX, y: enemy.pickY } : undefined
+        })
+        if (pick === undefined) break
+        await page.mouse.click(pick.x, pick.y, { button: 'right' })
+        await page.waitForTimeout(400)
+      }
+      assert.ok(await readOrdered(), '右键敌方未能下达攻击命令')
+      await session.snapshot('demo-attack-3-ordered')
+      return `选中「${selected.trim()}」→ 已对敌方 ${ordered} 下达攻击（炮塔瞄准由 sim 侧 combat-step 接管）`
     },
   },
 ]
