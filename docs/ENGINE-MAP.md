@@ -1011,3 +1011,25 @@ special_2(0x7d3974)。特判 +0xc0/+0xd0 即 Verses[4]=medium、Verses[6]=wood�
 - **AnimClass::AI 爆炸分支 = FUN_00421710**（fn-421710.c）：`AnimType.DamageRadius != 0` → 爆炸；水面（cell+0xec==2）走 rules+0x9c 溅水动画；空中门控 `FUN_0055a280()+DAT_0084c6f8 ≤ z`。
 - **勘误链**：①"+0x2f0=WarheadType*"作废（fn-421710 fastcall 寄存器混淆），Warhead 真身 = +0x2c8（Read_INI 铁证），+0x2f0 语义 record_unknown（需汇编对齐 0x47e2c0 实参）；②"+0x2c4=连锁爆炸 Anim"作废，实为 DamageRadius；③fn-461de0 的 +0x264 按 Read_INI 重对 = Normalized bool（"循环引爆×N"存疑）。独立 Bullet 类无证据，弹道飞行机制阶段 3 内继续核。
 - 阶段 3 实现面：**Anim 承载伤害（AnimType{Warhead+0x2c8, DamageRadius+0x2c4, Damage 待核} → 0x47e2c0 AoE）**；instant 类全链（判定→施加→引爆）证据已齐。
+
+## 地貌线：崖块集合与坡道语义（已核，2026-10-13）
+
+地貌线任务 2（崖壁与过渡）取证。证据：客户端参考实现 `work/decompiled/ra2web-client/app.readable.js` +
+三剧场真实档案（`RA2.MIX`→`local.mix` 的 `snow.ini`/`temperat.ini`/`urban.ini`，`openTheater` 直读）。
+
+- **崖块身份是"或"双判**：客户端建格 `y.height !== 4 || (b.terrainType !== Cliff && !t.isCliffTile(b.tileNum))`
+  （app.readable.js:20061）；`isCliffTile = cliffSetNums.includes(getSetNum(tile))`（:6047）。
+  即 TMP 子块 `terrainType=15`（Cliff）**或**地块号落在崖集里，都算崖块——只认 terrainType 会漏掉
+  集合里的非 15 型崖块（如 WCliff 的水崖）。
+- **崖集 = 剧场 INI `[General]` 三键**（app.readable.js:5887）：`CliffSet` / `WaterCliffs` /
+  `DestroyableCliffs`。三剧场实测键值一致：`CliffSet=10`（TileSet0010 "Cliff Set"，Cliff 图形，40 块）、
+  `WaterCliffs=15`（TileSet0015 "Cliff/Water pieces"，WCliff，28 块）、`DestroyableCliffs=61/56`
+  （"Destroyable Cliffs"，dcliff，2 块；snow=61、temperate/urban=56）。MOD 剧场可能缺键——缺键按该档缺席处理。
+- **坡道身份只认 TMP 子块 `rampType` 字节**：剧场 INI 的 `RampTiles` 键三剧场都不存在（实测 ∅），
+  客户端也没有按集合判坡道的路径。`RAMP_HEIGHTS` 表（`packages/render/src/terrain-mesh.ts`）仍是
+  参考实现口径、待原版例程核对（沿用该文件头注释的标注）。
+- **岸线无专门集合**：剧场 INI 无 `ShoreSet`/`BeachSet`（实测 ∅）——岸线过渡是 Beach 型地块
+  （terrainType=10→Beach，见 `packages/assets/src/land.ts` 客户端 mZ 表）被地图作者**摆进地图**的
+  摆位语义，运行时无换算。
+- **`cliffBackImpassability`**（客户端读 rules.ini [General]，app.readable.js:20063：崖后 6 邻域
+  `z≥4` 格标 Rock）是**通行性语义**，归 sim/引擎线；地貌线只入档不实现。
