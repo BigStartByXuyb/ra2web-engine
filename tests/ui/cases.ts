@@ -220,6 +220,44 @@ export const cases: readonly UiCase[] = [
     },
   },
   {
+    name: 'terrain3d 水面：开动画在动、关动画逐像素静止（帧号口径与 2D 路径一致）',
+    async run(session) {
+      const page = session.page
+      const load = async (anim: string): Promise<void> => {
+        const params = new URLSearchParams({
+          mix: '/pack/RA2.MIX',
+          map: '/pack/MULTI.MIX',
+          index: '57',
+          battle: '1',
+          renderer: 'webgl',
+          terrain3d: '1',
+          units3d: '0',
+          anim,
+        })
+        await page.goto(`${session.origin}/game.html?${params.toString()}`, { waitUntil: 'load' })
+        await page.waitForFunction(
+          () => /单位 \d+ 辆/.test(document.getElementById('status')?.textContent ?? ''),
+          undefined,
+          { timeout: 300000 },
+        )
+        await page.waitForTimeout(4000)
+      }
+      await load('1')
+      const onA = await session.snapshot('terrain-water-on-a')
+      await page.waitForTimeout(300)
+      const onB = await session.snapshot('terrain-water-on-b')
+      const moving = diffImages(onA, onB)
+      assert.ok(moving.changed >= 200, `terrain3d 开动画两次截图只差 ${moving.changed} 像素：水面没在动`)
+      await load('0')
+      const offA = await session.snapshot('terrain-water-off-a')
+      await page.waitForTimeout(300)
+      const offB = await session.snapshot('terrain-water-off-b')
+      const still = diffImages(offA, offB)
+      assert.equal(still.changed, 0, `terrain3d 关动画后画面还在变（${still.changed} 像素）：帧号驱动的波纹必须随帧号静止`)
+      return `terrain3d 水面 300 毫秒变化 ${moving.changed} 像素，关动画 0 像素`
+    },
+  },
+  {
     name: '雨夜后处理作用在整幅画面上',
     async run(session) {
       const glWet = await session.capture({
