@@ -152,13 +152,13 @@ for (const [material, color] of Object.entries(MATERIALS)) {
     out[at + 1] = clamp(grey * color[1] * factor)
     out[at + 2] = clamp(grey * color[2] * factor)
   }
-  // 面板缝、铆钉、磨损：官方图标那种"华丽"靠的就是这些线脚。
-  // 贴在 8 体素/张的密度上，所以一条缝大约隔 4 个体素，正好是装甲板的尺度。
+  // 面板缝、铆钉、磨损：写实质感靠这些线脚。贴图按 CUBE_SIZE=64 体素铺一张：
+  // 256px / 64 体素 = 4px 每体素，cell=SIZE/8 即一条缝隔 8 体素 —— 真实装甲板的尺度。
   const shade = (x: number, y: number, scale: number): void => {
     const at = ((y % SIZE) * SIZE + (x % SIZE)) * 4
     for (let channel = 0; channel < 3; channel++) out[at + channel] = clamp(out[at + channel]! * scale)
   }
-  const cell = SIZE / 2
+  const cell = SIZE / 8
   /** 一条 1 像素宽的缝 + 沿线铆钉；`vertical` 决定方向。 */
   const seam = (position: number, vertical: boolean): void => {
     for (let step = 0; step < SIZE; step++) {
@@ -200,9 +200,64 @@ for (const [material, color] of Object.entries(MATERIALS)) {
 }
 console.log(`[单位配色] ${Object.keys(MATERIALS).length} 张材质贴图 → ${outDir}`)
 
+// 铸造光滑面（炮塔顶那类大曲面）专用 ArmorCast：把 Armor 成品 8×8 均值压缩再双线性
+// 放大，板缝/铆钉/磨损圆斑全部糊掉 —— 平铺贴图在光滑曲面上复现"凸点"的治本解。
+{
+  const castSource = decodePngBytes(new Uint8Array(fs.readFileSync(`${outDir}/Armor.png`)))
+  const small = 32
+  const scale = castSource.width / small
+  const smallPixels = new Uint8Array(small * small * 4)
+  for (let y = 0; y < small; y++) {
+    for (let x = 0; x < small; x++) {
+      let r = 0
+      let g = 0
+      let b = 0
+      for (let dy = 0; dy < scale; dy++) {
+        for (let dx = 0; dx < scale; dx++) {
+          const from = ((y * scale + dy) * castSource.width + (x * scale + dx)) * 4
+          r += castSource.pixels[from]!
+          g += castSource.pixels[from + 1]!
+          b += castSource.pixels[from + 2]!
+        }
+      }
+      const count = scale * scale
+      const to = (y * small + x) * 4
+      smallPixels[to] = r / count
+      smallPixels[to + 1] = g / count
+      smallPixels[to + 2] = b / count
+      smallPixels[to + 3] = 255
+    }
+  }
+  const cast = new Uint8Array(SIZE * SIZE * 4)
+  for (let y = 0; y < SIZE; y++) {
+    for (let x = 0; x < SIZE; x++) {
+      const sx = Math.min(small - 1, (x / SIZE) * small)
+      const sy = Math.min(small - 1, (y / SIZE) * small)
+      const x0 = Math.floor(sx)
+      const y0 = Math.floor(sy)
+      const x1 = Math.min(small - 1, x0 + 1)
+      const y1 = Math.min(small - 1, y0 + 1)
+      const fx = sx - x0
+      const fy = sy - y0
+      const to = (y * SIZE + x) * 4
+      for (let channel = 0; channel < 3; channel++) {
+        const p00 = smallPixels[(y0 * small + x0) * 4 + channel]!
+        const p10 = smallPixels[(y0 * small + x1) * 4 + channel]!
+        const p01 = smallPixels[(y1 * small + x0) * 4 + channel]!
+        const p11 = smallPixels[(y1 * small + x1) * 4 + channel]!
+        cast[to + channel] = clamp(
+          p00 * (1 - fx) * (1 - fy) + p10 * fx * (1 - fy) + p01 * (1 - fx) * fy + p11 * fx * fy,
+        )
+      }
+      cast[to + 3] = 255
+    }
+  }
+  fs.writeFileSync(`${outDir}/ArmorCast.png`, writePng(SIZE, SIZE, cast))
+}
+
 // 贴图材质 + 纯色材质一起写进 colors.json：Blender 侧只认这一份颜色表，不再手挑色值
 const colors: Record<string, [number, number, number]> = {}
-for (const [material, color] of Object.entries({ ...MATERIALS, ...FLAT_COLORS })) {
+for (const [material, color] of Object.entries({ ...MATERIALS, ArmorCast: main.color, ...FLAT_COLORS })) {
   colors[material] = [color[0] / 255, color[1] / 255, color[2] / 255]
 }
 fs.writeFileSync(`${outDir}/colors.json`, `${JSON.stringify(colors, null, 2)}\n`)

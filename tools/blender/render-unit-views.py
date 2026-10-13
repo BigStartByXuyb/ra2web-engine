@@ -89,21 +89,22 @@ span = max(extent.x, extent.y, extent.z)
 
 # 光照：主光 + 反向补光 + 中性环境。只用一盏侧光会把朝相机那一面整个压黑，
 # 三视图是拿来读形体与颜色的，要两面都看得清。
+# 能量按 Standard 视图变换标定（贴着 albedo 看）：AgX 时代的老参数在线性直出下会过曝。
 world = bpy.data.worlds.new("审阅环境")
 bpy.context.scene.world = world
 world.use_nodes = True
-world.node_tree.nodes["Background"].inputs[0].default_value = (0.30, 0.32, 0.36, 1.0)
+world.node_tree.nodes["Background"].inputs[0].default_value = (0.25, 0.27, 0.30, 1.0)
 world.node_tree.nodes["Background"].inputs[1].default_value = 1.0
 
 sun_data = bpy.data.lights.new("主光", type="SUN")
-sun_data.energy = 3.0
+sun_data.energy = 1.2
 sun_data.angle = 0.15
 sun = bpy.data.objects.new("主光", sun_data)
 bpy.context.scene.collection.objects.link(sun)
 sun.rotation_euler = (0.75, 0.25, 0.55)
 
 fill_data = bpy.data.lights.new("补光", type="SUN")
-fill_data.energy = 1.6
+fill_data.energy = 0.6
 fill_data.angle = 0.6
 fill = bpy.data.objects.new("补光", fill_data)
 bpy.context.scene.collection.objects.link(fill)
@@ -119,6 +120,11 @@ scene = bpy.context.scene
 scene.render.engine = "CYCLES"
 scene.cycles.samples = samples
 scene.cycles.use_denoising = True
+# 审图要贴着贴图值看：AgX 会把中间调整体压黑，换成 Standard（线性直出）
+try:
+    scene.view_settings.view_transform = "Standard"
+except TypeError:
+    print(f"[三视图] Standard 不可用，可选：{[i.identifier for i in scene.view_settings.bl_rna.properties['view_transform'].enum_items]}")
 scene.render.resolution_x = side
 scene.render.resolution_y = side
 scene.render.film_transparent = False

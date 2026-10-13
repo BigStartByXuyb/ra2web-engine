@@ -48,6 +48,19 @@ def silhouette() -> tuple[float, float]:
     return high_x - low_x, high_y - low_y
 
 
+def screen_extremes(count: int = 5) -> dict[str, list[tuple[float, tuple[float, float, float]]]]:
+    """screenX 两端的极值顶点（值 + 世界坐标），供轮廓宽超标时定位是哪个部件撑的。"""
+    points: list[tuple[float, tuple[float, float, float]]] = []
+    for obj in bpy.context.scene.objects:
+        if obj.type != "MESH":
+            continue
+        for vertex in obj.data.vertices:
+            world = obj.matrix_world @ vertex.co
+            points.append((world.x - world.y, (world.x, world.y, world.z)))
+    points.sort(key=lambda item: item[0])
+    return {"min": points[:count], "max": points[-count:][::-1]}
+
+
 def see_through_bands(low: Vector, high: Vector) -> list[tuple[float, float]]:
     """沿车长方向看，哪些 y 区间没有任何面盖住 —— 那就是侧面能看穿的一条缝。
 

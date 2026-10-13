@@ -25,6 +25,10 @@ interface Unit3dPrimitive {
   readonly baseColor: readonly [number, number, number]
   readonly metallic: number
   readonly roughness: number
+  /** 分组：0 = 车体（随 hull 旋转），1 = 炮塔（绕炮塔枢轴独立偏转），2 = 炮管（随炮塔 + 俯仰接口） */
+  readonly group: 0 | 1 | 2
+  /** 本组节点在模型空间里的静止偏移（体素轴）：炮塔 = 枢轴平移，炮管 = 枢轴 + 耳轴相对平移 */
+  readonly nodeOffset: readonly [number, number, number]
 }
 
 export interface Unit3dModel {
@@ -39,8 +43,12 @@ export interface Unit3dDraw {
   /** 贴地锚点的世界坐标（像素） */
   readonly worldX: number
   readonly worldY: number
-  /** 朝向弧度（与 `rotateVoxels` 同一约定） */
+  /** 车体朝向弧度（与 `rotateVoxels` 同一约定） */
   readonly facing: number
+  /** 炮塔朝向弧度（相对车体的偏转，着色器约定与 facing 同向）；缺省 0 = 与车体同向 */
+  readonly turretFacing?: number
+  /** 炮管俯仰弧度（绕耳轴，正 = 抬）；缺省 0（接口预留，sim 俯仰口径未落地） */
+  readonly barrelPitch?: number
 }
 
 /** 倒影参数：关于贴地线翻转、压扁、抬高，并整体变淡 */
@@ -121,8 +129,15 @@ void main() {
   vec3 ambient = mix(vec3(0.11, 0.11, 0.10), vec3(0.30, 0.35, 0.44), normal.z * 0.5 + 0.5);
   // 菲涅尔：掠射角补一点天光，边缘自己就"起来"了，这是圆润感的来源之一
   float fresnel = pow(1.0 - max(0.0, dot(normal, view)), 3.0);
+  // 金属的环境镜面项：金属的颜色本质是环境反射，只有方向光+半球漫反射时
+  // 高金属度部件整体黑掉（实机"黑炭车"根因）。用同一套天色/地色按反射方向
+  // 采一份，乘金属色 tint，掠射角加权。
+  vec3 reflectDir = reflect(-view, normal);
+  vec3 envSample = mix(vec3(0.10, 0.10, 0.09), vec3(0.36, 0.42, 0.52), clamp(reflectDir.z * 0.5 + 0.5, 0.0, 1.0));
+  float grazing = pow(1.0 - max(0.0, dot(normal, view)), 4.0);
+  vec3 envSpecular = envSample * tint * u_metallic * (0.35 + 2.2 * grazing);
   vec3 color =
-    albedo * (ambient + lambert * 0.82) + tint * specular * 0.9 + vec3(0.34, 0.40, 0.50) * fresnel * 0.28;
+    albedo * (ambient + lambert * 0.82) + tint * specular * 0.9 + vec3(0.34, 0.40, 0.50) * fresnel * 0.28 + envSpecular;
   // 接触阴影：贴地 4 体素内渐暗到 0.72，车体、履带与地面的接缝因此"咬"在一起
   color *= mix(0.72, 1.0, clamp(v_height / 4.0, 0.0, 1.0));
   // 预乘 alpha：倒影按 u_alpha 变淡，本体是 1.0
@@ -178,7 +193,13 @@ function readGlb(bytes: ArrayBuffer): {
   if (view.getUint32(0, true) !== 0x46546c67) throw new Error('不是 GLB 文件')
   let offset = 12
   let json: {
-    meshes?: { primitives: { attributes: Record<string, number>; indices?: number; material?: number }[] }[]
+    nodes?: {
+      name?: string
+      mesh?: number
+      children?: number[]
+      translation?: number[]
+    }[]
+    meshes?: { name?: string; primitives: { attributes: Record<string, number>; indices?: number; material?: number }[] }[]
     materials?: {
       pbrMetallicRoughness?: {
         baseColorFactor?: number[]
@@ -192,6 +213,7 @@ function readGlb(bytes: ArrayBuffer): {
     images?: { bufferView?: number; mimeType?: string; uri?: string }[]
     accessors?: { bufferView: number; componentType: number; count: number; type: string; byteOffset?: number }[]
     bufferViews?: { byteOffset?: number; byteLength: number; byteStride?: number }[]
+    scenes?: { nodes?: number[] }[]
   } = {}
   let binary: Uint8Array | undefined
   while (offset < bytes.byteLength) {
@@ -255,11 +277,47 @@ function readGlb(bytes: ArrayBuffer): {
   }
 
   const primitives: GltfPrimitive[] = []
-  for (const mesh of json.meshes ?? []) {
+  // 节点层级：把每个含 mesh 的节点归组（hull/turret/barrel），并算出它在模型空间里的
+  // 静止偏移（父链 translation 累加，glTF 轴）。件顶点是**节点局部坐标**，渲染时靠
+  // nodeOffset 恢复世界位置——不解析 nodes 的旧读法会把炮塔画偏一个枢轴量。
+  const meshGroup = new Map<number, { group: 0 | 1 | 2; nodeOffset: [number, number, number] }>()
+  const nodeWorld = new Map<number, [number, number, number]>()
+  const visit = (nodeIndex: number, parent: [number, number, number]): void => {
+    const node = json.nodes?.[nodeIndex]
+    if (!node) return
+    const t = node.translation ?? [0, 0, 0]
+    const world: [number, number, number] = [parent[0] + t[0]!, parent[1] + t[1]!, parent[2] + t[2]!]
+    nodeWorld.set(nodeIndex, world)
+    if (node.mesh !== undefined) {
+      const name = (node.name ?? '').toLowerCase()
+      const group: 0 | 1 | 2 = name.includes('turret') ? 1 : name.includes('barrel') ? 2 : 0
+      meshGroup.set(node.mesh, { group, nodeOffset: world })
+    }
+    for (const child of node.children ?? []) visit(child, world)
+  }
+  for (const root of json.scenes?.[0]?.nodes ?? []) visit(root, [0, 0, 0])
+
+  // 炮塔枢轴（体素轴）= turret 节点的模型空间偏移；炮管随炮塔绕同一枢轴偏转
+  const toVoxel = (t: [number, number, number]): [number, number, number] => [t[0]!, -t[2]!, t[1]!]
+  let turretPivot: [number, number, number] = [0, 0, 0]
+  for (const info of meshGroup.values()) {
+    info.nodeOffset = toVoxel(info.nodeOffset)
+    if (info.group === 1) turretPivot = info.nodeOffset
+  }
+
+  for (const [meshIndex, mesh] of (json.meshes ?? []).entries()) {
+    const info = meshGroup.get(meshIndex) ?? { group: 0 as const, nodeOffset: [0, 0, 0] as [number, number, number] }
+    // 炮管顶点是耳轴局部坐标：绕炮塔枢轴的刚体偏移 = 节点偏移 − 枢轴
+    const pivotOffset: [number, number, number] =
+      info.group === 0
+        ? [0, 0, 0]
+        : [info.nodeOffset[0] - turretPivot[0], info.nodeOffset[1] - turretPivot[1], info.nodeOffset[2] - turretPivot[2]]
     for (const primitive of mesh.primitives) {
       const material = json.materials?.[primitive.material ?? 0]?.pbrMetallicRoughness ?? {}
       const color = material.baseColorFactor ?? [1, 1, 1, 1]
       primitives.push({
+        group: info.group,
+        pivotOffset,
         position: accessor(primitive.attributes.POSITION!, 3),
         normal: accessor(primitive.attributes.NORMAL!, 3),
         uv: uvAccessor(primitive.attributes.TEXCOORD_0),

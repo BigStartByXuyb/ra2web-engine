@@ -250,7 +250,13 @@ def join_and_smooth(name: str = "UNIT") -> "bpy.types.Object":
     unit.name = name
     import math
 
-    bpy.ops.object.shade_auto_smooth(angle=math.radians(32))
+    # shade_auto_smooth 依赖自带 "Smooth by Angle" 资产，便携版缺失会直接抛错；
+    # 平滑面 + 32° EdgeSplit 是同一观感的确定性做法（finish_and_export 的
+    # transform_apply 之后、导出 export_apply 时应用）
+    for polygon in unit.data.polygons:
+        polygon.use_smooth = True
+    split = unit.modifiers.new("edge_split", "EDGE_SPLIT")
+    split.split_angle = math.radians(32)
     return unit
 
 
@@ -280,8 +286,8 @@ def finish_and_export(out_glb: str, reference_low: Vector, reference_high: Vecto
     low, high = measure()
     unit.location.x += (reference_low.x + reference_high.x) / 2 - (low.x + high.x) / 2
     unit.location.y += (reference_low.y + reference_high.y) / 2 - (low.y + high.y) / 2
-    unit.location.z += reference_low.z - low.z
-    bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)
+    # 旋转也要烘进顶点（理由同 unit_bake.finish_and_export_baked）：引擎不认节点变换
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
     low, high = measure()
     size = high - low
 
